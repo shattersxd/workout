@@ -1151,14 +1151,23 @@ function App() {
       showToast("Выполни хотя бы 3 упражнения");
       return;
     }
-    const entry = { date: todayKey(), workout: activeDay, name: (getWorkout(activeDay) || {}).name || activeDay, done: prog.done, total: prog.total, ts: Date.now() };
+    const today = todayKey();
+    const entry = { date: today, workout: activeDay, name: (getWorkout(activeDay) || {}).name || activeDay, done: prog.done, total: prog.total, ts: Date.now() };
+    const isUpdate = ((data.history || {})[activeDay] || []).some(e => e.date === today);
     setData(prev => {
       const history = JSON.parse(JSON.stringify(prev.history || {}));
       if (!history[activeDay]) history[activeDay] = [];
-      history[activeDay] = [entry, ...history[activeDay]].slice(0, 30);
-      return { ...prev, history };
+      const existingIdx = history[activeDay].findIndex(e => e.date === today);
+      if (existingIdx >= 0) {
+        history[activeDay][existingIdx] = entry;
+      } else {
+        history[activeDay] = [entry, ...history[activeDay]].slice(0, 30);
+      }
+      const sessions = JSON.parse(JSON.stringify(prev.sessions || {}));
+      delete sessions[sessionKey];
+      return { ...prev, history, sessions };
     });
-    showToast("Тренировка сохранена!");
+    showToast(isUpdate ? "Тренировка обновлена!" : "Тренировка сохранена!");
   }
 
 
