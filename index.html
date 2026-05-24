@@ -1333,18 +1333,18 @@ function App() {
         <div style={{ maxWidth: 560, margin: "0 auto" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
             <div>
-              <div style={{ fontSize: 10, letterSpacing: 4, color: "#444", marginBottom: 4 }}>PUSH / PULL / LEGS</div>
+              <div style={{ fontSize: 10, letterSpacing: 4, color: "#777", marginBottom: 4 }}>PUSH / PULL / LEGS</div>
               <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: 1, color: "#fff" }}>WORKOUT ROUTINE</div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 10, color: "#444", marginBottom: 2 }}>сегодня</div>
-                <div style={{ fontSize: 13, color: "#666" }}>{new Date().toLocaleDateString("ru", { day: "numeric", month: "short" })}</div>
+                <div style={{ fontSize: 10, color: "#777", marginBottom: 2 }}>сегодня</div>
+                <div style={{ fontSize: 13, color: "#999" }}>{new Date().toLocaleDateString("ru", { day: "numeric", month: "short" })}</div>
               </div>
               <button onClick={() => setPlanScreen("list")}
                 style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "6px 10px", borderRadius: 8, border: "1px solid #2a2a2a", background: "#0f0f12", cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
                 <span style={{ fontSize: 14, color: "#666", lineHeight: 1 }}>+</span>
-                <span style={{ fontSize: 7, color: "#444", letterSpacing: 0.5 }}>ПЛАН</span>
+                <span style={{ fontSize: 7, color: "#777", letterSpacing: 0.5 }}>ПЛАН</span>
               </button>
             </div>
           </div>
@@ -1391,8 +1391,8 @@ function App() {
                     <button key={key} onClick={() => { setActiveDay(key); setExpandedEx(null); lastPromptedExDone.current = 0; }}
                       style={{ minWidth: 80, padding: "12px 8px", borderRadius: 8, border: "1px solid", borderColor: isActive ? day.color : "#1a1a22", background: isActive ? `${day.color}18` : "#0f0f12", cursor: "pointer", transition: "all 0.2s", fontFamily: "inherit", position: "relative" }}>
                       {day.isCustom && <div style={{ position: "absolute", top: 4, right: 4, width: 5, height: 5, borderRadius: "50%", background: day.color }} />}
-                      <div style={{ fontSize: 8, color: isActive ? day.color : "#2a2a2a", letterSpacing: 2, marginBottom: 3 }}>{day.label}</div>
-                      <div style={{ fontSize: 12, color: isActive ? "#fff" : "#444", fontWeight: 700, marginBottom: isActive ? 3 : 0 }}>{day.name}</div>
+                      <div style={{ fontSize: 8, color: isActive ? day.color : "#555", letterSpacing: 2, marginBottom: 3 }}>{day.label}</div>
+                      <div style={{ fontSize: 12, color: isActive ? "#fff" : "#888", fontWeight: 700, marginBottom: isActive ? 3 : 0 }}>{day.name}</div>
                       {isActive && <div style={{ fontSize: 8, color: day.color, opacity: 0.7, letterSpacing: 0 }}>{(day.sub || "").split("|")[0].trim()}</div>}
                     </button>
                   );
@@ -1403,7 +1403,7 @@ function App() {
 
             <div style={{ marginBottom: 20 }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                <div style={{ fontSize: 11, color: "#444" }}>{w.sub}</div>
+                <div style={{ fontSize: 11, color: "#666" }}>{w.sub}</div>
                 <div style={{ fontSize: 11, color: w.color }}>{prog.done}/{prog.total} подходов</div>
               </div>
               <div style={{ height: 5, background: "#1a1a22", borderRadius: 3, overflow: "hidden" }}>
@@ -1413,7 +1413,7 @@ function App() {
 
             {/* Edit mode toggle */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-              <div style={{ fontSize: 10, color: "#3a3a3a", letterSpacing: 1 }}>
+              <div style={{ fontSize: 10, color: "#666", letterSpacing: 1 }}>
                 {w.exercises.filter(e => !isSkipped(e.id)).length} / {w.exercises.length} упражнений
               </div>
               <button onClick={() => setEditMode(!editMode)}
@@ -1458,30 +1458,10 @@ function App() {
                         {!skipped && ex._isSwapped && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: `${w.color}20`, color: w.color, letterSpacing: 1 }}>ЗАМЕНА</span>}
                         {skipped && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: "#1a1a22", color: "#333", letterSpacing: 1 }}>ПРОПУЩЕНО</span>}
                       </div>
-                      <div style={{ fontSize: 10, color: "#2a2a2a" }}>
+                      <div style={{ fontSize: 10, color: "#666" }}>
                         {ex.sets} x {ex.reps}  |  {ex.rest}
-                        {!skipped && lastW && <span>  |  <span style={{ color: "#555" }}>{lastW} кг</span></span>}
+                        {!skipped && lastW && <span>  |  <span style={{ color: "#888" }}>{lastW} кг</span></span>}
                       </div>
-                      {!skipped && !editMode && exHist.length > 0 && (
-                        <div style={{ display: "flex", gap: 4, alignItems: "flex-end", height: 28 }}>
-                          {exHist.map((h, hi) => {
-                            const maxAcross = Math.max(...exHist.map(x => x.maxW || 0));
-                            const barH = maxAcross > 0 ? Math.max(4, Math.round((h.maxW / maxAcross) * 24)) : 4;
-                            const isLast = hi === exHist.length - 1;
-                            return (
-                              <div key={hi} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, flex: 1, maxWidth: 36 }}>
-                                <div style={{ fontSize: 7, color: isLast ? w.color : "#2a2a2a", fontWeight: isLast ? 700 : 400, whiteSpace: "nowrap" }}>
-                                  {h.maxW}кг
-                                </div>
-                                <div style={{ width: "100%", height: barH, borderRadius: 2, background: isLast ? w.color + "80" : "#1e1e28", transition: "height 0.3s" }} />
-                                <div style={{ fontSize: 7, color: "#222" }}>
-                                  {h.date.slice(5).replace("-", ".")}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
                     </div>
                     {!skipped && !editMode && (
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1491,10 +1471,22 @@ function App() {
                           {ex._isSwapped ? "* заменено" : "= заменить"}
                         </button>
                       )}
-                      <div onClick={() => setExpandedEx(isExpanded ? null : baseEx.id)} style={{ color: isExpanded ? w.color : "#333", fontSize: 14, transition: "all 0.2s", cursor: "pointer", padding: "6px 4px", fontWeight: 400, transform: isExpanded ? "rotate(90deg)" : "none" }}>{">"}</div>
+                      <div onClick={() => setExpandedEx(isExpanded ? null : baseEx.id)} style={{ color: isExpanded ? w.color : "#666", fontSize: 14, transition: "all 0.2s", cursor: "pointer", padding: "6px 4px", fontWeight: 400, transform: isExpanded ? "rotate(90deg)" : "none" }}>{">"}</div>
                     </div>
                     )}
                   </div>
+                  {!skipped && !editMode && exHist.length > 0 && (
+                    <div style={{ display: "flex", gap: 3, alignItems: "flex-end", height: 20, padding: "0 16px 8px", overflow: "hidden" }}>
+                      {exHist.map((h, hi) => {
+                        const maxAcross = Math.max(...exHist.map(x => x.maxW || 0));
+                        const barH = maxAcross > 0 ? Math.max(3, Math.round((h.maxW / maxAcross) * 16)) : 3;
+                        const isLast = hi === exHist.length - 1;
+                        return (
+                          <div key={hi} title={`${h.maxW}кг`} style={{ flex: 1, height: barH, borderRadius: 2, background: isLast ? w.color + "90" : "#1e1e28", alignSelf: "flex-end", transition: "height 0.3s" }} />
+                        );
+                      })}
+                    </div>
+                  )}
 
                   {/* Sets  -  hidden when skipped or in edit mode */}
                   {!skipped && !editMode && (
@@ -1503,14 +1495,14 @@ function App() {
                       const sd = getSetData(ex.id, i);
                       return (
                         <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <div style={{ fontSize: 10, color: "#2a2a2a", width: 14, textAlign: "center", flexShrink: 0 }}>{i + 1}</div>
+                          <div style={{ fontSize: 10, color: "#555", width: 14, textAlign: "center", flexShrink: 0 }}>{i + 1}</div>
                           <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, background: "#0c0c0f", borderRadius: 8, padding: "8px 12px", border: `1px solid ${sd.done ? w.color + "50" : "#1a1a22"}`, transition: "border-color 0.2s" }}>
                             <input type="number" placeholder=" - " value={sd.weight}
                               onChange={e => updateSet(ex.id, i, "weight", e.target.value)}
                               style={{ width: 52, background: "none", border: "none", outline: "none", color: "#ddd", fontSize: 14, fontFamily: "inherit", fontWeight: 600 }} />
-                            <span style={{ fontSize: 10, color: "#2a2a2a" }}>кг</span>
+                            <span style={{ fontSize: 10, color: "#555" }}>кг</span>
                             <span style={{ flex: 1 }} />
-                            <span style={{ fontSize: 10, color: "#3a3a3a" }}>{ex.reps} повт.</span>
+                            <span style={{ fontSize: 10, color: "#666" }}>{ex.reps} повт.</span>
                           </div>
                           <button onClick={() => toggleDone(ex.id, i, ex.rest)}
                             style={{ width: 40, height: 40, borderRadius: 10, border: `2px solid ${sd.done ? w.color : "#1e1e28"}`, background: sd.done ? w.color : "#0c0c0f", cursor: "pointer", color: sd.done ? "#000" : "#2a2a3a", fontSize: sd.done ? 17 : 13, fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", flexShrink: 0 }}>
@@ -1571,8 +1563,8 @@ function App() {
           const wu = WARMUP[activeDay] || null;
           if (!wu) return (
             <div style={{ paddingTop: 40, textAlign: "center" }}>
-              <div style={{ fontSize: 11, color: "#333", letterSpacing: 2, marginBottom: 12 }}>НЕТ РАЗМИНКИ</div>
-              <div style={{ fontSize: 11, color: "#2a2a2a", lineHeight: 1.7 }}>Для этой тренировки разминка не задана.</div>
+              <div style={{ fontSize: 11, color: "#666", letterSpacing: 2, marginBottom: 12 }}>НЕТ РАЗМИНКИ</div>
+              <div style={{ fontSize: 11, color: "#555", lineHeight: 1.7 }}>Для этой тренировки разминка не задана.</div>
               <div style={{ display: "flex", gap: 6, marginTop: 24, justifyContent: "center" }}>
                 {["push","pull","legs"].map(day => (
                   <button key={day} onClick={() => setActiveDay(day)}
@@ -1601,7 +1593,7 @@ function App() {
                   <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{wu.label}</div>
                   <div style={{ marginLeft: "auto", fontSize: 10, color: w.color, background: `${w.color}20`, padding: "3px 8px", borderRadius: 20 }}>{wu.duration}</div>
                 </div>
-                <div style={{ fontSize: 11, color: "#555", lineHeight: 1.6 }}>{wu.why}</div>
+                <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6 }}>{wu.why}</div>
               </div>
 
               {/* Warmup blocks */}
@@ -1609,7 +1601,7 @@ function App() {
                 <div key={bi} style={{ marginBottom: 16 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: "#ccc" }}>{block.title}</div>
-                    <div style={{ fontSize: 9, color: "#3a3a3a", marginLeft: "auto" }}>{block.time}</div>
+                    <div style={{ fontSize: 9, color: "#666", marginLeft: "auto" }}>{block.time}</div>
                   </div>
                   {block.items.map((item, ii) => {
                     const itemKey = activeDay + "_" + bi + "_" + ii;
@@ -1623,9 +1615,9 @@ function App() {
                             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                               <span style={{ fontSize: 12, color: "#ddd", fontWeight: 600 }}>{item.name}</span>
                               <span style={{ fontSize: 10, color: w.color, marginLeft: "auto", flexShrink: 0 }}>{item.sets}</span>
-                              <span style={{ fontSize: 10, color: "#333", marginLeft: 4 }}>{isOpen ? "^" : "v"}</span>
+                              <span style={{ fontSize: 10, color: "#666", marginLeft: 4 }}>{isOpen ? "^" : "v"}</span>
                             </div>
-                            {item.tip && !isOpen ? <div style={{ fontSize: 11, color: "#3a3a3a", marginTop: 4, lineHeight: 1.4 }}>{item.tip}</div> : null}
+                            {item.tip && !isOpen ? <div style={{ fontSize: 11, color: "#666", marginTop: 4, lineHeight: 1.4 }}>{item.tip}</div> : null}
                           </div>
                         </div>
                         {isOpen && (
@@ -1661,8 +1653,8 @@ function App() {
 
         {activeTab === "progress" && (
           <div style={{ paddingTop: 24 }}>
-            <div style={{ fontSize: 10, letterSpacing: 3, color: "#3a3a3a", marginBottom: 4 }}>ПРОГРЕСС ПО УПРАЖНЕНИЯМ</div>
-            <div style={{ fontSize: 10, color: "#2a2a2a", marginBottom: 20 }}>максимальный вес за тренировку</div>
+            <div style={{ fontSize: 10, letterSpacing: 3, color: "#555", marginBottom: 4 }}>ПРОГРЕСС ПО УПРАЖНЕНИЯМ</div>
+            <div style={{ fontSize: 10, color: "#555", marginBottom: 20 }}>максимальный вес за тренировку</div>
 
             {/* Day selector */}
             <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
@@ -1673,7 +1665,7 @@ function App() {
                     background: activeDay === key ? day.color + "18" : "#0f0f12",
                     cursor: "pointer", fontFamily: "inherit" }}>
                   <div style={{ fontSize: 8, color: activeDay === key ? day.color : "#3a3a3a", letterSpacing: 2 }}>{day.label}</div>
-                  <div style={{ fontSize: 10, color: activeDay === key ? "#fff" : "#555", fontWeight: 600 }}>{day.name}</div>
+                  <div style={{ fontSize: 10, color: activeDay === key ? "#fff" : "#888", fontWeight: 600 }}>{day.name}</div>
                 </button>
               ))}
             </div>
@@ -1683,8 +1675,8 @@ function App() {
               const hist = getExHistory(ex.id, 8);
               if (hist.length === 0) return (
                 <div key={baseEx.id} style={{ background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "14px 16px", marginBottom: 8 }}>
-                  <div style={{ fontSize: 12, color: "#555", fontWeight: 600, marginBottom: 4 }}>{ex.name}</div>
-                  <div style={{ fontSize: 10, color: "#2a2a2a" }}>Нет данных  -  заверши первую тренировку</div>
+                  <div style={{ fontSize: 12, color: "#aaa", fontWeight: 600, marginBottom: 4 }}>{ex.name}</div>
+                  <div style={{ fontSize: 10, color: "#555" }}>Нет данных  -  заверши первую тренировку</div>
                 </div>
               );
 
@@ -1741,7 +1733,7 @@ function App() {
                       ["СЕССИЙ", hist.length],
                     ].map(([lbl, val]) => (
                       <div key={lbl} style={{ flex: 1, textAlign: "center" }}>
-                        <div style={{ fontSize: 8, color: "#2a2a2a", letterSpacing: 2, marginBottom: 3 }}>{lbl}</div>
+                        <div style={{ fontSize: 8, color: "#555", letterSpacing: 2, marginBottom: 3 }}>{lbl}</div>
                         <div style={{ fontSize: 12, color: "#888", fontWeight: 600 }}>{val}</div>
                       </div>
                     ))}
@@ -1755,7 +1747,7 @@ function App() {
         {/* ===== ИСТОРИЯ ===== */}
         {activeTab === "history" && (
           <div style={{ paddingTop: 24 }}>
-            <div style={{ fontSize: 10, letterSpacing: 3, color: "#3a3a3a", marginBottom: 16 }}>ИСТОРИЯ ТРЕНИРОВОК</div>
+            <div style={{ fontSize: 10, letterSpacing: 3, color: "#555", marginBottom: 16 }}>ИСТОРИЯ ТРЕНИРОВОК</div>
             {Object.values(data.history || {}).flat().sort((a, b) => b.ts - a.ts).length === 0 ? (
               <div style={{ textAlign: "center", padding: "60px 0", color: "#2a2a2a", fontSize: 13 }}>Тренировок ещё нет.<br />Начни первую!</div>
             ) : (
@@ -1775,7 +1767,7 @@ function App() {
                           <div style={{ fontSize: 13, color: "#ddd", fontWeight: 600 }}>{day.name}</div>
                           {incomplete && <div style={{ fontSize: 8, color: "#f7a844", letterSpacing: 1, border: "1px solid #f7a84440", borderRadius: 4, padding: "1px 5px" }}>НЕ ЗАКОНЧЕНО</div>}
                         </div>
-                        <div style={{ fontSize: 10, color: "#3a3a3a", marginTop: 3 }}>{new Date(entry.date).toLocaleDateString("ru", { weekday: "short", day: "numeric", month: "long" })}  |  {entry.done}/{entry.total} подходов</div>
+                        <div style={{ fontSize: 10, color: "#666", marginTop: 3 }}>{new Date(entry.date).toLocaleDateString("ru", { weekday: "short", day: "numeric", month: "long" })}  |  {entry.done}/{entry.total} подходов</div>
                       </div>
                       {incomplete && (
                         <button onClick={() => resumeSession(entry)}
@@ -1816,7 +1808,7 @@ function App() {
                     <div key={a.id} style={{ width: "calc(50% - 4px)", background: done ? "#0f1a14" : "#0a0a0c", border: "1px solid " + (done ? "#00d4aa25" : "#111"), borderRadius: 10, padding: "14px 12px", display: "flex", alignItems: "center", gap: 10, opacity: done ? 1 : 0.45 }}>
                       <div style={{ fontSize: 22, filter: done ? "none" : "grayscale(1)" }}>{a.icon}</div>
                       <div>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: done ? "#ddd" : "#333" }}>{a.name}</div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: done ? "#ddd" : "#666" }}>{a.name}</div>
                         {done && <div style={{ fontSize: 9, color: "#00d4aa", marginTop: 2 }}>ПОЛУЧЕНО</div>}
                       </div>
                     </div>
@@ -1829,10 +1821,10 @@ function App() {
 
         {activeTab === "principles" && (
           <div style={{ paddingTop: 24 }}>
-            <div style={{ fontSize: 10, letterSpacing: 3, color: "#3a3a3a", marginBottom: 16 }}>РАСПИСАНИЕ НЕДЕЛИ</div>
+            <div style={{ fontSize: 10, letterSpacing: 3, color: "#555", marginBottom: 16 }}>РАСПИСАНИЕ НЕДЕЛИ</div>
             {[["ПН","push","ЖИМОВОЙ","Грудь  |  Плечи  |  Трицепс"],["ВТ",null,"ОТДЫХ","Лёгкое кардио 20-30 мин"],["СР","pull","ТЯГОВЫЙ","Спина  |  Бицепс  |  Задние дельты"],["ЧТ",null,"ОТДЫХ","Лёгкое кардио 20-30 мин"],["ПТ","legs","НОГИ","Квадрицепс  |  Ягодицы  |  ЗПБ"],["СБ",null,"ОТДЫХ","Полное восстановление"],["ВС",null,"ОТДЫХ","Полное восстановление"]].map(([day, wk, name, sub]) => (
               <div key={day} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid #111" }}>
-                <div style={{ width: 32, fontSize: 11, color: wk ? "#ccc" : "#2a2a2a", fontWeight: wk ? 700 : 400 }}>{day}</div>
+                <div style={{ width: 32, fontSize: 11, color: wk ? "#ccc" : "#555", fontWeight: wk ? 700 : 400 }}>{day}</div>
                 <div style={{ width: 6, height: 6, borderRadius: "50%", background: wk ? PROGRAM[wk].color : "#1e1e28", flexShrink: 0 }} />
                 <div><div style={{ fontSize: 11, color: wk ? "#ccc" : "#3a3a3a", fontWeight: 600, marginBottom: 1 }}>{name}</div><div style={{ fontSize: 10, color: "#3a3a3a" }}>{sub}</div></div>
               </div>
