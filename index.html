@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#0c0c0f">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -13,11 +13,24 @@
   <style>
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
     html,body{height:100%;background:#0c0c0f;overflow-x:hidden}
-    body{overscroll-behavior-y:contain}
+    body{
+      overscroll-behavior-y:contain;
+      -webkit-user-select:none;user-select:none;
+      -webkit-touch-callout:none;
+      padding-top:env(safe-area-inset-top);
+      padding-bottom:env(safe-area-inset-bottom);
+      padding-left:env(safe-area-inset-left);
+      padding-right:env(safe-area-inset-right);
+    }
+    input,textarea{-webkit-user-select:text;user-select:text}
     input[type=number]::-webkit-inner-spin-button,
     input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}
     input[type=number]{-moz-appearance:textfield}
-    #root{min-height:100vh}
+    input,button,select{font-size:16px}
+    button{touch-action:manipulation}
+    ::-webkit-scrollbar{display:none;width:0;height:0}
+    *{scrollbar-width:none;-ms-overflow-style:none}
+    #root{min-height:100vh;min-height:100dvh}
     #loader{
       position:fixed;inset:0;background:#0c0c0f;
       display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -350,33 +363,131 @@ const WARMUP = {
   },
 
   fullbody_a: {
-    label: "FB-A", color: "#4488ff",
-    items: [
-      { name: "Велотренажёр / ходьба", duration: "5 мин", steps: ["Лёгкий темп, разогрев сердечно-сосудистой", "Постепенно увеличивай интенсивность"] },
-      { name: "Приседания без веса", duration: "2x15", steps: ["Медленный темп, акцент на глубину", "Почувствуй квадрицепс и ягодицы"] },
-      { name: "Инерционные вращения плечами", duration: "30 сек", steps: ["Круговые движения вперёд и назад", "Разминаем плечевой пояс перед жимом"] },
-      { name: "Кошка-корова (позвоночник)", duration: "10 повт", steps: ["На четвереньках, поочерёдно прогиб и горб", "Медленно, с дыханием"] },
-      { name: "Разминочные подходы со штангой", duration: "2-3 подхода", steps: ["50% от рабочего веса x 8 повт", "70% x 5 повт перед первым рабочим сетом"] },
+    label: "ФУЛЛ БАДИ A",
+    sub: "Присед  |  Жим  |  Тяга",
+    duration: "10-12 мин",
+    why: "Фулл-бади нагружает всё тело за одну сессию. Разминка должна подготовить и нижнюю часть (присед), и плечевой пояс (жим), и поясницу (тяга)  -  пропуск любого блока повышает риск травмы.",
+    blocks: [
+      {
+        title: "1. Общий разогрев",
+        time: "3-4 мин",
+        items: [
+          { name: "Велотренажёр или быстрая ходьба", sets: "4-5 мин", tip: "Поднимает температуру тела и запускает кровоток",
+            steps: ["Лёгкий темп первую минуту", "Постепенно увеличивай интенсивность", "К концу должно быть слегка тепло и лёгкая одышка", "Не выматывайся  -  это разогрев, а не кардио"] },
+          { name: "Круговые вращения руками", sets: "2 x 15 в каждую сторону", tip: "Разогревает плечевой сустав перед жимом",
+            steps: ["Руки вдоль тела, начинай с маленьких кругов", "Постепенно увеличивай амплитуду до максимальной", "15 вращений вперёд, затем 15 назад", "Лопатки двигаются свободно вместе с руками"] },
+        ]
+      },
+      {
+        title: "2. Мобильность таза и коленей",
+        time: "3-4 мин",
+        items: [
+          { name: "Приседания без веса", sets: "2 x 15", tip: "Разучивает паттерн движения и разогревает коленные суставы",
+            steps: ["Ноги чуть шире плеч, носки слегка наружу", "Медленный присед до параллели или ниже", "Колени строго по линии носков", "Пауза 1 секунду в нижней точке", "Вставай через пятки"] },
+          { name: "Вращения в тазобедренном суставе", sets: "10 каждой ногой", tip: "Готовит тазобедренный к глубокому приседу",
+            steps: ["Держись за стойку для баланса", "Подними колено до уровня пояса", "Опиши коленом круг наружу, затем внутрь", "10 кругов в каждую сторону каждой ногой", "Движение медленное и контролируемое"] },
+          { name: "Растяжка голеностопа у стены", sets: "2 x 30 сек", tip: "Ограниченная дорсифлексия ломает механику приседа",
+            steps: ["Стопа в 10 см от стены, колено тянется к стене", "Пятка не отрывается от пола", "Если колено не достаёт  -  придвинь стопу ближе", "30 секунд каждой ногой", "Улучшает глубину приседа немедленно"] },
+        ]
+      },
+      {
+        title: "3. Активация спины и кора",
+        time: "3-4 мин",
+        items: [
+          { name: "Кошка-корова", sets: "10 повторений", tip: "Разогревает позвоночник перед тягами",
+            steps: ["На четвереньках, ладони под плечами, колени под тазом", "Вдох  -  прогиб в пояснице, взгляд вверх (корова)", "Выдох  -  округление спины, подбородок к груди (кошка)", "Медленно, с полной амплитудой", "Позвонок за позвонком"] },
+          { name: "Тяга резинки к поясу", sets: "2 x 15", tip: "Активирует широчайшие перед тягой в наклоне",
+            steps: ["Резинка закреплена на уровне пояса", "Тяни к животу, локти вдоль тела", "Сводишь лопатки в конечной точке", "Пауза 1 секунду, медленно вернись"] },
+          { name: "Разминочные подходы со штангой", sets: "2-3 подхода", tip: "Обязательно перед первым рабочим подходом",
+            steps: ["Пустой гриф x 10 повторений", "50% от рабочего веса x 8", "70% от рабочего веса x 5", "Только потом первый рабочий подход", "Не пропускай  -  это часть разминки, а не тренировки"] },
+        ]
+      },
     ]
   },
   fullbody_b: {
-    label: "FB-B", color: "#00d4aa",
-    items: [
-      { name: "Велотренажёр / эллипс", duration: "5 мин", steps: ["Лёгкий темп для разогрева", "Активация мышц ног"] },
-      { name: "Выпады без веса", duration: "2x10 каждая", steps: ["Чередуй ноги, контроль колена", "Разминаем тазобедренный сустав"] },
-      { name: "Разводка рук стоя", duration: "2x15", steps: ["Имитация движения жима/разводки", "Разминаем плечевые суставы"] },
-      { name: "Тяга резинки к поясу", duration: "2x15", steps: ["Активация мышц спины перед тягами", "Сводишь лопатки в конечной точке"] },
-      { name: "Разминочный жим ногами", duration: "1x20 лёгко", steps: ["50% от рабочего веса", "Подготовка коленей и тазобедренного"] },
+    label: "ФУЛЛ БАДИ B",
+    sub: "Жим ногами  |  Наклонная  |  Подтягивания",
+    duration: "10-12 мин",
+    why: "День с акцентом на жим ногами и вертикальные тяги. Особое внимание тазобедренному суставу и мобильности плеч для подтягиваний.",
+    blocks: [
+      {
+        title: "1. Общий разогрев",
+        time: "3-4 мин",
+        items: [
+          { name: "Эллипс или велотренажёр", sets: "4-5 мин", tip: "Разогрев без ударной нагрузки на суставы",
+            steps: ["Средний темп, работают и руки и ноги", "Постепенно увеличивай сопротивление", "К концу лёгкая испарина", "Пульс примерно 110-120 уд/мин"] },
+          { name: "Махи ногами вперёд-назад", sets: "15 каждой ногой", tip: "Динамическая растяжка бицепса бедра и квадрицепса",
+            steps: ["Держись за стойку одной рукой", "Мах ногой вперёд до комфортной высоты, затем назад", "Амплитуда растёт с каждым повтором", "Корпус остаётся прямым, не наклоняйся"] },
+        ]
+      },
+      {
+        title: "2. Мобильность плеч для подтягиваний",
+        time: "3-4 мин",
+        items: [
+          { name: "Вис на перекладине", sets: "2 x 20-30 сек", tip: "Декомпрессия позвоночника и растяжка широчайших",
+            steps: ["Свободный вис хватом сверху", "Плечи активно опускаются вниз от ушей", "Тело расслаблено, позвоночник вытягивается", "Если хват слабый  -  используй лямки"] },
+          { name: "Разводка резинки перед собой", sets: "2 x 15", tip: "Активирует задние дельты и средние трапеции",
+            steps: ["Резинка в руках хватом сверху на ширине плеч", "Разводишь руки в стороны до упора", "Лопатки сводятся в конечной точке", "Медленно возвращаешь"] },
+          { name: "Face pull с резинкой", sets: "2 x 15", tip: "Здоровье плечевого пояса перед вертикальными тягами",
+            steps: ["Резинка на уровне лица", "Тянешь к лицу разводя локти в стороны", "Большие пальцы смотрят назад в конечной точке", "Локти выше уровня плеч"] },
+        ]
+      },
+      {
+        title: "3. Активация ног",
+        time: "3-4 мин",
+        items: [
+          { name: "Выпады без веса", sets: "2 x 10 каждой", tip: "Разогрев тазобедренного и коленного суставов",
+            steps: ["Шаг вперёд, оба колена сгибаются до 90", "Переднее колено не выходит за носок", "Корпус прямой, не наклоняется вперёд", "Чередуй ноги"] },
+          { name: "Ягодичный мостик без веса", sets: "2 x 15", tip: "Активирует ягодицы  -  без этого включается поясница",
+            steps: ["Лёжа на спине, ноги согнуты, стопы под коленями", "Выталкивай таз вверх через пятки", "Сожми ягодицы на 2 секунды в верхней точке", "Медленно опускай"] },
+          { name: "Разминочный жим ногами 50%", sets: "1 x 20", tip: "Подготовка суставов к рабочим весам",
+            steps: ["Половина от рабочего веса", "Полная амплитуда движения", "Медленно, с контролем", "Только после этого первый рабочий подход"] },
+        ]
+      },
     ]
   },
   fullbody_c: {
-    label: "FB-C", color: "#c084fc",
-    items: [
-      { name: "Ходьба / лёгкий бег", duration: "5 мин", steps: ["Разогрев перед тяжёлой тягой", "Пульс 100-110 уд/мин"] },
-      { name: "Тазобедренные шарниры без веса", duration: "2x10", steps: ["Наклон через таз, спина нейтральная", "Паттерн движения для становой тяги"] },
-      { name: "Вращения в тазобедренном суставе", duration: "10 каждую сторону", steps: ["Круговые движения ногой стоя у стойки", "Разминаем сустав перед глубокими движениями"] },
-      { name: "Разгибания грудного отдела на скамье", duration: "10 повт", steps: ["Ложишься грудным отделом на скамью", "Руки за голову, мягко прогибаешься"] },
-      { name: "Разминочная тяга 50%", duration: "2x5", steps: ["С очень лёгким весом, идеальная техника", "Настройка позиции перед рабочими подходами"] },
+    label: "ФУЛЛ БАДИ C",
+    sub: "Становая  |  Присед  |  Тяга",
+    duration: "12-15 мин",
+    why: "Самый тяжёлый день  -  становая тяга требует максимально тщательной подготовки поясницы и тазобедренного сустава. Экономия времени здесь оборачивается месяцами реабилитации.",
+    blocks: [
+      {
+        title: "1. Общий разогрев",
+        time: "4-5 мин",
+        items: [
+          { name: "Ходьба или лёгкий бег", sets: "5 мин", tip: "Обязательно перед становой  -  холодные мышцы рвутся",
+            steps: ["Начни с ходьбы 2 минуты", "Перейди на лёгкий бег или быструю ходьбу", "Пульс 100-115 уд/мин", "Должно быть тепло, но не жарко"] },
+          { name: "Динамическая растяжка бицепса бедра", sets: "15 каждой ногой", tip: "Основная рабочая мышца в становой",
+            steps: ["Стоя, мах прямой ногой вперёд и вверх", "Носок тянешь на себя", "Спина прямая, не округляется", "Амплитуда растёт с каждым повтором"] },
+        ]
+      },
+      {
+        title: "2. Мобильность таза и поясницы",
+        time: "4-5 мин",
+        items: [
+          { name: "Тазобедренный шарнир без веса", sets: "2 x 12", tip: "Разучивает паттерн становой тяги",
+            steps: ["Ноги на ширине таза, руки на бёдрах", "Наклон через таз назад, спина остаётся нейтральной", "Ладони скользят по передней поверхности бёдер", "До ощущения натяжения в бицепсе бедра", "Возврат через ягодицы"] },
+          { name: "Кошка-корова", sets: "12 повторений", tip: "Мобилизует весь позвоночник",
+            steps: ["На четвереньках, ладони под плечами", "Вдох  -  прогиб, взгляд вверх", "Выдох  -  округление, подбородок к груди", "Медленно, позвонок за позвонком"] },
+          { name: "Разгибания грудного отдела на скамье", sets: "10 повторений", tip: "Раскрывает грудной отдел  -  критично для нейтральной спины в тяге",
+            steps: ["Ложишься грудным отделом поперёк скамьи", "Руки за головой", "Мягко прогибаешься назад через скамью", "Не форсируй, без боли"] },
+          { name: "Вращения в тазобедренном", sets: "10 каждой ногой", tip: "Полная подвижность сустава перед глубокими движениями",
+            steps: ["Держись за стойку", "Колено поднято до пояса", "Круги коленом наружу и внутрь", "Медленно и контролируемо"] },
+        ]
+      },
+      {
+        title: "3. Активация и разминочные подходы",
+        time: "4-5 мин",
+        items: [
+          { name: "Ягодичный мостик без веса", sets: "2 x 15", tip: "Ягодицы обязаны включиться до тяги",
+            steps: ["Лёжа на спине, ноги согнуты", "Выталкивай таз через пятки", "Сожми ягодицы на 2 секунды вверху", "Поясница не должна прогибаться"] },
+          { name: "Планка", sets: "2 x 30 сек", tip: "Активирует кор  -  стабилизация позвоночника в становой",
+            steps: ["Тело прямая линия от головы до пят", "Таз не поднимать и не опускать", "Напрягай пресс и ягодицы одновременно", "Дыши равномерно"] },
+          { name: "Разминочные подходы становой", sets: "3-4 подхода", tip: "Наиболее важный блок  -  не сокращай",
+            steps: ["Пустой гриф x 10  -  идеальная техника", "40% x 8 повторений", "60% x 5 повторений", "80% x 3 повторения", "Только после этого первый рабочий подход"] },
+        ]
+      },
     ]
   },
 };
@@ -1217,8 +1328,8 @@ const WEEK_SCHEDULE = [
 
 const STORAGE_KEY = "ppl_tracker_v4";
 function loadData() {
-  try { const r = localStorage.getItem(STORAGE_KEY); var d = r ? JSON.parse(r) : {}; if (!d.sessions) d.sessions = {}; if (!d.history) d.history = {}; if (!d.swaps) d.swaps = {}; if (!d.skipped) d.skipped = {}; if (!d.customWorkouts) d.customWorkouts = {}; if (!d.customSets) d.customSets = {}; if (!d.schedule) d.schedule = ["push",null,"pull",null,"legs",null,null]; return d; }
-  catch { return { sessions: {}, history: {}, swaps: {}, skipped: {}, customWorkouts: {}, customSets: {}, schedule: ["push",null,"pull",null,"legs",null,null] }; }
+  try { const r = localStorage.getItem(STORAGE_KEY); var d = r ? JSON.parse(r) : {}; if (!d.sessions) d.sessions = {}; if (!d.history) d.history = {}; if (!d.swaps) d.swaps = {}; if (!d.skipped) d.skipped = {}; if (!d.customWorkouts) d.customWorkouts = {}; if (!d.customSets) d.customSets = {}; if (!d.addedEx) d.addedEx = {}; if (!d.schedule) d.schedule = ["push",null,"pull",null,"legs",null,null]; return d; }
+  catch { return { sessions: {}, history: {}, swaps: {}, skipped: {}, customWorkouts: {}, customSets: {}, addedEx: {}, schedule: ["push",null,"pull",null,"legs",null,null] }; }
 }
 function saveData(d) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); } catch {} }
 function todayKey() { return new Date().toISOString().slice(0, 10); }
@@ -1239,6 +1350,11 @@ function App() {
   const [expandedEx, setExpandedEx] = useState(null);
   const [swapModal, setSwapModal] = useState(null);
   const [savePrompt, setSavePrompt] = useState(false);
+  const [addExModal, setAddExModal] = useState(false);
+  const [journalMode, setJournalMode] = useState("log");
+  const [journalEx, setJournalEx] = useState(null);
+  const [openEntry, setOpenEntry] = useState(null);
+  const [addExSearch, setAddExSearch] = useState("");
   const lastPromptedExDone = useRef(0);
   const [toast, setToast] = useState(null);
   const [editMode, setEditMode] = useState(false);
@@ -1340,8 +1456,17 @@ function App() {
       var prog = getDayProgress();
       if (prog.exDone < 3) return;
       var today = todayKey();
-      var isUpdate = ((data.history || {})[activeDay] || []).some(function(e) { return e.date === today; });
-      var entry = { date: today, workout: activeDay, name: (getWorkout(activeDay) || {}).name || activeDay, done: prog.done, total: prog.total, ts: Date.now() };
+      var detail = getSessionExercises().filter(function(e) { return !isSkipped(e.id); }).map(function(e) {
+        var rex = getExercise(e.id);
+        var n = getExSets(e.id);
+        var sets = [];
+        for (var i = 0; i < n; i++) {
+          var sd = getSetData(rex.id, i);
+          sets.push({ w: sd.weight || "", done: !!sd.done });
+        }
+        return { id: rex.id, name: rex.name, reps: rex.reps, sets: sets, added: !!e._added };
+      });
+      var entry = { date: today, workout: activeDay, name: (getWorkout(activeDay) || {}).name || activeDay, done: prog.done, total: prog.total, ts: Date.now(), detail: detail };
       var d = loadData();
       if (!d.history) d.history = {};
       if (!d.history[activeDay]) d.history[activeDay] = [];
@@ -1424,7 +1549,7 @@ function App() {
       const alt = (ALTERNATIVES[originalId] || []).find(a => a.id === swappedId);
       if (alt) return { ...alt, _originalId: originalId, _isSwapped: true };
     }
-    const w0 = getWorkout(activeDay); const prog = w0 ? w0.exercises.find(e => e.id === originalId) : null;
+    const prog = getSessionExercises().find(e => e.id === originalId);
     return { ...prog, _originalId: originalId, _isSwapped: false };
   }
 
@@ -1644,6 +1769,20 @@ function App() {
     setBuilderSearch("");
   }
 
+  function forkPreset(presetKey) {
+    // Copy a built-in preset into the builder as a new editable custom workout
+    const preset = PROGRAM[presetKey];
+    if (!preset) return;
+    setBuilderName(preset.name + " (МОЯ)");
+    setBuilderColor(preset.color);
+    setBuilderExercises(preset.exercises.map(e => ({
+      id: e.id, name: e.name, sets: e.sets, reps: e.reps, rest: e.rest,
+      steps: e.steps, warn: e.warn, danger: e.danger
+    })));
+    setBuilderSearch("");
+    setPlanScreen("builder");
+  }
+
   function saveBuilder(existingId) {
     if (!builderName.trim() || builderExercises.length === 0) return;
     const id = existingId || ("custom_" + Date.now());
@@ -1708,6 +1847,34 @@ function App() {
     showToast("Упражнение заменено");
   }
 
+  function getSessionExercises() {
+    const base = (getWorkout(activeDay) || PROGRAM.push).exercises || [];
+    const added = (data.addedEx && data.addedEx[sessionKey]) || [];
+    return base.concat(added);
+  }
+
+  function addExerciseToSession(ex) {
+    setData(prev => {
+      const ae = JSON.parse(JSON.stringify(prev.addedEx || {}));
+      if (!ae[sessionKey]) ae[sessionKey] = [];
+      if (ae[sessionKey].some(e => e.id === ex.id)) return prev;
+      ae[sessionKey].push({
+        id: ex.id, name: ex.name, sets: ex.sets, reps: ex.reps, rest: ex.rest,
+        steps: ex.steps, warn: ex.warn, danger: ex.danger, _added: true
+      });
+      return { ...prev, addedEx: ae };
+    });
+    showToast("Упражнение добавлено");
+  }
+
+  function removeAddedExercise(exId) {
+    setData(prev => {
+      const ae = JSON.parse(JSON.stringify(prev.addedEx || {}));
+      if (ae[sessionKey]) ae[sessionKey] = ae[sessionKey].filter(e => e.id !== exId);
+      return { ...prev, addedEx: ae };
+    });
+  }
+
   function getSetData(exId, setIdx) {
     return (session[exId] && session[exId][setIdx]) || { weight: "", done: false };
   }
@@ -1763,9 +1930,9 @@ function App() {
     return { done, total: totalSets };
   }
   function getDayProgress() {
-    const workout = getWorkout(activeDay) || PROGRAM.push;
+    const exList = getSessionExercises();
     let done = 0, total = 0, exDone = 0;
-    workout.exercises.forEach(ex => {
+    exList.forEach(ex => {
       if (isSkipped(ex.id)) return;
       const resolved = getExercise(ex.id); // already resolves swap to replacement exercise
       const numSets = getExSets(ex.id);
@@ -1819,7 +1986,17 @@ function App() {
       return;
     }
     const today = todayKey();
-    const entry = { date: today, workout: activeDay, name: (getWorkout(activeDay) || {}).name || activeDay, done: prog.done, total: prog.total, ts: Date.now() };
+    const detail = getSessionExercises().filter(e => !isSkipped(e.id)).map(e => {
+      const rex = getExercise(e.id);
+      const n = getExSets(e.id);
+      const sets = [];
+      for (let i = 0; i < n; i++) {
+        const sd = getSetData(rex.id, i);
+        sets.push({ w: sd.weight || "", done: !!sd.done });
+      }
+      return { id: rex.id, name: rex.name, reps: rex.reps, sets: sets, added: !!e._added };
+    });
+    const entry = { date: today, workout: activeDay, name: (getWorkout(activeDay) || {}).name || activeDay, done: prog.done, total: prog.total, ts: Date.now(), detail: detail };
     const isUpdate = ((data.history || {})[activeDay] || []).some(e => e.date === today);
     setData(prev => {
       const history = JSON.parse(JSON.stringify(prev.history || {}));
@@ -1837,6 +2014,46 @@ function App() {
     lastPromptedExDone.current = 0; setSavePrompt(false); showToast(isUpdate ? "Тренировка обновлена!" : "Тренировка сохранена!");
   }
 
+
+  function getAllHistoryDetailed() {
+    return Object.values(data.history || {}).flat()
+      .filter(e => e.detail && e.detail.length > 0)
+      .sort((a, b) => b.ts - a.ts);
+  }
+
+  function getExerciseProgression(exId) {
+    // Возвращает [{date, maxW, volume, sets}] по всем тренировкам, старые -> новые
+    const out = [];
+    Object.values(data.history || {}).flat().forEach(entry => {
+      if (!entry.detail) return;
+      const ex = entry.detail.find(d => d.id === exId);
+      if (!ex) return;
+      const weights = ex.sets.filter(s => s.done && s.w).map(s => parseFloat(s.w) || 0).filter(x => x > 0);
+      if (!weights.length) return;
+      const maxW = Math.max.apply(null, weights);
+      const volume = weights.reduce((a, b) => a + b, 0);
+      out.push({ date: entry.date, ts: entry.ts, maxW: maxW, volume: volume, sets: weights.length });
+    });
+    return out.sort((a, b) => a.ts - b.ts);
+  }
+
+  function getTrackedExercises() {
+    // Все упражнения встречавшиеся в истории, отсортированы по числу тренировок
+    const counts = {};
+    const names = {};
+    Object.values(data.history || {}).flat().forEach(entry => {
+      if (!entry.detail) return;
+      entry.detail.forEach(d => {
+        const hasData = d.sets.some(s => s.done && s.w);
+        if (!hasData) return;
+        counts[d.id] = (counts[d.id] || 0) + 1;
+        names[d.id] = d.name;
+      });
+    });
+    return Object.keys(counts)
+      .map(id => ({ id: id, name: names[id], count: counts[id] }))
+      .sort((a, b) => b.count - a.count);
+  }
 
   function computeAch() {
     const allHistory = Object.values(data.history || {}).flat();
@@ -1904,10 +2121,10 @@ function App() {
   const hasAlts = (id) => (ALTERNATIVES[id] || []).length > 0;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0c0c0f", color: "#e8e8e8", fontFamily: "'DM Mono','Fira Mono',monospace", paddingBottom: timer ? 160 : 80 }}>
+    <div style={{ minHeight: "100vh", background: "#0c0c0f", color: "#e8e8e8", fontFamily: "'DM Mono','Fira Mono',monospace", paddingBottom: timer ? 180 : 100 }}>
 
       {/* HEADER */}
-      <div style={{ background: "#0c0c0f", borderBottom: "1px solid #1a1a22", padding: "20px 20px 0" }}>
+      <div style={{ background: "#0c0c0f", borderBottom: "1px solid #1a1a22", padding: "20px 20px 0", position: "sticky", top: 0, zIndex: 50 }}>
         <div style={{ maxWidth: 560, margin: "0 auto" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
             <div>
@@ -1944,7 +2161,7 @@ function App() {
             })}
           </div>
           <div style={{ display: "flex", borderBottom: "1px solid #1a1a22" }}>
-            {[["workout","ТРЕН-КА"],["warmup","РАЗМИНКА"],["progress","ПРОГРЕСС"],["history","ИСТОРИЯ"],["achievements","АЧИВКИ"]].map(([id, label]) => (
+            {[["workout","ТРЕН-КА"],["warmup","РАЗМИНКА"],["journal","ЖУРНАЛ"],["history","ИСТОРИЯ"],["achievements","АЧИВКИ"]].map(([id, label]) => (
               <button key={id} onClick={() => setActiveTab(id)}
                 style={{ flex: 1, padding: "11px 1px 13px", background: "none", border: "none", borderBottom: activeTab === id ? `3px solid ${w.color}` : "3px solid transparent", color: activeTab === id ? "#fff" : "#383838", fontSize: 7.5, letterSpacing: 0.8, cursor: "pointer", marginBottom: -1, transition: "all 0.15s", fontFamily: "inherit", fontWeight: activeTab === id ? 700 : 400, whiteSpace: "nowrap" }}>
                 {label}
@@ -1992,7 +2209,7 @@ function App() {
             {/* Edit mode toggle */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
               <div style={{ fontSize: 10, color: "#666", letterSpacing: 1 }}>
-                {w.exercises.filter(e => !isSkipped(e.id)).length} / {w.exercises.length} упражнений
+                {getSessionExercises().filter(e => !isSkipped(e.id)).length} / {getSessionExercises().length} упражнений
               </div>
               <button onClick={() => setEditMode(!editMode)}
                 style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${editMode ? w.color : "#2a2a2a"}`, background: editMode ? `${w.color}20` : "#0c0c0f", color: editMode ? w.color : "#555", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 36 }}>
@@ -2034,16 +2251,17 @@ function App() {
                         {ex.name}
                         {!skipped && ex.warn && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: "#ff4d4d18", color: "#ff6b6b", letterSpacing: 1 }}>!</span>}
                         {!skipped && ex._isSwapped && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: `${w.color}20`, color: w.color, letterSpacing: 1 }}>ЗАМЕНА</span>}
-                        {skipped && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: "#1a1a22", color: "#333", letterSpacing: 1 }}>ПРОПУЩЕНО</span>}
+                        {baseEx._added && <span onClick={e => { e.stopPropagation(); removeAddedExercise(baseEx.id); }} style={{ fontSize: 8, padding: "2px 7px", borderRadius: 4, background: "#1a2a1a", color: "#5a9a5a", letterSpacing: 1, cursor: "pointer", border: "1px solid #2a4a2a" }}>ДОБАВЛЕНО x</span>}
+                        {skipped && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: "#1a1a22", color: "#777", letterSpacing: 1 }}>ПРОПУЩЕНО</span>}
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "#777" }}>
                         {!skipped && !editMode ? (
                           <>
                             <button onClick={e => { e.stopPropagation(); setExSets(baseEx.id, getExSets(baseEx.id) - 1); }}
-                              style={{ width: 24, height: 24, borderRadius: 6, border: "1px solid #333", background: "#111", color: "#888", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit", flexShrink: 0, lineHeight: 1 }}>-</button>
+                              style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #333", background: "#111", color: "#999", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit", flexShrink: 0, lineHeight: 1 }}>-</button>
                             <span style={{ minWidth: 18, textAlign: "center", color: "#fff", fontWeight: 700, fontSize: 14 }}>{getExSets(baseEx.id)}</span>
                             <button onClick={e => { e.stopPropagation(); setExSets(baseEx.id, getExSets(baseEx.id) + 1); }}
-                              style={{ width: 24, height: 24, borderRadius: 6, border: "1px solid #333", background: "#111", color: "#888", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit", flexShrink: 0, lineHeight: 1 }}>+</button>
+                              style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #333", background: "#111", color: "#999", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit", flexShrink: 0, lineHeight: 1 }}>+</button>
                             <span style={{ color: "#444" }}>x</span>
                             <span>{ex.reps}</span>
                             <span style={{ color: "#444" }}>|</span>
@@ -2097,7 +2315,7 @@ function App() {
                             <span style={{ fontSize: 12, color: "#888" }}>{ex.reps} повт.</span>
                           </div>
                           <button onClick={() => toggleDone(ex.id, i, ex.rest)}
-                            style={{ width: 44, height: 44, borderRadius: 11, border: `2px solid ${sd.done ? w.color : "#252530"}`, background: sd.done ? w.color : "#0c0c0f", cursor: "pointer", color: sd.done ? "#000" : "#333", fontSize: sd.done ? 17 : 13, fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", flexShrink: 0 }}>
+                            style={{ width: 44, height: 44, borderRadius: 11, border: `2px solid ${sd.done ? w.color : "#252530"}`, background: sd.done ? w.color : "#0c0c0f", cursor: "pointer", color: sd.done ? "#000" : "#444", fontSize: sd.done ? 17 : 13, fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", flexShrink: 0 }}>
                             {sd.done ? "OK" : "O"}
                           </button>
                         </div>
@@ -2134,6 +2352,13 @@ function App() {
               );
             })}
 
+            {!editMode && (
+              <button onClick={() => { setAddExModal(true); setAddExSearch(""); }}
+                style={{ width: "100%", padding: 15, marginTop: 4, marginBottom: 16, background: "none", border: "1px dashed #2a2a2a", borderRadius: 12, color: "#777", fontSize: 11, letterSpacing: 2, cursor: "pointer", fontFamily: "inherit" }}>
+                + ДОБАВИТЬ УПРАЖНЕНИЕ
+              </button>
+            )}
+
             <div style={{ marginTop: 8 }}>
               {prog.exDone < 3 && (
                 <div style={{ textAlign: "center", fontSize: 11, color: "#888", letterSpacing: 1, marginBottom: 10, padding: "8px 12px", background: "#111", borderRadius: 8, border: "1px solid #222" }}>
@@ -2157,25 +2382,35 @@ function App() {
             <div style={{ paddingTop: 40, textAlign: "center" }}>
               <div style={{ fontSize: 11, color: "#666", letterSpacing: 2, marginBottom: 12 }}>НЕТ РАЗМИНКИ</div>
               <div style={{ fontSize: 11, color: "#555", lineHeight: 1.7 }}>Для этой тренировки разминка не задана.</div>
-              <div style={{ display: "flex", gap: 6, marginTop: 24, justifyContent: "center" }}>
-                {["push","pull","legs"].map(day => (
-                  <button key={day} onClick={() => setActiveDay(day)}
-                    style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #1a1a22", background: "#0f0f12", color: "#555", fontSize: 9, cursor: "pointer", fontFamily: "inherit" }}>
-                    {PROGRAM[day].label}
-                  </button>
-                ))}
+              <div style={{ display: "flex", gap: 6, marginTop: 24, justifyContent: "center", flexWrap: "wrap" }}>
+                {Object.keys(WARMUP).map(day => {
+                  const dp = PROGRAM[day];
+                  if (!dp) return null;
+                  return (
+                    <button key={day} onClick={() => setActiveDay(day)}
+                      style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #1a1a22", background: "#0f0f12", color: "#888", fontSize: 9, cursor: "pointer", fontFamily: "inherit" }}>
+                      {dp.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           );
           return (
             <div style={{ paddingTop: 16 }}>
-              <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
-                {["push","pull","legs"].map(day => (
-                  <button key={day} onClick={() => setActiveDay(day)}
-                    style={{ flex: 1, padding: "8px 4px", borderRadius: 8, border: `1px solid ${activeDay === day ? PROGRAM[day].color : "#1a1a22"}`, background: activeDay === day ? `${PROGRAM[day].color}18` : "#0c0c0f", color: activeDay === day ? "#fff" : "#444", fontSize: 9, letterSpacing: 2, cursor: "pointer", fontFamily: "inherit" }}>
-                    {PROGRAM[day].label}
-                  </button>
-                ))}
+              <div style={{ overflowX: "auto", paddingBottom: 4, marginBottom: 16 }}>
+                <div style={{ display: "flex", gap: 6, minWidth: "max-content" }}>
+                  {Object.keys(WARMUP).map(day => {
+                    const dayProg = PROGRAM[day];
+                    if (!dayProg) return null;
+                    return (
+                      <button key={day} onClick={() => setActiveDay(day)}
+                        style={{ minWidth: 72, padding: "8px 10px", borderRadius: 8, border: `1px solid ${activeDay === day ? dayProg.color : "#1a1a22"}`, background: activeDay === day ? `${dayProg.color}18` : "#0c0c0f", color: activeDay === day ? "#fff" : "#666", fontSize: 9, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+                        {dayProg.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Header */}
@@ -2243,6 +2478,174 @@ function App() {
           );
         })()}
 
+        {activeTab === "journal" && (() => {
+          const entries = getAllHistoryDetailed();
+          const tracked = getTrackedExercises();
+
+          return (
+            <div style={{ paddingTop: 20 }}>
+              <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                {[["log","ЖУРНАЛ"],["progress","ПРОГРЕССИЯ"]].map(m => (
+                  <button key={m[0]} onClick={() => { setJournalMode(m[0]); setJournalEx(null); }}
+                    style={{ flex: 1, padding: "12px 8px", borderRadius: 10, border: `1px solid ${journalMode === m[0] ? w.color : "#1a1a22"}`, background: journalMode === m[0] ? `${w.color}18` : "#0c0c0f", color: journalMode === m[0] ? "#fff" : "#777", fontSize: 11, letterSpacing: 2, cursor: "pointer", fontFamily: "inherit", fontWeight: journalMode === m[0] ? 700 : 400 }}>
+                    {m[1]}
+                  </button>
+                ))}
+              </div>
+
+              {journalMode === "log" && (
+                entries.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "60px 20px", color: "#555", fontSize: 13, lineHeight: 1.7 }}>
+                    Журнал пуст.<br />Заверши тренировку — появятся детали:<br />какие упражнения, сколько подходов и с каким весом.
+                  </div>
+                ) : (
+                  entries.map((entry, i) => {
+                    const day = PROGRAM[entry.workout] || { color: "#666", name: entry.name };
+                    const isOpen = openEntry === entry.ts;
+                    const totalVol = entry.detail.reduce((sum, ex) =>
+                      sum + ex.sets.filter(s => s.done && s.w).reduce((a, s) => a + (parseFloat(s.w) || 0), 0), 0);
+                    return (
+                      <div key={i} style={{ background: "#0f0f12", border: "1px solid #1a1a22", borderLeft: `3px solid ${day.color}`, borderRadius: 12, marginBottom: 10, overflow: "hidden" }}>
+                        <div onClick={() => setOpenEntry(isOpen ? null : entry.ts)}
+                          style={{ padding: "16px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: "#fff", marginBottom: 4 }}>{entry.name}</div>
+                            <div style={{ fontSize: 11, color: "#777" }}>
+                              {new Date(entry.date).toLocaleDateString("ru", { weekday: "short", day: "numeric", month: "long" })}
+                            </div>
+                            <div style={{ fontSize: 10, color: "#666", marginTop: 5 }}>
+                              {entry.detail.length} упр  |  {entry.done}/{entry.total} подходов  |  {Math.round(totalVol)} кг объём
+                            </div>
+                          </div>
+                          <div style={{ fontSize: 15, color: isOpen ? day.color : "#666", transform: isOpen ? "rotate(90deg)" : "none", transition: "all 0.2s", flexShrink: 0, padding: "6px 4px" }}>{">"}</div>
+                        </div>
+
+                        {isOpen && (
+                          <div style={{ padding: "0 16px 16px" }}>
+                            {entry.detail.map((ex, ei) => {
+                              const doneSets = ex.sets.filter(s => s.done && s.w);
+                              const maxW = doneSets.length ? Math.max.apply(null, doneSets.map(s => parseFloat(s.w) || 0)) : 0;
+                              return (
+                                <div key={ei} style={{ background: "#0a0a0d", borderRadius: 10, padding: "12px 14px", marginBottom: 6, border: "1px solid #161620" }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: doneSets.length ? 8 : 0 }}>
+                                    <div style={{ fontSize: 12, color: doneSets.length ? "#ddd" : "#555", fontWeight: 600, flex: 1 }}>{ex.name}</div>
+                                    {ex.added && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: "#1a2a1a", color: "#5a9a5a", letterSpacing: 1 }}>ДОБАВЛЕНО</span>}
+                                    {maxW > 0 && <span style={{ fontSize: 12, color: day.color, fontWeight: 700 }}>{maxW} кг</span>}
+                                  </div>
+                                  {doneSets.length > 0 && (
+                                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                      {ex.sets.map((s, si) => (
+                                        <div key={si} style={{ fontSize: 11, padding: "4px 9px", borderRadius: 6, background: s.done ? `${day.color}18` : "#111", border: `1px solid ${s.done ? day.color + "40" : "#1a1a22"}`, color: s.done ? "#ddd" : "#444" }}>
+                                          {s.w ? s.w : "-"}
+                                        </div>
+                                      ))}
+                                      <div style={{ fontSize: 10, color: "#555", alignSelf: "center", marginLeft: 4 }}>{ex.reps} повт</div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )
+              )}
+
+              {journalMode === "progress" && (
+                journalEx ? (() => {
+                  const prog = getExerciseProgression(journalEx.id);
+                  const maxAll = prog.length ? Math.max.apply(null, prog.map(p => p.maxW)) : 1;
+                  const first = prog.length ? prog[0].maxW : 0;
+                  const last = prog.length ? prog[prog.length - 1].maxW : 0;
+                  const delta = last - first;
+                  return (
+                    <div>
+                      <button onClick={() => setJournalEx(null)}
+                        style={{ background: "none", border: "none", color: "#777", fontSize: 12, cursor: "pointer", padding: "6px 0 14px", fontFamily: "inherit" }}>{"< назад к списку"}</button>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: "#fff", marginBottom: 16 }}>{journalEx.name}</div>
+
+                      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                        {[["МАКС", last + " кг"], ["СТАРТ", first + " кг"], ["ПРИРОСТ", (delta >= 0 ? "+" : "") + delta + " кг"]].map(s => (
+                          <div key={s[0]} style={{ flex: 1, background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "12px 6px", textAlign: "center" }}>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: s[0] === "ПРИРОСТ" ? (delta > 0 ? "#00d4aa" : delta < 0 ? "#ff6b6b" : "#888") : "#ddd", marginBottom: 3 }}>{s[1]}</div>
+                            <div style={{ fontSize: 8, color: "#666", letterSpacing: 2 }}>{s[0]}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div style={{ fontSize: 10, letterSpacing: 2, color: "#666", marginBottom: 12 }}>ДИНАМИКА ВЕСА</div>
+                      <div style={{ display: "flex", gap: 4, alignItems: "flex-end", height: 130, marginBottom: 8, background: "#0a0a0d", borderRadius: 10, padding: "12px 10px", border: "1px solid #161620" }}>
+                        {prog.map((p, pi) => {
+                          const h = maxAll > 0 ? Math.max(6, Math.round((p.maxW / maxAll) * 96)) : 6;
+                          const isLast = pi === prog.length - 1;
+                          return (
+                            <div key={pi} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 0 }}>
+                              <div style={{ fontSize: 9, color: isLast ? w.color : "#777", fontWeight: isLast ? 700 : 400 }}>{p.maxW}</div>
+                              <div style={{ width: "100%", height: h, borderRadius: 3, background: isLast ? w.color : "#2a2a3a", transition: "height 0.3s" }} />
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div style={{ display: "flex", gap: 4, marginBottom: 24 }}>
+                        {prog.map((p, pi) => (
+                          <div key={pi} style={{ flex: 1, fontSize: 8, color: "#555", textAlign: "center", minWidth: 0, overflow: "hidden" }}>
+                            {p.date.slice(5).replace("-", ".")}
+                          </div>
+                        ))}
+                      </div>
+
+                      <div style={{ fontSize: 10, letterSpacing: 2, color: "#666", marginBottom: 10 }}>ПО ТРЕНИРОВКАМ</div>
+                      {prog.slice().reverse().map((p, pi) => (
+                        <div key={pi} style={{ display: "flex", alignItems: "center", gap: 12, background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "12px 14px", marginBottom: 6 }}>
+                          <div style={{ fontSize: 11, color: "#777", flex: 1 }}>
+                            {new Date(p.date).toLocaleDateString("ru", { day: "numeric", month: "short" })}
+                          </div>
+                          <div style={{ fontSize: 10, color: "#666" }}>{p.sets} подх</div>
+                          <div style={{ fontSize: 10, color: "#666" }}>{Math.round(p.volume)} кг</div>
+                          <div style={{ fontSize: 13, color: "#fff", fontWeight: 700, minWidth: 54, textAlign: "right" }}>{p.maxW} кг</div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })() : (
+                  tracked.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "60px 20px", color: "#555", fontSize: 13, lineHeight: 1.7 }}>
+                      Пока нет данных для прогрессии.<br />Заверши пару тренировок с записанными весами.
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 10, letterSpacing: 2, color: "#666", marginBottom: 12 }}>ВЫБЕРИ УПРАЖНЕНИЕ</div>
+                      {tracked.map(t => {
+                        const p = getExerciseProgression(t.id);
+                        const last = p.length ? p[p.length - 1].maxW : 0;
+                        const first = p.length ? p[0].maxW : 0;
+                        const d = last - first;
+                        return (
+                          <div key={t.id} onClick={() => setJournalEx(t)}
+                            style={{ display: "flex", alignItems: "center", gap: 12, background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "14px 14px", marginBottom: 6, cursor: "pointer" }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 13, color: "#fff", fontWeight: 600, marginBottom: 3 }}>{t.name}</div>
+                              <div style={{ fontSize: 10, color: "#666" }}>{t.count} трен  |  макс {last} кг</div>
+                            </div>
+                            {d !== 0 && (
+                              <div style={{ fontSize: 12, fontWeight: 700, color: d > 0 ? "#00d4aa" : "#ff6b6b", flexShrink: 0 }}>
+                                {d > 0 ? "+" : ""}{d}
+                              </div>
+                            )}
+                            <div style={{ fontSize: 14, color: "#555", flexShrink: 0 }}>{">"}</div>
+                          </div>
+                        );
+                      })}
+                    </>
+                  )
+                )
+              )}
+            </div>
+          );
+        })()}
+
         {activeTab === "progress" && (
           <div style={{ paddingTop: 24 }}>
             <div style={{ fontSize: 10, letterSpacing: 3, color: "#555", marginBottom: 4 }}>ПРОГРЕСС ПО УПРАЖНЕНИЯМ</div>
@@ -2262,7 +2665,7 @@ function App() {
               ))}
             </div>
 
-            {(getWorkout(activeDay) || PROGRAM.push).exercises.map(baseEx => {
+            {getSessionExercises().map(baseEx => {
               const ex = getExercise(baseEx.id);
               const hist = getExHistory(ex.id, 8);
               if (hist.length === 0) return (
@@ -2341,7 +2744,7 @@ function App() {
           <div style={{ paddingTop: 24 }}>
             <div style={{ fontSize: 10, letterSpacing: 3, color: "#555", marginBottom: 16 }}>ИСТОРИЯ ТРЕНИРОВОК</div>
             {Object.values(data.history || {}).flat().sort((a, b) => b.ts - a.ts).length === 0 ? (
-              <div style={{ textAlign: "center", padding: "60px 0", color: "#2a2a2a", fontSize: 13 }}>Тренировок ещё нет.<br />Начни первую!</div>
+              <div style={{ textAlign: "center", padding: "60px 0", color: "#555", fontSize: 13 }}>Тренировок ещё нет.<br />Начни первую!</div>
             ) : (
               Object.values(data.history || {}).flat().sort((a, b) => b.ts - a.ts).map((entry, i) => {
                 const day = PROGRAM[entry.workout] || { color: "#666", label: "?", name: entry.name || entry.workout };
@@ -2368,7 +2771,7 @@ function App() {
                         </button>
                       )}
                       <button onClick={() => deleteHistoryEntry(entry.workout, entry.ts)}
-                        style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid #2a1a1a", background: "none", color: "#553333", fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontFamily: "inherit" }}>
+                        style={{ width: 40, height: 40, borderRadius: 8, border: "1px solid #3a2020", background: "#150c0c", color: "#884444", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontFamily: "inherit" }}>
                         x
                       </button>
                     </div>
@@ -2388,7 +2791,7 @@ function App() {
                   return (
                     <div key={item[0]} style={{ flex: 1, background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "12px 4px", textAlign: "center" }}>
                       <div style={{ fontSize: 20, fontWeight: 700, color: "#ddd", marginBottom: 2 }}>{item[1]}</div>
-                      <div style={{ fontSize: 8, color: "#333", letterSpacing: 2 }}>{item[2]}</div>
+                      <div style={{ fontSize: 9, color: "#666", letterSpacing: 2 }}>{item[2]}</div>
                     </div>
                   );
                 })}
@@ -2449,7 +2852,7 @@ function App() {
           filtered.forEach(e => { const g = e._group || "OTHER"; if (!groups[g]) groups[g] = []; groups[g].push(e); });
 
           return (
-            <div style={{ position: "fixed", inset: 0, background: "#0c0c0f", zIndex: 100, overflowY: "auto", paddingBottom: 40 }}>
+            <div style={{ position: "fixed", inset: 0, background: "#0c0c0f", zIndex: 100, overflowY: "auto", WebkitOverflowScrolling: "touch", paddingTop: "env(safe-area-inset-top)", paddingBottom: "calc(40px + env(safe-area-inset-bottom))" }}>
               <div style={{ maxWidth: 560, margin: "0 auto", padding: "20px 20px 0" }}>
                 {/* Header */}
                 <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
@@ -2462,7 +2865,7 @@ function App() {
                   <div style={{ fontSize: 9, letterSpacing: 2, color: "#444", marginBottom: 6 }}>НАЗВАНИЕ</div>
                   <input value={builderName} onChange={e => setBuilderName(e.target.value)}
                     placeholder="например: ФУНКЦИОНАЛ"
-                    style={{ width: "100%", background: "#0f0f12", border: "1px solid #2a2a2a", borderRadius: 8, padding: "10px 12px", color: "#fff", fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
+                    style={{ width: "100%", background: "#0f0f12", border: "1px solid #2a2a2a", borderRadius: 10, padding: "13px 14px", color: "#fff", fontSize: 16, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
                 </div>
                 <div style={{ marginBottom: 20 }}>
                   <div style={{ fontSize: 9, letterSpacing: 2, color: "#444", marginBottom: 8 }}>ЦВЕТ</div>
@@ -2481,23 +2884,23 @@ function App() {
                     {builderExercises.map((ex, idx) => (
                       <div key={ex.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "#0f0f12", border: `1px solid ${builderColor}40`, borderRadius: 8, padding: "8px 12px", marginBottom: 6 }}>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 11, color: "#ddd", fontWeight: 600 }}>{ex.name}</div>
+                          <div style={{ fontSize: 12, color: "#fff", fontWeight: 600 }}>{ex.name}</div>
                           <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
                             <input type="number" value={ex.sets} onChange={e => updateBuilderExSets(ex.id, "sets", parseInt(e.target.value) || 1)}
-                              style={{ width: 36, background: "#1a1a22", border: "none", borderRadius: 4, padding: "2px 6px", color: "#aaa", fontSize: 11, fontFamily: "inherit" }} />
-                            <span style={{ fontSize: 10, color: "#444" }}>x</span>
+                              style={{ width: 48, background: "#1a1a22", border: "1px solid #2a2a2a", borderRadius: 6, padding: "8px 6px", color: "#fff", fontSize: 16, fontFamily: "inherit", textAlign: "center" }} />
+                            <span style={{ fontSize: 11, color: "#666" }}>x</span>
                             <input value={ex.reps} onChange={e => updateBuilderExSets(ex.id, "reps", e.target.value)}
-                              style={{ width: 52, background: "#1a1a22", border: "none", borderRadius: 4, padding: "2px 6px", color: "#aaa", fontSize: 11, fontFamily: "inherit" }} />
-                            <span style={{ fontSize: 10, color: "#444" }}>отд:</span>
+                              style={{ width: 64, background: "#1a1a22", border: "1px solid #2a2a2a", borderRadius: 6, padding: "8px 6px", color: "#fff", fontSize: 16, fontFamily: "inherit", textAlign: "center" }} />
+                            <span style={{ fontSize: 11, color: "#666" }}>отд:</span>
                             <input value={ex.rest} onChange={e => updateBuilderExSets(ex.id, "rest", e.target.value)}
-                              style={{ width: 60, background: "#1a1a22", border: "none", borderRadius: 4, padding: "2px 6px", color: "#aaa", fontSize: 11, fontFamily: "inherit" }} />
+                              style={{ width: 76, background: "#1a1a22", border: "1px solid #2a2a2a", borderRadius: 6, padding: "8px 6px", color: "#fff", fontSize: 16, fontFamily: "inherit", textAlign: "center" }} />
                           </div>
                         </div>
                         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                          <button onClick={() => moveBuilderEx(idx, -1)} style={{ background: "none", border: "1px solid #222", borderRadius: 4, color: "#444", cursor: "pointer", fontSize: 10, padding: "2px 6px", fontFamily: "inherit" }}>^</button>
-                          <button onClick={() => moveBuilderEx(idx, 1)} style={{ background: "none", border: "1px solid #222", borderRadius: 4, color: "#444", cursor: "pointer", fontSize: 10, padding: "2px 6px", fontFamily: "inherit" }}>v</button>
+                          <button onClick={() => moveBuilderEx(idx, -1)} style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 6, color: "#999", cursor: "pointer", fontSize: 13, padding: "7px 11px", fontFamily: "inherit", minHeight: 32 }}>^</button>
+                          <button onClick={() => moveBuilderEx(idx, 1)} style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 6, color: "#999", cursor: "pointer", fontSize: 13, padding: "7px 11px", fontFamily: "inherit", minHeight: 32 }}>v</button>
                         </div>
-                        <button onClick={() => toggleBuilderExercise(ex)} style={{ background: "none", border: "none", color: "#ff4d4d", cursor: "pointer", fontSize: 16, padding: "0 4px", fontFamily: "inherit" }}>x</button>
+                        <button onClick={() => toggleBuilderExercise(ex)} style={{ background: "none", border: "none", color: "#ff5555", cursor: "pointer", fontSize: 20, padding: "8px 10px", fontFamily: "inherit", minWidth: 40, minHeight: 40 }}>x</button>
                       </div>
                     ))}
                   </div>
@@ -2514,7 +2917,7 @@ function App() {
                 <div style={{ fontSize: 9, letterSpacing: 2, color: "#444", marginBottom: 8 }}>ДОБАВИТЬ УПРАЖНЕНИЯ</div>
                 <input value={builderSearch} onChange={e => setBuilderSearch(e.target.value)}
                   placeholder="Поиск..."
-                  style={{ width: "100%", background: "#0f0f12", border: "1px solid #2a2a2a", borderRadius: 8, padding: "8px 12px", color: "#fff", fontSize: 12, fontFamily: "inherit", outline: "none", marginBottom: 12, boxSizing: "border-box" }} />
+                  style={{ width: "100%", background: "#0f0f12", border: "1px solid #2a2a2a", borderRadius: 10, padding: "12px 14px", color: "#fff", fontSize: 16, fontFamily: "inherit", outline: "none", marginBottom: 14, boxSizing: "border-box" }} />
 
                 {Object.entries(groups).map(([group, exList]) => (
                   <div key={group} style={{ marginBottom: 20 }}>
@@ -2546,7 +2949,7 @@ function App() {
 
         // List screen: choose template or create custom
         return (
-          <div style={{ position: "fixed", inset: 0, background: "#0c0c0f", zIndex: 100, overflowY: "auto", paddingBottom: 40 }}>
+          <div style={{ position: "fixed", inset: 0, background: "#0c0c0f", zIndex: 100, overflowY: "auto", WebkitOverflowScrolling: "touch", paddingTop: "env(safe-area-inset-top)", paddingBottom: "calc(40px + env(safe-area-inset-bottom))" }}>
             <div style={{ maxWidth: 560, margin: "0 auto", padding: "20px 20px 0" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
                 <button onClick={() => setPlanScreen(null)} style={{ background: "none", border: "none", color: "#666", fontSize: 20, cursor: "pointer", padding: "4px 8px 4px 0" }}>{"<"}</button>
@@ -2572,13 +2975,13 @@ function App() {
                   const wObj = current ? getWorkout(current) : null;
                   return (
                     <div key={dayLabel} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: idx < 6 ? "1px solid #111" : "none" }}>
-                      <div style={{ fontSize: 11, color: "#333", width: 28, flexShrink: 0 }}>{dayLabel}</div>
+                      <div style={{ fontSize: 12, color: "#666", width: 28, flexShrink: 0 }}>{dayLabel}</div>
                       <div style={{ flex: 1, fontSize: 11, color: wObj ? "#ddd" : "#2a2a2a", fontWeight: wObj ? 600 : 400 }}>
                         {wObj ? wObj.name : "Отдых"}
                       </div>
                       {wObj && <div style={{ width: 6, height: 6, borderRadius: "50%", background: wObj.color, flexShrink: 0 }} />}
                       <button onClick={cycleNext}
-                        style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #222", background: "none", color: "#555", fontSize: 10, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+                        style={{ minWidth: 48, minHeight: 40, padding: "8px 12px", borderRadius: 8, border: "1px solid #2a2a2a", background: "#111", color: "#888", fontSize: 13, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
                         {"<>"}
                       </button>
                     </div>
@@ -2593,11 +2996,15 @@ function App() {
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 3 }}>{day.name}</div>
                       <div style={{ fontSize: 10, color: "#444" }}>{day.sub}</div>
-                      <div style={{ fontSize: 9, color: "#333", marginTop: 4 }}>{day.exercises.length} упражнений</div>
+                      <div style={{ fontSize: 9, color: "#666", marginTop: 4 }}>{day.exercises.length} упражнений</div>
                     </div>
                     <button onClick={() => { setActiveDay(key); setPlanScreen(null); setActiveTab("workout"); }}
-                      style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${day.color}60`, background: `${day.color}15`, color: day.color, fontSize: 9, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" }}>
+                      style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${day.color}60`, background: `${day.color}15`, color: day.color, fontSize: 9, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
                       ОТКРЫТЬ
+                    </button>
+                    <button onClick={() => forkPreset(key)}
+                      style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #2a2a2a", background: "none", color: "#777", fontSize: 9, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+                      ИЗМЕНИТЬ
                     </button>
                   </div>
                 </div>
@@ -2612,7 +3019,7 @@ function App() {
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 3 }}>{cw.name}</div>
-                          <div style={{ fontSize: 9, color: "#333" }}>{cw.exercises.length} упражнений</div>
+                          <div style={{ fontSize: 9, color: "#666" }}>{cw.exercises.length} упражнений</div>
                         </div>
                         <button onClick={() => { setActiveDay(id); setPlanScreen(null); setActiveTab("workout"); }}
                           style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${cw.color}60`, background: `${cw.color}15`, color: cw.color, fontSize: 9, cursor: "pointer", fontFamily: "inherit" }}>ОТКРЫТЬ</button>
@@ -2639,8 +3046,56 @@ function App() {
         );
       })()}
 
+      {addExModal && (() => {
+        const all = getAllExercises();
+        const inSession = getSessionExercises().map(e => e.id);
+        const q = addExSearch.trim().toLowerCase();
+        const filtered = q
+          ? all.filter(e => e.name.toLowerCase().includes(q) || (e._group || "").toLowerCase().includes(q))
+          : all;
+        const groups = {};
+        filtered.forEach(e => { const g = e._group || "Другое"; if (!groups[g]) groups[g] = []; groups[g].push(e); });
+        return (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center" }}
+            onClick={() => setAddExModal(false)}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ background: "#111", borderRadius: "16px 16px 0 0", padding: "20px 20px calc(30px + env(safe-area-inset-bottom))", width: "100%", maxWidth: 560, maxHeight: "85vh", overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>ДОБАВИТЬ УПРАЖНЕНИЕ</div>
+                <button onClick={() => setAddExModal(false)}
+                  style={{ width: 40, height: 40, borderRadius: 10, border: "1px solid #2a2a2a", background: "#0c0c0f", color: "#888", fontSize: 18, cursor: "pointer", fontFamily: "inherit" }}>x</button>
+              </div>
+              <input value={addExSearch} onChange={e => setAddExSearch(e.target.value)}
+                placeholder="Поиск по названию или группе..."
+                style={{ width: "100%", background: "#0c0c0f", border: "1px solid #2a2a2a", borderRadius: 10, padding: "12px 14px", color: "#fff", fontSize: 16, fontFamily: "inherit", outline: "none", marginBottom: 16, boxSizing: "border-box" }} />
+              {Object.entries(groups).map(([group, list]) => (
+                <div key={group} style={{ marginBottom: 18 }}>
+                  <div style={{ fontSize: 10, letterSpacing: 2, color: "#888", marginBottom: 8, paddingBottom: 6, borderBottom: "1px solid #1a1a22", display: "flex", justifyContent: "space-between" }}>
+                    <span>{group.toUpperCase()}</span>
+                    <span style={{ color: "#555" }}>{list.length}</span>
+                  </div>
+                  {list.map(ex => {
+                    const already = inSession.indexOf(ex.id) >= 0;
+                    return (
+                      <div key={ex.id} onClick={() => { if (!already) { addExerciseToSession(ex); setAddExModal(false); } }}
+                        style={{ display: "flex", alignItems: "center", gap: 10, background: already ? "#0a0a0c" : "#0f0f12", border: `1px solid ${already ? "#161620" : "#1a1a22"}`, borderRadius: 10, padding: "12px 14px", marginBottom: 6, cursor: already ? "default" : "pointer", opacity: already ? 0.45 : 1 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, color: already ? "#666" : "#fff", fontWeight: 600 }}>{ex.name}</div>
+                          <div style={{ fontSize: 10, color: "#666", marginTop: 3 }}>{ex.sets} x {ex.reps} | {ex.rest}{ex.warn ? "  !" : ""}</div>
+                        </div>
+                        <div style={{ fontSize: 18, color: already ? "#444" : w.color, flexShrink: 0 }}>{already ? "v" : "+"}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {savePrompt && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: "0 0 40px" }}
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: "0 0 calc(40px + env(safe-area-inset-bottom))" }}
           onClick={() => setSavePrompt(false)}>
           <div onClick={e => e.stopPropagation()}
             style={{ width: "100%", maxWidth: 480, background: "#111116", border: "1px solid #2a2a2a", borderRadius: 16, padding: "24px 20px", margin: "0 16px" }}>
@@ -2671,7 +3126,7 @@ function App() {
           <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center" }}
             onClick={() => setSwapModal(null)}>
             <div onClick={e => e.stopPropagation()}
-              style={{ background: "#111", borderRadius: "16px 16px 0 0", padding: "24px 20px 40px", width: "100%", maxWidth: 560, maxHeight: "80vh", overflowY: "auto" }}>
+              style={{ background: "#111", borderRadius: "16px 16px 0 0", padding: "24px 20px calc(40px + env(safe-area-inset-bottom))", width: "100%", maxWidth: 560, maxHeight: "80vh", overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
               <div style={{ fontSize: 9, letterSpacing: 3, color: "#444", marginBottom: 6 }}>ВЫБЕРИ УПРАЖНЕНИЕ</div>
               <div style={{ fontSize: 15, fontWeight: 700, color: "#fff", marginBottom: 20 }}>{baseEx.name}</div>
 
@@ -2725,7 +3180,7 @@ function App() {
         const done = timer.left === 0;
         const circumference = 2 * Math.PI * 26;
         return (
-          <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 500, display: "flex", alignItems: "center", gap: 14,
+          <div style={{ position: "fixed", bottom: "calc(24px + env(safe-area-inset-bottom))", left: "50%", transform: "translateX(-50%)", zIndex: 500, display: "flex", alignItems: "center", gap: 14,
             background: done ? "#0f1a0f" : "#111118", border: `1px solid ${done ? "#00d4aa50" : "#2a2a35"}`,
             borderRadius: 20, padding: "12px 20px 12px 14px", boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
             minWidth: 260, transition: "border-color 0.3s" }}>
@@ -2779,7 +3234,7 @@ function App() {
       })()}
 
       {toast && (
-        <div style={{ position: "fixed", bottom: timer ? 110 : 30, left: "50%", transform: "translateX(-50%)", background: "#1a1a22", border: "1px solid #2a2a2a", borderRadius: 8, padding: "10px 20px", fontSize: 11, color: "#ccc", letterSpacing: 1, zIndex: 999, pointerEvents: "none" }}>
+        <div style={{ position: "fixed", bottom: timer ? "calc(130px + env(safe-area-inset-bottom))" : "calc(50px + env(safe-area-inset-bottom))", left: "50%", transform: "translateX(-50%)", background: "#1a1a22", border: "1px solid #2a2a2a", borderRadius: 8, padding: "10px 20px", fontSize: 11, color: "#ccc", letterSpacing: 1, zIndex: 999, pointerEvents: "none" }}>
           {toast}
         </div>
       )}
