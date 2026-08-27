@@ -1819,6 +1819,19 @@ function App() {
     });
   }
 
+  function getScheduledDayKeys() {
+    const sched = data.schedule || ["push", null, "pull", null, "legs", null, null];
+    const out = [];
+    sched.forEach(k => {
+      if (k && out.indexOf(k) < 0 && getWorkout(k)) out.push(k);
+    });
+    // Текущий день оставляем в списке даже если он не в расписании
+    if (activeDay && out.indexOf(activeDay) < 0 && getWorkout(activeDay)) out.push(activeDay);
+    // Если расписание пустое - показываем базовую тройку
+    if (out.length === 0) return ["push", "pull", "legs"];
+    return out;
+  }
+
   function allDayKeys() {
     const builtin = Object.keys(PROGRAM);
     const custom = Object.keys(data.customWorkouts || {});
@@ -2178,7 +2191,7 @@ function App() {
           <>
             <div style={{ overflowX: "auto", paddingBottom: 4 }}>
               <div style={{ display: "flex", gap: 8, padding: "20px 0 16px", minWidth: "max-content" }}>
-                {allDayKeys().map(key => {
+                {getScheduledDayKeys().map(key => {
                   const day = getWorkout(key);
                   if (!day) return null;
                   const isActive = activeDay === key;
