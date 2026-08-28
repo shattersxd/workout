@@ -1482,7 +1482,7 @@ function App() {
         }
         return { id: rex.id, name: rex.name, reps: rex.reps, sets: sets, added: !!e._added };
       });
-      var entry = { date: today, workout: activeDay, name: (getWorkout(activeDay) || {}).name || activeDay, done: prog.done, total: prog.total, ts: Date.now(), detail: detail };
+      var entry = { date: today, workout: activeDay, name: (getWorkout(activeDay) || {}).name || activeDay, done: prog.done, total: prog.total, ts: Date.now(), detail: detail, src: "auto" };
       var d = loadData();
       if (!d.history) d.history = {};
       var res = d.resuming;
@@ -1490,7 +1490,7 @@ function App() {
         var arr = d.history[res.workout] || [];
         var ri = arr.findIndex(function(e) { return e.ts === res.ts; });
         if (ri >= 0) {
-          arr[ri] = Object.assign({}, entry, { date: res.date, ts: res.ts, name: arr[ri].name });
+          arr[ri] = Object.assign({}, entry, { date: res.date, ts: res.ts, name: arr[ri].name, src: "auto" });
           d.history[res.workout] = arr;
           saveData(d);
           return;
@@ -2007,7 +2007,7 @@ function App() {
 
   function resumeSession(entry) {
     if (data.resuming && data.resuming.ts !== entry.ts) {
-      showToast("Сначала заверши текущую тренировку");
+      showToast("Сначала заверши или отмени текущее дополнение");
       return;
     }
     setActiveDay(entry.workout);
@@ -2016,19 +2016,61 @@ function App() {
     const todKey = `${todayKey()}_${entry.workout}`;
     setData(prev => {
       const sessions = JSON.parse(JSON.stringify(prev.sessions || {}));
-      if (entryKey !== todKey && sessions[entryKey]) {
-        sessions[todKey] = JSON.parse(JSON.stringify(sessions[entryKey]));
+      let restored = sessions[todKey];
+      // Сессия могла быть очищена при сохранении - тогда восстанавливаем из detail
+      if (!restored || Object.keys(restored).length === 0) {
+        if (sessions[entryKey] && Object.keys(sessions[entryKey]).length > 0) {
+          restored = JSON.parse(JSON.stringify(sessions[entryKey]));
+        } else if (entry.detail && entry.detail.length > 0) {
+          restored = {};
+          entry.detail.forEach(ex => {
+            restored[ex.id] = {};
+            (ex.sets || []).forEach((s, i) => {
+              restored[ex.id][i] = { weight: s.w || "", done: !!s.done };
+            });
+          });
+        }
       }
-      // Помечаем какую именно запись дополняем - завершение обновит её, а не создаст новую
-      return { ...prev, sessions, resuming: { ts: entry.ts, date: entry.date, workout: entry.workout, name: entry.name } };
+      // Снимок состояния до дополнения - чтобы отмена вернула всё как было
+      const snapSession = prev.sessions && prev.sessions[todKey] ? JSON.parse(JSON.stringify(prev.sessions[todKey])) : null;
+      const snapAdded = prev.addedEx && prev.addedEx[todKey] ? JSON.parse(JSON.stringify(prev.addedEx[todKey])) : null;
+      if (restored) sessions[todKey] = restored;
+      // Добавленные на лету упражнения тоже возвращаем
+      const ae = JSON.parse(JSON.stringify(prev.addedEx || {}));
+      if (entry.detail) {
+        const extra = entry.detail.filter(d => d.added);
+        if (extra.length > 0 && !(ae[todKey] || []).length) {
+          const pool = getAllExercises();
+          ae[todKey] = extra.map(d => {
+            const p = pool.find(x => x.id === d.id);
+            return p
+              ? { id: p.id, name: p.name, sets: p.sets, reps: p.reps, rest: p.rest, steps: p.steps, warn: p.warn, danger: p.danger, _added: true }
+              : { id: d.id, name: d.name, sets: (d.sets || []).length || 3, reps: d.reps || "8-12", rest: "2 мин", steps: ["Упражнение восстановлено из журнала"], warn: false, danger: "Описание недоступно  -  упражнение было добавлено вручную.", _added: true };
+          });
+        }
+      }
+      return { ...prev, sessions, addedEx: ae, resuming: { ts: entry.ts, date: entry.date, workout: entry.workout, name: entry.name, key: todKey, snapSession: snapSession, snapAdded: snapAdded } };
     });
     lastPromptedExDone.current = 0;
     showToast("Дополняешь тренировку от " + new Date(entry.date).toLocaleDateString("ru", { day: "numeric", month: "short" }));
   }
 
   function cancelResume() {
-    setData(prev => ({ ...prev, resuming: null }));
-    showToast("Дополнение отменено");
+    setData(prev => {
+      const res = prev.resuming;
+      if (!res) return { ...prev, resuming: null };
+      const sessions = JSON.parse(JSON.stringify(prev.sessions || {}));
+      const addedEx = JSON.parse(JSON.stringify(prev.addedEx || {}));
+      const k = res.key;
+      if (k) {
+        // Возвращаем то, что было до дополнения. Запись в журнале не трогаем.
+        if (res.snapSession) sessions[k] = res.snapSession; else delete sessions[k];
+        if (res.snapAdded) addedEx[k] = res.snapAdded; else delete addedEx[k];
+      }
+      return { ...prev, sessions, addedEx, resuming: null };
+    });
+    lastPromptedExDone.current = 0;
+    showToast("Редактирование отменено  -  запись не изменилась");
   }
 
   function finishWorkout() {
@@ -2048,7 +2090,7 @@ function App() {
       }
       return { id: rex.id, name: rex.name, reps: rex.reps, sets: sets, added: !!e._added };
     });
-    const entry = { date: today, workout: activeDay, name: (getWorkout(activeDay) || {}).name || activeDay, done: prog.done, total: prog.total, ts: Date.now(), detail: detail };
+    const entry = { date: today, workout: activeDay, name: (getWorkout(activeDay) || {}).name || activeDay, done: prog.done, total: prog.total, ts: Date.now(), detail: detail, src: "manual" };
     const res = data.resuming;
     const isUpdate = res
       ? true
@@ -2060,7 +2102,7 @@ function App() {
         const arr = history[res.workout] || [];
         const i = arr.findIndex(e => e.ts === res.ts);
         if (i >= 0) {
-          arr[i] = { ...entry, date: res.date, ts: res.ts, name: arr[i].name };
+          arr[i] = { ...entry, date: res.date, ts: res.ts, name: arr[i].name, src: "manual" };
           history[res.workout] = arr;
         } else {
           history[activeDay] = [entry, ...(history[activeDay] || [])].slice(0, 30);
@@ -2570,6 +2612,8 @@ function App() {
                     const detail = entry.detail || [];
                     const pct = entry.total > 0 ? Math.round(entry.done / entry.total * 100) : 0;
                     const incomplete = pct < 100;
+                    const isResuming = !!(data.resuming && data.resuming.ts === entry.ts);
+                    const otherResuming = !!(data.resuming && data.resuming.ts !== entry.ts);
                     const totalVol = detail.reduce((sum, ex) =>
                       sum + (ex.sets || []).filter(s => s.done && s.w).reduce((a, s) => a + (parseFloat(s.w) || 0), 0), 0);
                     return (
@@ -2582,7 +2626,10 @@ function App() {
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 4 }}>
                               <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>{entry.name}</div>
-                              {incomplete && <span style={{ fontSize: 8, color: "#f7a844", letterSpacing: 1, border: "1px solid #f7a84440", borderRadius: 4, padding: "2px 6px" }}>НЕ ЗАКОНЧЕНО</span>}
+                              {isResuming && <span style={{ fontSize: 8, color: "#f7a844", letterSpacing: 1, border: "1px solid #f7a844", borderRadius: 4, padding: "2px 6px", background: "#f7a84418" }}>ДОПОЛНЯЕТСЯ</span>}
+                              {!isResuming && !incomplete && entry.src === "auto" && <span style={{ fontSize: 8, color: "#6a8aaa", letterSpacing: 1, border: "1px solid #6a8aaa40", borderRadius: 4, padding: "2px 6px" }}>АВТОСОХРАНЕНО</span>}
+                              {!isResuming && !incomplete && entry.src !== "auto" && <span style={{ fontSize: 8, color: "#4a9a6a", letterSpacing: 1, border: "1px solid #4a9a6a40", borderRadius: 4, padding: "2px 6px" }}>ЗАВЕРШЕНА</span>}
+                              {!isResuming && incomplete && <span style={{ fontSize: 8, color: "#f7a844", letterSpacing: 1, border: "1px solid #f7a84440", borderRadius: 4, padding: "2px 6px" }}>НЕ ЗАКОНЧЕНО</span>}
                             </div>
                             <div style={{ fontSize: 11, color: "#777" }}>
                               {new Date(entry.date).toLocaleDateString("ru", { weekday: "short", day: "numeric", month: "long" })}
@@ -2624,17 +2671,31 @@ function App() {
                           </div>
                         )}
 
-                        <div style={{ display: "flex", gap: 8, padding: "0 16px 14px" }}>
-                          {incomplete && !(data.resuming && data.resuming.ts !== entry.ts) && (
+                        <div style={{ display: "flex", gap: 8, padding: "0 16px 14px", alignItems: "center" }}>
+                          {isResuming && (
+                            <>
+                              <button onClick={() => { setActiveTab("workout"); setActiveDay(entry.workout); }}
+                                style={{ flex: 1, padding: "11px 12px", borderRadius: 8, border: "1px solid #f7a844", background: "#f7a84418", color: "#f7a844", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 42, fontWeight: 700 }}>
+                                ПРОДОЛЖИТЬ
+                              </button>
+                              <button onClick={cancelResume}
+                                style={{ padding: "11px 13px", borderRadius: 8, border: "1px solid #2a2a2a", background: "none", color: "#999", fontSize: 9, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 42, flexShrink: 0 }}>
+                                ОТМЕНИТЬ РЕДАКТ.
+                              </button>
+                            </>
+                          )}
+                          {!isResuming && incomplete && !otherResuming && (
                             <button onClick={() => resumeSession(entry)}
-                              style={{ flex: 1, padding: "10px 12px", borderRadius: 8, border: "1px solid #f7a84450", background: "#f7a84410", color: "#f7a844", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 40 }}>
+                              style={{ flex: 1, padding: "11px 12px", borderRadius: 8, border: "1px solid #f7a84450", background: "#f7a84410", color: "#f7a844", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 42 }}>
                               ДОПОЛНИТЬ
                             </button>
                           )}
-                          <button onClick={() => deleteHistoryEntry(entry.workout, entry.ts)}
-                            style={{ width: incomplete ? 44 : "100%", minHeight: 40, borderRadius: 8, border: "1px solid #3a2020", background: "#150c0c", color: "#884444", fontSize: incomplete ? 15 : 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
-                            {incomplete ? "x" : "УДАЛИТЬ ЗАПИСЬ"}
-                          </button>
+                          {!isResuming && (
+                            <button onClick={() => deleteHistoryEntry(entry.workout, entry.ts)}
+                              style={{ marginLeft: "auto", padding: "9px 12px", borderRadius: 8, border: "1px solid #241618", background: "none", color: "#6a4444", fontSize: 9, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 38, flexShrink: 0 }}>
+                              удалить
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
@@ -2782,8 +2843,8 @@ function App() {
                   <div style={{ fontSize: 10, color: "#8a7550", marginTop: 3 }}>Завершение обновит эту запись</div>
                 </div>
                 <button onClick={cancelResume}
-                  style={{ padding: "10px 12px", minHeight: 40, borderRadius: 8, border: "1px solid #3a2a10", background: "none", color: "#8a7550", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
-                  ОТМЕНА
+                  style={{ padding: "10px 12px", minHeight: 44, borderRadius: 8, border: "1px solid #3a2a10", background: "#0c0c0f", color: "#a89060", fontSize: 9, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, lineHeight: 1.4, maxWidth: 96 }}>
+                  ОТМЕНИТЬ<br />РЕДАКТИР.
                 </button>
               </div>
             )}
