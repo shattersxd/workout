@@ -1344,8 +1344,8 @@ const WEEK_SCHEDULE = [
 
 const STORAGE_KEY = "ppl_tracker_v4";
 function loadData() {
-  try { const r = localStorage.getItem(STORAGE_KEY); var d = r ? JSON.parse(r) : {}; if (!d.sessions) d.sessions = {}; if (!d.history) d.history = {}; if (!d.swaps) d.swaps = {}; if (!d.skipped) d.skipped = {}; if (!d.customWorkouts) d.customWorkouts = {}; if (!d.customSets) d.customSets = {}; if (!d.addedEx) d.addedEx = {}; if (!d.resuming) d.resuming = null; if (!d.dbMode) d.dbMode = "single"; if (!d.schedule) d.schedule = ["push",null,"pull",null,"legs",null,null]; return d; }
-  catch { return { sessions: {}, history: {}, swaps: {}, skipped: {}, customWorkouts: {}, customSets: {}, addedEx: {}, resuming: null, dbMode: "single", schedule: ["push",null,"pull",null,"legs",null,null] }; }
+  try { const r = localStorage.getItem(STORAGE_KEY); var d = r ? JSON.parse(r) : {}; if (!d.sessions) d.sessions = {}; if (!d.history) d.history = {}; if (!d.swaps) d.swaps = {}; if (!d.skipped) d.skipped = {}; if (!d.customWorkouts) d.customWorkouts = {}; if (!d.customSets) d.customSets = {}; if (!d.addedEx) d.addedEx = {}; if (!d.resuming) d.resuming = null; if (!d.dbMode) d.dbMode = "single"; if (!d.trash) d.trash = []; if (!d.schedule) d.schedule = ["push",null,"pull",null,"legs",null,null]; return d; }
+  catch { return { sessions: {}, history: {}, swaps: {}, skipped: {}, customWorkouts: {}, customSets: {}, addedEx: {}, resuming: null, dbMode: "single", trash: [], schedule: ["push",null,"pull",null,"legs",null,null] }; }
 }
 function saveData(d) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); } catch {} }
 function todayKey() { return new Date().toISOString().slice(0, 10); }
@@ -1370,6 +1370,7 @@ function App() {
   const [journalMode, setJournalMode] = useState("log");
   const [journalEx, setJournalEx] = useState(null);
   const [openEntry, setOpenEntry] = useState(null);
+  const [trashOpen, setTrashOpen] = useState(false);
   const [addExSearch, setAddExSearch] = useState("");
   const lastPromptedExDone = useRef(0);
   const [toast, setToast] = useState(null);
@@ -1996,13 +1997,41 @@ function App() {
   function deleteHistoryEntry(workout, ts) {
     setData(prev => {
       const history = JSON.parse(JSON.stringify(prev.history || {}));
+      const trash = JSON.parse(JSON.stringify(prev.trash || []));
+      const arr = history[workout] || [];
+      const gone = arr.find(e => e.ts === ts);
+      if (gone) trash.unshift({ ...gone, _deletedAt: Date.now() });
       if (history[workout]) {
-        history[workout] = history[workout].filter(e => e.ts !== ts);
+        history[workout] = arr.filter(e => e.ts !== ts);
         if (history[workout].length === 0) delete history[workout];
       }
-      return { ...prev, history };
+      return { ...prev, history, trash: trash.slice(0, 20) };
     });
-    showToast("Запись удалена");
+    showToast("Удалено  -  можно вернуть из корзины");
+  }
+
+  function restoreHistoryEntry(ts) {
+    setData(prev => {
+      const trash = JSON.parse(JSON.stringify(prev.trash || []));
+      const i = trash.findIndex(e => e.ts === ts);
+      if (i < 0) return prev;
+      const entry = trash[i];
+      trash.splice(i, 1);
+      const history = JSON.parse(JSON.stringify(prev.history || {}));
+      const wk = entry.workout;
+      if (!history[wk]) history[wk] = [];
+      if (!history[wk].some(e => e.ts === entry.ts)) {
+        delete entry._deletedAt;
+        history[wk] = [entry, ...history[wk]].sort((a, b) => b.ts - a.ts).slice(0, 30);
+      }
+      return { ...prev, history, trash };
+    });
+    showToast("Тренировка восстановлена");
+  }
+
+  function purgeTrash() {
+    setData(prev => ({ ...prev, trash: [] }));
+    showToast("Корзина очищена");
   }
 
   function resumeSession(entry) {
@@ -2125,34 +2154,69 @@ function App() {
     return Object.values(data.history || {}).flat().sort((a, b) => b.ts - a.ts);
   }
 
-  function getExerciseProgression(exId) {
-    // Возвращает [{date, maxW, volume, sets}] по всем тренировкам, старые -> новые
-    const out = [];
+  function exNameById(exId) {
+    const all = getAllExercises().find(e => e.id === exId);
+    if (all) return all.name;
+    let found = null;
     Object.values(data.history || {}).flat().forEach(entry => {
-      if (!entry.detail) return;
-      const ex = entry.detail.find(d => d.id === exId);
-      if (!ex) return;
-      const weights = ex.sets.filter(s => s.done && s.w).map(s => parseFloat(s.w) || 0).filter(x => x > 0);
-      if (!weights.length) return;
-      const maxW = Math.max.apply(null, weights);
-      const volume = weights.reduce((a, b) => a + b, 0);
-      out.push({ date: entry.date, ts: entry.ts, maxW: maxW, volume: volume, sets: weights.length });
+      (entry.detail || []).forEach(d => { if (d.id === exId && d.name) found = d.name; });
     });
-    return out.sort((a, b) => a.ts - b.ts);
+    return found || exId;
+  }
+
+  function collectExerciseData() {
+    // Собирает веса из двух источников: detail в журнале и сырые сессии.
+    // Старые записи не имели detail - их веса лежат только в sessions.
+    // Ключ date|exId, чтобы одна тренировка не посчиталась дважды.
+    const byKey = {};
+    const put = (date, ts, exId, name, weights) => {
+      const w = weights.filter(x => x > 0);
+      if (!w.length) return;
+      const k = date + "|" + exId;
+      const rec = { date: date, ts: ts, id: exId, name: name, maxW: Math.max.apply(null, w), volume: w.reduce((a, b) => a + b, 0), sets: w.length };
+      // Сортируем по дате тренировки: ts у записей журнала - момент сохранения,
+      // у сессий - полночь даты. Разные основы дали бы неверный порядок.
+      // detail точнее сессии - если уже есть, не перетираем
+      if (!byKey[k]) byKey[k] = rec;
+    };
+
+    // 1) Журнал с деталями
+    Object.values(data.history || {}).flat().forEach(entry => {
+      (entry.detail || []).forEach(d => {
+        put(entry.date, entry.ts, d.id, d.name,
+          (d.sets || []).filter(s => s.done && s.w).map(s => parseFloat(s.w) || 0));
+      });
+    });
+
+    // 2) Сырые сессии - покрывают записи, сохранённые до появления detail
+    Object.keys(data.sessions || {}).forEach(key => {
+      const us = key.lastIndexOf("_");
+      if (us < 0) return;
+      const date = key.slice(0, us);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+      const ts = new Date(date).getTime();
+      Object.keys(data.sessions[key] || {}).forEach(exId => {
+        const sets = data.sessions[key][exId] || {};
+        put(date, ts, exId, exNameById(exId),
+          Object.values(sets).filter(s => s && s.done && s.weight).map(s => parseFloat(s.weight) || 0));
+      });
+    });
+
+    return Object.values(byKey);
+  }
+
+  function getExerciseProgression(exId) {
+    return collectExerciseData()
+      .filter(r => r.id === exId)
+      .sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
   }
 
   function getTrackedExercises() {
-    // Все упражнения встречавшиеся в истории, отсортированы по числу тренировок
     const counts = {};
     const names = {};
-    Object.values(data.history || {}).flat().forEach(entry => {
-      if (!entry.detail) return;
-      entry.detail.forEach(d => {
-        const hasData = d.sets.some(s => s.done && s.w);
-        if (!hasData) return;
-        counts[d.id] = (counts[d.id] || 0) + 1;
-        names[d.id] = d.name;
-      });
+    collectExerciseData().forEach(r => {
+      counts[r.id] = (counts[r.id] || 0) + 1;
+      names[r.id] = r.name;
     });
     return Object.keys(counts)
       .map(id => ({ id: id, name: names[id], count: counts[id] }))
@@ -2701,6 +2765,46 @@ function App() {
                     );
                   })
                 )
+              )}
+
+              {journalMode === "log" && (data.trash || []).length > 0 && (
+                <div style={{ marginTop: 20 }}>
+                  <div onClick={() => setTrashOpen(!trashOpen)}
+                    style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", background: "#0c0c0f", border: "1px solid #1a1a22", borderRadius: 12, cursor: "pointer" }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 10, letterSpacing: 2, color: "#777" }}>КОРЗИНА</div>
+                      <div style={{ fontSize: 10, color: "#555", marginTop: 3 }}>{(data.trash || []).length} удалённых  -  можно вернуть</div>
+                    </div>
+                    <div style={{ fontSize: 14, color: "#666", transform: trashOpen ? "rotate(90deg)" : "none", transition: "transform 0.2s", padding: "4px" }}>{">"}</div>
+                  </div>
+
+                  {trashOpen && (
+                    <div style={{ marginTop: 8 }}>
+                      {(data.trash || []).map((entry, ti) => {
+                        const day = PROGRAM[entry.workout] || { color: "#555", name: entry.name };
+                        const pct = entry.total > 0 ? Math.round(entry.done / entry.total * 100) : 0;
+                        return (
+                          <div key={ti} style={{ display: "flex", alignItems: "center", gap: 12, background: "#0a0a0d", border: "1px solid #161620", borderLeft: `3px solid ${day.color}60`, borderRadius: 10, padding: "12px 14px", marginBottom: 6 }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 12, color: "#aaa", fontWeight: 600 }}>{entry.name}</div>
+                              <div style={{ fontSize: 10, color: "#555", marginTop: 3 }}>
+                                {new Date(entry.date).toLocaleDateString("ru", { day: "numeric", month: "long" })}  |  {pct}%  |  {entry.done}/{entry.total}
+                              </div>
+                            </div>
+                            <button onClick={() => restoreHistoryEntry(entry.ts)}
+                              style={{ padding: "10px 14px", minHeight: 40, borderRadius: 8, border: "1px solid #2a4a3a", background: "#0d1a14", color: "#5a9a7a", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+                              ВЕРНУТЬ
+                            </button>
+                          </div>
+                        );
+                      })}
+                      <button onClick={purgeTrash}
+                        style={{ width: "100%", padding: "11px 12px", minHeight: 40, borderRadius: 8, border: "1px solid #241618", background: "none", color: "#6a4444", fontSize: 9, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", marginTop: 4 }}>
+                        очистить корзину
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
 
               {journalMode === "progress" && (
