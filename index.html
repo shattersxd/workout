@@ -1343,8 +1343,26 @@ const WEEK_SCHEDULE = [
 ];
 
 const STORAGE_KEY = "ppl_tracker_v4";
+const HISTORY_LIMIT = 200;   // ~15 месяцев при 3 тренировках в неделю
+const SESSION_KEEP_DAYS = 400;
+function pruneOldKeys(d) {
+  // Ключи вида YYYY-MM-DD_день. Старше SESSION_KEEP_DAYS - удаляем,
+  // иначе localStorage растёт бесконечно.
+  const cutoff = Date.now() - SESSION_KEEP_DAYS * 86400000;
+  ["sessions", "customSets", "addedEx", "skipped", "swaps"].forEach(function (bucket) {
+    if (!d[bucket]) return;
+    Object.keys(d[bucket]).forEach(function (k) {
+      const m = /^(\d{4}-\d{2}-\d{2})_/.exec(k);
+      if (!m) { delete d[bucket][k]; return; }   // старый формат ключа
+      if (new Date(m[1]).getTime() < cutoff) delete d[bucket][k];
+    });
+  });
+  return d;
+}
+
 function loadData() {
-  try { const r = localStorage.getItem(STORAGE_KEY); var d = r ? JSON.parse(r) : {}; if (!d.sessions) d.sessions = {}; if (!d.history) d.history = {}; if (!d.swaps) d.swaps = {}; if (!d.skipped) d.skipped = {}; if (!d.customWorkouts) d.customWorkouts = {}; if (!d.customSets) d.customSets = {}; if (!d.addedEx) d.addedEx = {}; if (!d.resuming) d.resuming = null; if (!d.dbMode) d.dbMode = "single"; if (!d.trash) d.trash = []; if (!d.schedule) d.schedule = ["push",null,"pull",null,"legs",null,null]; return d; }
+  try { const r = localStorage.getItem(STORAGE_KEY); var d = r ? JSON.parse(r) : {}; if (!d.sessions) d.sessions = {}; if (!d.history) d.history = {}; if (!d.swaps) d.swaps = {}; if (!d.skipped) d.skipped = {}; if (!d.customWorkouts) d.customWorkouts = {}; if (!d.customSets) d.customSets = {}; if (!d.addedEx) d.addedEx = {}; if (!d.resuming) d.resuming = null; if (!d.dbMode) d.dbMode = "single"; if (!d.trash) d.trash = [];
+    d = pruneOldKeys(d); if (!d.schedule) d.schedule = ["push",null,"pull",null,"legs",null,null]; return d; }
   catch { return { sessions: {}, history: {}, swaps: {}, skipped: {}, customWorkouts: {}, customSets: {}, addedEx: {}, resuming: null, dbMode: "single", trash: [], schedule: ["push",null,"pull",null,"legs",null,null] }; }
 }
 function saveData(d) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); } catch {} }
@@ -1391,8 +1409,8 @@ function App() {
 
   useEffect(() => { saveData(data); }, [data]);
 
-  // Single tick useEffect - depends only on running flag
-  // Uses endsAtRef instead of timer.endsAt to avoid stale closure
+  // Тик таймера. Зависит и от endsAt: без этого повторный startTimer при уже
+  // запущенном таймере гасил интервал и не создавал новый - время замирало.
   useEffect(() => {
     clearInterval(timerRef.current);
     if (!timer || !timer.running) return;
@@ -1410,7 +1428,7 @@ function App() {
       } catch(e) {}
     }, 500);
     return function() { clearInterval(timerRef.current); };
-  }, [timer ? timer.running : false]);
+  }, [timer ? timer.running : false, timer ? timer.endsAt : 0]);
 
   // Keep endsAtRef in sync when addTime changes endsAt
   useEffect(function() {
@@ -1483,7 +1501,7 @@ function App() {
         }
         return { id: rex.id, name: rex.name, reps: rex.reps, sets: sets, added: !!e._added };
       });
-      var entry = { date: today, workout: activeDay, name: (getWorkout(activeDay) || {}).name || activeDay, done: prog.done, total: prog.total, ts: Date.now(), detail: detail, src: "auto" };
+      var entry = { date: today, workout: activeDay, name: (getWorkout(activeDay) || {}).name || activeDay, done: prog.done, total: prog.total, ts: Date.now(), detail: detail, src: "auto", dbMode: (data.dbMode || "single") };
       var d = loadData();
       if (!d.history) d.history = {};
       var res = d.resuming;
@@ -1500,7 +1518,7 @@ function App() {
       if (!d.history[activeDay]) d.history[activeDay] = [];
       var idx = d.history[activeDay].findIndex(function(e) { return e.date === today; });
       if (idx >= 0) { d.history[activeDay][idx] = entry; }
-      else { d.history[activeDay] = [entry].concat(d.history[activeDay]).slice(0, 30); }
+      else { d.history[activeDay] = [entry].concat(d.history[activeDay]).slice(0, HISTORY_LIMIT); }
       saveData(d);
     }
     function onHide() { if (document.visibilityState === "hidden") autoSave(); }
@@ -1572,7 +1590,7 @@ function App() {
 
   // Resolve exercise - may be swapped
   function getExercise(originalId) {
-    const swappedId = (data.swaps && data.swaps[activeDay] && data.swaps[activeDay][originalId]);
+    const swappedId = (data.swaps && data.swaps[sessionKey] && data.swaps[sessionKey][originalId]);
     if (swappedId) {
       const alt = (ALTERNATIVES[originalId] || []).find(a => a.id === swappedId);
       if (alt) return { ...alt, _originalId: originalId, _isSwapped: true };
@@ -1581,18 +1599,19 @@ function App() {
     return { ...prog, _originalId: originalId, _isSwapped: false };
   }
 
-  // skipped[day] = Set of originalIds that are hidden for today's session
+  // skipped[sessionKey] - пропуски действуют только на текущую тренировку,
+  // на следующей неделе список снова полный
   function isSkipped(exId) {
-    const sk = data.skipped && data.skipped[activeDay];
+    const sk = data.skipped && data.skipped[sessionKey];
     return sk ? sk.indexOf(exId) >= 0 : false;
   }
   function toggleSkip(exId) {
     setData(prev => {
       const sk = JSON.parse(JSON.stringify(prev.skipped || {}));
-      if (!sk[activeDay]) sk[activeDay] = [];
-      const idx = sk[activeDay].indexOf(exId);
-      if (idx >= 0) sk[activeDay].splice(idx, 1);
-      else sk[activeDay].push(exId);
+      if (!sk[sessionKey]) sk[sessionKey] = [];
+      const idx = sk[sessionKey].indexOf(exId);
+      if (idx >= 0) sk[sessionKey].splice(idx, 1);
+      else sk[sessionKey].push(exId);
       return { ...prev, skipped: sk };
     });
   }
@@ -1769,8 +1788,12 @@ function App() {
     setData(prev => {
       const cw = JSON.parse(JSON.stringify(prev.customWorkouts || {}));
       delete cw[id];
-      return { ...prev, customWorkouts: cw };
+      // Убираем из расписания, иначе останется ссылка в никуда
+      const sched = (prev.schedule || ["push", null, "pull", null, "legs", null, null])
+        .map(k => k === id ? null : k);
+      return { ...prev, customWorkouts: cw, schedule: sched };
     });
+    showToast("Тренировка удалена");
   }
 
   function getWorkout(dayKey) {
@@ -1879,9 +1902,9 @@ function App() {
   function swapExercise(originalId, newId) {
     setData(prev => {
       const swaps = JSON.parse(JSON.stringify(prev.swaps || {}));
-      if (!swaps[activeDay]) swaps[activeDay] = {};
-      if (newId === originalId) { delete swaps[activeDay][originalId]; }
-      else { swaps[activeDay][originalId] = newId; }
+      if (!swaps[sessionKey]) swaps[sessionKey] = {};
+      if (newId === originalId) { delete swaps[sessionKey][originalId]; }
+      else { swaps[sessionKey][originalId] = newId; }
       return { ...prev, swaps };
     });
     setSwapModal(null);
@@ -1919,9 +1942,12 @@ function App() {
   function isDumbbell(name) {
     return /гантел/i.test(name || "");
   }
-  function weightUnit(name) {
+  function weightUnit(name, mode) {
     if (!isDumbbell(name)) return "кг";
-    return (data.dbMode || "single") === "single" ? "кг/шт" : "кг общ";
+    // mode передаётся для исторических записей - они показываются в том режиме,
+    // в котором записывались, а не в текущем
+    const m = mode || data.dbMode || "single";
+    return m === "single" ? "кг/шт" : "кг общ";
   }
 
   function getSetData(exId, setIdx) {
@@ -1961,7 +1987,8 @@ function App() {
     const newDone = !cur.done;
     updateSet(exId, setIdx, "done", newDone);
     if (newDone) {
-      if (!timer || !timer.running || timer.left === 0) startTimer(restStr);
+      // Каждый закрытый подход начинает отдых заново
+      startTimer(restStr);
       // Check if a new exercise just became fully done
       setTimeout(() => {
         const prog = getDayProgress();
@@ -2022,7 +2049,8 @@ function App() {
       if (!history[wk]) history[wk] = [];
       if (!history[wk].some(e => e.ts === entry.ts)) {
         delete entry._deletedAt;
-        history[wk] = [entry, ...history[wk]].sort((a, b) => b.ts - a.ts).slice(0, 30);
+        // Не обрезаем сразу после вставки - иначе старая запись вылетит обратно
+        history[wk] = [entry, ...history[wk]].sort((a, b) => b.ts - a.ts).slice(0, HISTORY_LIMIT + 1);
       }
       return { ...prev, history, trash };
     });
@@ -2035,8 +2063,12 @@ function App() {
   }
 
   function resumeSession(entry) {
-    if (data.resuming && data.resuming.ts !== entry.ts) {
-      showToast("Сначала заверши или отмени текущее дополнение");
+    const switching = !!(data.resuming && data.resuming.ts !== entry.ts);
+    const eKey = `${entry.date}_${entry.workout}`;
+    const hasSession = data.sessions[eKey] && Object.keys(data.sessions[eKey]).length > 0;
+    const hasTodaySession = data.sessions[`${todayKey()}_${entry.workout}`] && Object.keys(data.sessions[`${todayKey()}_${entry.workout}`]).length > 0;
+    if (!(entry.detail && entry.detail.length) && !hasSession && !hasTodaySession) {
+      showToast("В этой записи нет данных о подходах  -  дополнять нечего");
       return;
     }
     setActiveDay(entry.workout);
@@ -2045,6 +2077,11 @@ function App() {
     const todKey = `${todayKey()}_${entry.workout}`;
     setData(prev => {
       const sessions = JSON.parse(JSON.stringify(prev.sessions || {}));
+      // Если уже дополняли другую запись - сначала откатываем её правки
+      const old = prev.resuming;
+      if (old && old.ts !== entry.ts && old.key) {
+        if (old.snapSession) sessions[old.key] = old.snapSession; else delete sessions[old.key];
+      }
       let restored = sessions[todKey];
       // Сессия могла быть очищена при сохранении - тогда восстанавливаем из detail
       if (!restored || Object.keys(restored).length === 0) {
@@ -2066,6 +2103,9 @@ function App() {
       if (restored) sessions[todKey] = restored;
       // Добавленные на лету упражнения тоже возвращаем
       const ae = JSON.parse(JSON.stringify(prev.addedEx || {}));
+      if (old && old.ts !== entry.ts && old.key) {
+        if (old.snapAdded) ae[old.key] = old.snapAdded; else delete ae[old.key];
+      }
       if (entry.detail) {
         const extra = entry.detail.filter(d => d.added);
         if (extra.length > 0 && !(ae[todKey] || []).length) {
@@ -2080,8 +2120,9 @@ function App() {
       }
       return { ...prev, sessions, addedEx: ae, resuming: { ts: entry.ts, date: entry.date, workout: entry.workout, name: entry.name, key: todKey, snapSession: snapSession, snapAdded: snapAdded } };
     });
-    lastPromptedExDone.current = 0;
-    showToast("Дополняешь тренировку от " + new Date(entry.date).toLocaleDateString("ru", { day: "numeric", month: "short" }));
+    // Порог ставим на текущий уровень, иначе попап выскочит на первой же отметке
+    setTimeout(() => { lastPromptedExDone.current = getDayProgress().exDone; }, 100);
+    showToast((switching ? "Переключились на " : "Дополняешь тренировку от ") + new Date(entry.date).toLocaleDateString("ru", { day: "numeric", month: "short" }));
   }
 
   function cancelResume() {
@@ -2119,7 +2160,7 @@ function App() {
       }
       return { id: rex.id, name: rex.name, reps: rex.reps, sets: sets, added: !!e._added };
     });
-    const entry = { date: today, workout: activeDay, name: (getWorkout(activeDay) || {}).name || activeDay, done: prog.done, total: prog.total, ts: Date.now(), detail: detail, src: "manual" };
+    const entry = { date: today, workout: activeDay, name: (getWorkout(activeDay) || {}).name || activeDay, done: prog.done, total: prog.total, ts: Date.now(), detail: detail, src: "manual", dbMode: (data.dbMode || "single") };
     const res = data.resuming;
     const isUpdate = res
       ? true
@@ -2134,13 +2175,13 @@ function App() {
           arr[i] = { ...entry, date: res.date, ts: res.ts, name: arr[i].name, src: "manual" };
           history[res.workout] = arr;
         } else {
-          history[activeDay] = [entry, ...(history[activeDay] || [])].slice(0, 30);
+          history[activeDay] = [entry, ...(history[activeDay] || [])].slice(0, HISTORY_LIMIT);
         }
       } else {
         if (!history[activeDay]) history[activeDay] = [];
         const existingIdx = history[activeDay].findIndex(e => e.date === today);
         if (existingIdx >= 0) history[activeDay][existingIdx] = entry;
-        else history[activeDay] = [entry, ...history[activeDay]].slice(0, 30);
+        else history[activeDay] = [entry, ...history[activeDay]].slice(0, HISTORY_LIMIT);
       }
       const sessions = JSON.parse(JSON.stringify(prev.sessions || {}));
       delete sessions[sessionKey];
@@ -2169,11 +2210,11 @@ function App() {
     // Старые записи не имели detail - их веса лежат только в sessions.
     // Ключ date|exId, чтобы одна тренировка не посчиталась дважды.
     const byKey = {};
-    const put = (date, ts, exId, name, weights) => {
+    const put = (date, ts, exId, name, weights, workout) => {
       const w = weights.filter(x => x > 0);
       if (!w.length) return;
       const k = date + "|" + exId;
-      const rec = { date: date, ts: ts, id: exId, name: name, maxW: Math.max.apply(null, w), volume: w.reduce((a, b) => a + b, 0), sets: w.length };
+      const rec = { date: date, ts: ts, id: exId, name: name, workout: workout || "", maxW: Math.max.apply(null, w), volume: w.reduce((a, b) => a + b, 0), sets: w.length };
       // Сортируем по дате тренировки: ts у записей журнала - момент сохранения,
       // у сессий - полночь даты. Разные основы дали бы неверный порядок.
       // detail точнее сессии - если уже есть, не перетираем
@@ -2184,7 +2225,7 @@ function App() {
     Object.values(data.history || {}).flat().forEach(entry => {
       (entry.detail || []).forEach(d => {
         put(entry.date, entry.ts, d.id, d.name,
-          (d.sets || []).filter(s => s.done && s.w).map(s => parseFloat(s.w) || 0));
+          (d.sets || []).filter(s => s.done && s.w).map(s => parseFloat(s.w) || 0), entry.workout);
       });
     });
 
@@ -2193,12 +2234,13 @@ function App() {
       const us = key.lastIndexOf("_");
       if (us < 0) return;
       const date = key.slice(0, us);
+      const wk = key.slice(us + 1);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
       const ts = new Date(date).getTime();
       Object.keys(data.sessions[key] || {}).forEach(exId => {
         const sets = data.sessions[key][exId] || {};
         put(date, ts, exId, exNameById(exId),
-          Object.values(sets).filter(s => s && s.done && s.weight).map(s => parseFloat(s.weight) || 0));
+          Object.values(sets).filter(s => s && s.done && s.weight).map(s => parseFloat(s.weight) || 0), wk);
       });
     });
 
@@ -2221,6 +2263,99 @@ function App() {
     return Object.keys(counts)
       .map(id => ({ id: id, name: names[id], count: counts[id] }))
       .sort((a, b) => b.count - a.count);
+  }
+
+  function weekKey(dateStr) {
+    // Номер недели с понедельника, стабильный ключ для группировки
+    const d = new Date(dateStr);
+    const dow = d.getDay() === 0 ? 6 : d.getDay() - 1;
+    const monday = new Date(d.getTime() - dow * 86400000);
+    return monday.toISOString().slice(0, 10);
+  }
+
+  function getWeeklyStats() {
+    // Объём и число тренировок по неделям, новые -> старые
+    const recs = collectExerciseData();
+    const byWeek = {};
+    recs.forEach(r => {
+      const wk = weekKey(r.date);
+      if (!byWeek[wk]) byWeek[wk] = { week: wk, volume: 0, sets: 0, days: {} };
+      byWeek[wk].volume += r.volume;
+      byWeek[wk].sets += r.sets;
+      byWeek[wk].days[r.date] = true;
+    });
+    return Object.values(byWeek)
+      .map(w => ({ ...w, workouts: Object.keys(w.days).length }))
+      .sort((a, b) => a.week < b.week ? 1 : -1);
+  }
+
+  function getOverallProgress() {
+    const recs = collectExerciseData();
+    const weeks = getWeeklyStats();
+    const cur = weeks[0] || { volume: 0, workouts: 0, sets: 0 };
+    const prev = weeks[1] || { volume: 0, workouts: 0, sets: 0 };
+    const totalVolume = recs.reduce((a, r) => a + r.volume, 0);
+    const totalSets = recs.reduce((a, r) => a + r.sets, 0);
+    const days = {};
+    recs.forEach(r => { days[r.date] = true; });
+    const pctVol = prev.volume > 0 ? Math.round((cur.volume - prev.volume) / prev.volume * 100) : null;
+    return {
+      totalVolume: totalVolume, totalSets: totalSets, totalWorkouts: Object.keys(days).length,
+      curWeek: cur, prevWeek: prev,
+      deltaVolume: cur.volume - prev.volume, pctVolume: pctVol,
+      deltaWorkouts: cur.workouts - prev.workouts,
+      weeks: weeks,
+    };
+  }
+
+  function getExerciseWeekDelta(exId) {
+    // Изменение максимального веса относительно прошлой недели
+    const recs = collectExerciseData().filter(r => r.id === exId);
+    if (!recs.length) return null;
+    const weeks = {};
+    recs.forEach(r => {
+      const wk = weekKey(r.date);
+      if (!weeks[wk] || r.maxW > weeks[wk]) weeks[wk] = r.maxW;
+    });
+    const keys = Object.keys(weeks).sort().reverse();
+    if (keys.length < 2) return null;
+    return { cur: weeks[keys[0]], prev: weeks[keys[1]], delta: weeks[keys[0]] - weeks[keys[1]] };
+  }
+
+  function groupTrackedByWorkout() {
+    // Упражнения, сгруппированные по тренировке, в порядке расписания
+    const recs = collectExerciseData();
+    const meta = {};
+    recs.forEach(r => {
+      if (!meta[r.id]) meta[r.id] = { id: r.id, name: r.name, count: 0, workouts: {} };
+      meta[r.id].count++;
+      if (r.workout) meta[r.id].workouts[r.workout] = (meta[r.id].workouts[r.workout] || 0) + 1;
+    });
+    const groups = {};
+    Object.values(meta).forEach(m => {
+      // Относим к тренировке, где упражнение встречалось чаще всего
+      const wks = Object.keys(m.workouts);
+      let best = "";
+      wks.forEach(w => { if (!best || m.workouts[w] > m.workouts[best]) best = w; });
+      const key = best || "_other";
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(m);
+    });
+    const order = getScheduledDayKeys().concat(Object.keys(groups).filter(k => k !== "_other")).concat(["_other"]);
+    const seen = {};
+    const out = [];
+    order.forEach(k => {
+      if (seen[k] || !groups[k]) return;
+      seen[k] = true;
+      const w = k === "_other" ? null : getWorkout(k);
+      out.push({
+        key: k,
+        name: w ? w.name : "ДРУГИЕ",
+        color: w ? w.color : "#666",
+        items: groups[k].sort((a, b) => b.count - a.count),
+      });
+    });
+    return out;
   }
 
   function computeAch() {
@@ -2351,7 +2486,7 @@ function App() {
                   if (!day) return null;
                   const isActive = activeDay === key;
                   return (
-                    <button key={key} onClick={() => { setActiveDay(key); setExpandedEx(null); lastPromptedExDone.current = 0; }}
+                    <button key={key} onClick={() => { setActiveDay(key); setExpandedEx(null); lastPromptedExDone.current = 0; stopTimer(); }}
                       style={{ minWidth: 80, padding: "12px 8px", borderRadius: 8, border: "1px solid", borderColor: isActive ? day.color : "#1a1a22", background: isActive ? `${day.color}18` : "#0f0f12", cursor: "pointer", transition: "all 0.2s", fontFamily: "inherit", position: "relative" }}>
                       {day.isCustom && <div style={{ position: "absolute", top: 4, right: 4, width: 5, height: 5, borderRadius: "50%", background: day.color }} />}
                       <div style={{ fontSize: 8, color: isActive ? day.color : "#555", letterSpacing: 2, marginBottom: 3 }}>{day.label}</div>
@@ -2717,7 +2852,7 @@ function App() {
                                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: doneSets.length ? 8 : 0 }}>
                                     <div style={{ fontSize: 12, color: doneSets.length ? "#ddd" : "#555", fontWeight: 600, flex: 1 }}>{ex.name}</div>
                                     {ex.added && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: "#1a2a1a", color: "#5a9a5a", letterSpacing: 1 }}>ДОБАВЛЕНО</span>}
-                                    {maxW > 0 && <span style={{ fontSize: 12, color: day.color, fontWeight: 700, whiteSpace: "nowrap" }}>{maxW} {weightUnit(ex.name)}</span>}
+                                    {maxW > 0 && <span style={{ fontSize: 12, color: day.color, fontWeight: 700, whiteSpace: "nowrap" }}>{maxW} {weightUnit(ex.name, entry.dbMode)}</span>}
                                   </div>
                                   {doneSets.length > 0 && (
                                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -2748,7 +2883,7 @@ function App() {
                               </button>
                             </>
                           )}
-                          {!isResuming && incomplete && !otherResuming && (
+                          {!isResuming && incomplete && (
                             <button onClick={() => resumeSession(entry)}
                               style={{ flex: 1, padding: "11px 12px", borderRadius: 8, border: "1px solid #f7a84450", background: "#f7a84410", color: "#f7a844", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 42 }}>
                               ДОПОЛНИТЬ
@@ -2829,6 +2964,22 @@ function App() {
                         ))}
                       </div>
 
+                      {(() => {
+                        const wd = getExerciseWeekDelta(journalEx.id);
+                        if (!wd) return null;
+                        return (
+                          <div style={{ display: "flex", alignItems: "center", gap: 12, background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "14px 16px", marginBottom: 20 }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 9, letterSpacing: 2, color: "#666", marginBottom: 4 }}>К ПРОШЛОЙ НЕДЕЛЕ</div>
+                              <div style={{ fontSize: 11, color: "#888" }}>{wd.prev} {"->"} {wd.cur} {weightUnit(journalEx.name)}</div>
+                            </div>
+                            <div style={{ fontSize: 17, fontWeight: 700, color: wd.delta > 0 ? "#00d4aa" : wd.delta < 0 ? "#ff6b6b" : "#777", flexShrink: 0 }}>
+                              {wd.delta > 0 ? "+" : ""}{wd.delta}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
                       <div style={{ fontSize: 10, letterSpacing: 2, color: "#666", marginBottom: 12 }}>ДИНАМИКА ВЕСА</div>
                       <div style={{ display: "flex", gap: 4, alignItems: "flex-end", height: 130, marginBottom: 8, background: "#0a0a0d", borderRadius: 10, padding: "12px 10px", border: "1px solid #161620" }}>
                         {prog.map((p, pi) => {
@@ -2868,32 +3019,117 @@ function App() {
                     <div style={{ textAlign: "center", padding: "60px 20px", color: "#555", fontSize: 13, lineHeight: 1.7 }}>
                       Пока нет данных для прогрессии.<br />Заверши пару тренировок с записанными весами.
                     </div>
-                  ) : (
+                  ) : (() => {
+                    const ov = getOverallProgress();
+                    const groups = groupTrackedByWorkout();
+                    const maxWeekVol = Math.max.apply(null, ov.weeks.slice(0, 8).map(w => w.volume).concat([1]));
+                    return (
                     <>
-                      <div style={{ fontSize: 10, letterSpacing: 2, color: "#666", marginBottom: 12 }}>ВЫБЕРИ УПРАЖНЕНИЕ</div>
-                      {tracked.map(t => {
-                        const p = getExerciseProgression(t.id);
-                        const last = p.length ? p[p.length - 1].maxW : 0;
-                        const first = p.length ? p[0].maxW : 0;
-                        const d = last - first;
-                        return (
-                          <div key={t.id} onClick={() => setJournalEx(t)}
-                            style={{ display: "flex", alignItems: "center", gap: 12, background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "14px 14px", marginBottom: 6, cursor: "pointer" }}>
-                            <div style={{ flex: 1 }}>
-                              <div style={{ fontSize: 13, color: "#fff", fontWeight: 600, marginBottom: 3 }}>{t.name}</div>
-                              <div style={{ fontSize: 10, color: "#666" }}>{t.count} трен  |  макс {last} {weightUnit(t.name)}</div>
+                      <div style={{ fontSize: 10, letterSpacing: 2, color: "#666", marginBottom: 10 }}>ЗА ВСЁ ВРЕМЯ</div>
+                      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+                        {[["ТРЕН", ov.totalWorkouts], ["ПОДХОДОВ", ov.totalSets], ["ТОНН", Math.round(ov.totalVolume / 1000)]].map(s => (
+                          <div key={s[0]} style={{ flex: 1, background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "12px 6px", textAlign: "center" }}>
+                            <div style={{ fontSize: 17, fontWeight: 700, color: "#ddd", marginBottom: 3 }}>{s[1]}</div>
+                            <div style={{ fontSize: 8, color: "#666", letterSpacing: 2 }}>{s[0]}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div style={{ fontSize: 10, letterSpacing: 2, color: "#666", marginBottom: 10 }}>ЭТА НЕДЕЛЯ К ПРОШЛОЙ</div>
+                      <div style={{ background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 12, padding: "16px 16px", marginBottom: 16 }}>
+                        <div style={{ display: "flex", alignItems: "flex-end", gap: 12, marginBottom: 14 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 22, fontWeight: 700, color: "#fff", lineHeight: 1.2 }}>
+                              {Math.round(ov.curWeek.volume)} <span style={{ fontSize: 12, color: "#666" }}>кг</span>
                             </div>
-                            {d !== 0 && (
-                              <div style={{ fontSize: 12, fontWeight: 700, color: d > 0 ? "#00d4aa" : "#ff6b6b", flexShrink: 0 }}>
-                                {d > 0 ? "+" : ""}{d}
+                            <div style={{ fontSize: 10, color: "#666", marginTop: 4 }}>
+                              было {Math.round(ov.prevWeek.volume)} кг
+                            </div>
+                          </div>
+                          <div style={{ textAlign: "right" }}>
+                            <div style={{ fontSize: 18, fontWeight: 700, color: ov.deltaVolume > 0 ? "#00d4aa" : ov.deltaVolume < 0 ? "#ff6b6b" : "#777" }}>
+                              {ov.deltaVolume > 0 ? "+" : ""}{Math.round(ov.deltaVolume)}
+                            </div>
+                            {ov.pctVolume !== null && (
+                              <div style={{ fontSize: 10, color: ov.pctVolume > 0 ? "#00d4aa" : ov.pctVolume < 0 ? "#ff6b6b" : "#777", marginTop: 2 }}>
+                                {ov.pctVolume > 0 ? "+" : ""}{ov.pctVolume}%
                               </div>
                             )}
-                            <div style={{ fontSize: 14, color: "#555", flexShrink: 0 }}>{">"}</div>
                           </div>
-                        );
-                      })}
+                        </div>
+                        <div style={{ display: "flex", gap: 16, fontSize: 10, color: "#666", paddingTop: 12, borderTop: "1px solid #1a1a22" }}>
+                          <span>тренировок: <span style={{ color: "#aaa" }}>{ov.curWeek.workouts}</span>
+                            {ov.deltaWorkouts !== 0 && <span style={{ color: ov.deltaWorkouts > 0 ? "#00d4aa" : "#ff6b6b" }}> ({ov.deltaWorkouts > 0 ? "+" : ""}{ov.deltaWorkouts})</span>}
+                          </span>
+                          <span>подходов: <span style={{ color: "#aaa" }}>{ov.curWeek.sets}</span></span>
+                        </div>
+                      </div>
+
+                      {ov.weeks.length > 1 && (
+                        <>
+                          <div style={{ fontSize: 10, letterSpacing: 2, color: "#666", marginBottom: 10 }}>ОБЪЁМ ПО НЕДЕЛЯМ</div>
+                          <div style={{ display: "flex", gap: 4, alignItems: "flex-end", height: 90, background: "#0a0a0d", borderRadius: 10, padding: "12px 10px", border: "1px solid #161620", marginBottom: 6 }}>
+                            {ov.weeks.slice(0, 8).reverse().map((wk, wi, arr) => {
+                              const h = Math.max(4, Math.round((wk.volume / maxWeekVol) * 58));
+                              const isLast = wi === arr.length - 1;
+                              return (
+                                <div key={wi} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 0 }}>
+                                  <div style={{ fontSize: 8, color: isLast ? w.color : "#666" }}>{Math.round(wk.volume / 1000 * 10) / 10}т</div>
+                                  <div style={{ width: "100%", height: h, borderRadius: 3, background: isLast ? w.color : "#2a2a3a" }} />
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div style={{ display: "flex", gap: 4, marginBottom: 24 }}>
+                            {ov.weeks.slice(0, 8).reverse().map((wk, wi) => (
+                              <div key={wi} style={{ flex: 1, fontSize: 8, color: "#555", textAlign: "center", minWidth: 0, overflow: "hidden" }}>
+                                {wk.week.slice(5).replace("-", ".")}
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+
+                      {groups.map(g => (
+                        <div key={g.key} style={{ marginBottom: 20 }}>
+                          <div style={{ fontSize: 10, letterSpacing: 2, color: "#888", marginBottom: 8, paddingBottom: 6, borderBottom: `1px solid ${g.color}30`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span style={{ color: g.color }}>{g.name}</span>
+                            <span style={{ fontSize: 9, color: "#555" }}>{g.items.length}</span>
+                          </div>
+                          {g.items.map(t => {
+                            const p = getExerciseProgression(t.id);
+                            const last = p.length ? p[p.length - 1].maxW : 0;
+                            const first = p.length ? p[0].maxW : 0;
+                            const d = last - first;
+                            const wd = getExerciseWeekDelta(t.id);
+                            return (
+                              <div key={t.id} onClick={() => setJournalEx(t)}
+                                style={{ display: "flex", alignItems: "center", gap: 12, background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "14px 14px", marginBottom: 6, cursor: "pointer" }}>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontSize: 13, color: "#fff", fontWeight: 600, marginBottom: 3 }}>{t.name}</div>
+                                  <div style={{ fontSize: 10, color: "#666" }}>
+                                    {t.count} трен  |  макс {last} {weightUnit(t.name)}
+                                    {wd && wd.delta !== 0 && (
+                                      <span style={{ color: wd.delta > 0 ? "#00d4aa" : "#ff6b6b" }}>
+                                        {"  |  за неделю "}{wd.delta > 0 ? "+" : ""}{wd.delta}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                {d !== 0 && (
+                                  <div style={{ fontSize: 12, fontWeight: 700, color: d > 0 ? "#00d4aa" : "#ff6b6b", flexShrink: 0 }}>
+                                    {d > 0 ? "+" : ""}{d}
+                                  </div>
+                                )}
+                                <div style={{ fontSize: 14, color: "#555", flexShrink: 0 }}>{">"}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
                     </>
-                  )
+                    );
+                  })()
                 )
               )}
             </div>
@@ -3367,7 +3603,7 @@ function App() {
 
       {swapModal && (() => {
         const baseEx = ((getWorkout(activeDay) || PROGRAM.push).exercises || []).find(e => e.id === swapModal);
-        const currentSwap = (data.swaps && data.swaps[activeDay] && data.swaps[activeDay][swapModal]);
+        const currentSwap = (data.swaps && data.swaps[sessionKey] && data.swaps[sessionKey][swapModal]);
         const alts = ALTERNATIVES[swapModal] || [];
         return (
           <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center" }}
