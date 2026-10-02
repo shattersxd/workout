@@ -1,0 +1,25 @@
+
+
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { err: null }; }
+  static getDerivedStateFromError(e) { return { err: e }; }
+  componentDidCatch(e, info) {
+    try { showErr("React crash: " + e.message + "\n" + (info && info.componentStack ? info.componentStack.slice(0, 400) : "")); } catch(x) {}
+  }
+  render() {
+    if (this.state.err) {
+      return React.createElement("div", { style: { padding: "20px", color: "#ff6b6b", fontFamily: "monospace", fontSize: "13px", whiteSpace: "pre-wrap", background: "#0c0c0f", minHeight: "100vh" } },
+        "\u274c React Error:\n\n" + this.state.err.message + "\n\n" + (this.state.err.stack || "").slice(0, 600)
+      );
+    }
+    return this.props.children;
+  }
+}
+ReactDOM.createRoot(document.getElementById('root')).render(
+  React.createElement(ErrorBoundary, null, React.createElement(App))
+);
+
+</script>
+
+</body>
+</html>

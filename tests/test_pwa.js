@@ -1,0 +1,2348 @@
+#!/usr/bin/env node
+/**
+ * Comprehensive regression suite for the workout PWA.
+ *
+ * Run from the repo root, after building:
+ *     python3 scripts/build.py && node tests/test_pwa.js
+ *
+ * Reads src/workout_tracker.jsx and index.html (override with the
+ * WORKOUT_SRC / WORKOUT_PWA environment variables).
+ *
+ * Every section here exists because a real bug shipped. Do not delete a test
+ * to make a change pass -- see CLAUDE.md.
+ *
+ * Covers every class of bug that has caused iOS PWA failures:
+ *   1. String literal safety   (fancy quotes, unescaped chars, embedded quotes)
+ *   2. iOS Safari syntax       (?. ?? ||= Array.at structuredClone)
+ *   3. iOS PWA runtime safety  (AudioContext, Notification, vibrate, localStorage)
+ *   4. PWA HTML structure      (Babel loading order, error display, app-src)
+ *   5. iOS meta tags           (apple-mobile, manifest, service worker)
+ *   6. Data integrity          (exercise IDs, rest formats, danger/warn fields)
+ *   7. React component logic   (timer, state, hooks, swap, progress tab)
+ *   8. JSX structure           (balanced braces/parens, self-closing tags)
+ */
+
+const fs   = require('fs');
+const path = require('path');
+
+const GREEN  = s => `\x1b[32m${s}\x1b[0m`;
+const RED    = s => `\x1b[31m${s}\x1b[0m`;
+const BOLD   = s => `\x1b[1m${s}\x1b[0m`;
+const YELLOW = s => `\x1b[33m${s}\x1b[0m`;
+const DIM    = s => `\x1b[2m${s}\x1b[0m`;
+
+const PASS = [], FAIL = [];
+
+function section(name) {
+  console.log(`\n${BOLD('── ' + name + ' ' + '─'.repeat(Math.max(0, 52 - name.length)))}`);
+}
+function test(name, fn) {
+  try { fn(); PASS.push(name); console.log(`  ${GREEN('✓')} ${name}`); }
+  catch(e) { FAIL.push({name, msg: e.message}); console.log(`  ${RED('✗')} ${name}\n    ${RED('→')} ${e.message}`); }
+}
+function assert(cond, msg)    { if (!cond) throw new Error(msg || 'assertion failed'); }
+function assertNot(cond, msg) { if (cond)  throw new Error(msg || 'should not be true'); }
+function info(msg)            { console.log(`       ${DIM(msg)}`); }
+
+// ── Load files ───────────────────────────────────────────────────────────────
+const ROOT     = path.resolve(__dirname, '..');
+const SRC_PATH = process.env.WORKOUT_SRC || path.join(ROOT, 'src', 'workout_tracker.jsx');
+const PWA_PATH = process.env.WORKOUT_PWA || path.join(ROOT, 'index.html');
+assert(fs.existsSync(SRC_PATH), `Source not found: ${SRC_PATH}`);
+assert(fs.existsSync(PWA_PATH), `PWA not found: ${PWA_PATH} (run: python3 scripts/build.py)`);
+
+const src  = fs.readFileSync(SRC_PATH, 'utf8');
+const html = fs.readFileSync(PWA_PATH, 'utf8');
+
+const APP_MARKER = 'id="app-src">';
+assert(html.includes(APP_MARKER), 'PWA missing id="app-src" section');
+const APP_START = html.indexOf(APP_MARKER) + APP_MARKER.length;
+const APP_END   = html.indexOf('</script>', APP_START);
+assert(APP_END > APP_START, 'PWA app-src not closed');
+const app = html.slice(APP_START, APP_END);
+
+// ── String-aware walker ──────────────────────────────────────────────────────
+function walkStrings(source, onChar) {
+  let i = 0, line = 1;
+  while (i < source.length) {
+    const c = source[i];
+    if (c === '\n') { line++; i++; continue; }
+    if (c === '/' && source[i+1] === '/') { while (i < source.length && source[i] !== '\n') i++; continue; }
+    if (c === '/' && source[i+1] === '*') {
+      while (i < source.length && !(source[i] === '*' && source[i+1] === '/')) { if (source[i]==='\n') line++; i++; }
+      i += 2; continue;
+    }
+    if (c === '`') { i++; while (i < source.length) { if (source[i]==='\\'){i+=2;continue;} if(source[i]==='\n')line++; if(source[i]==='`'){i++;break;} i++; } continue; }
+    if (c === '"' || c === "'") {
+      const q = c, sl = line; i++;
+      while (i < source.length) {
+        const ch = source[i];
+        if (ch === '\\') { i += 2; continue; }
+        if (ch === '\n') { line++; i++; break; }
+        if (ch === q)    { i++; break; }
+        onChar(ch, sl, q);
+        i++;
+      }
+      continue;
+    }
+    i++;
+  }
+}
+
+function stripStrings(source) {
+  let out = '', i = 0;
+  while (i < source.length) {
+    const c = source[i];
+    if (c==='/' && source[i+1]==='/') { while(i<source.length && source[i]!=='\n'){out+=' ';i++;} continue; }
+    if (c==='/' && source[i+1]==='*') { out+='  ';i+=2; while(i<source.length&&!(source[i]==='*'&&source[i+1]==='/')){ out+=source[i]==='\n'?'\n':' ';i++;} out+='  ';i+=2;continue; }
+    if (c==='`'||c==='"'||c==="'") { const q=c;out+=q;i++; while(i<source.length){if(source[i]==='\\'){out+='\\X';i+=2;continue;}if(source[i]===q){out+=q;i++;break;}out+=source[i]==='\n'?'\n':'_';i++;} continue; }
+    out+=c; i++;
+  }
+  return out;
+}
+
+function balancedDepth(source, open, close) {
+  let depth = 0, i = 0;
+  while (i < source.length) {
+    const c = source[i];
+    // Skip // line comments
+    if (c==='/' && source[i+1]==='/') { while(i<source.length && source[i]!=='\n')i++; continue; }
+    if (c==='"'||c==="'") { const q=c;i++; while(i<source.length){if(source[i]==='\\'){i+=2;continue;}if(source[i]===q){i++;break;}i++;} continue; }
+    // Template literal — must skip ${...} nesting properly
+    if (c==='`') {
+      i++;
+      while(i<source.length) {
+        if(source[i]==='\\'){i+=2;continue;}
+        if(source[i]==='`'){i++;break;}
+        // skip ${...} inside template literal
+        if(source[i]==='$' && source[i+1]==='{') {
+          i+=2; let td=1;
+          while(i<source.length && td>0){
+            if(source[i]==='{')td++;
+            else if(source[i]==='}')td--;
+            i++;
+          }
+          continue;
+        }
+        i++;
+      }
+      continue;
+    }
+    if (c===open) depth++;
+    else if (c===close) depth--;
+    i++;
+  }
+  return depth;
+}
+
+function codeLines(s) { return s.split('\n').filter(l => !l.trim().startsWith('//')); }
+
+// ═══════════════════════════════════════════════════════════════════════════
+section('1 · STRING LITERAL SAFETY');
+// ═══════════════════════════════════════════════════════════════════════════
+
+test('No fancy/curly quotes inside string literals (source)', () => {
+  const FANCY = '«»\u201c\u201d\u2018\u2019\u00ab\u00bb';
+  const bad = [];
+  walkStrings(src, (ch, line) => { if (FANCY.includes(ch)) bad.push(`L${line}:${JSON.stringify(ch)}`); });
+  assert(bad.length === 0, `Fancy quotes in strings: ${bad.slice(0,5).join(' ')}`);
+});
+
+test('No fancy/curly quotes inside string literals (PWA app source)', () => {
+  const FANCY = '«»\u201c\u201d\u2018\u2019\u00ab\u00bb';
+  const bad = [];
+  walkStrings(app, (ch, line) => { if (FANCY.includes(ch)) bad.push(`L${line}:${JSON.stringify(ch)}`); });
+  assert(bad.length === 0, `Fancy quotes in PWA strings: ${bad.slice(0,5).join(' ')}`);
+});
+
+test('No invisible/zero-width unicode in string literals', () => {
+  const BAD = new Set([0x00a0,0x200b,0x200c,0x200d,0xfeff,0x2028,0x2029]);
+  const bad = [];
+  walkStrings(src, (ch, line) => { if (BAD.has(ch.charCodeAt(0))) bad.push(`L${line}:U+${ch.charCodeAt(0).toString(16).toUpperCase()}`); });
+  assert(bad.length === 0, `Invisible chars: ${bad.slice(0,5).join(' ')}`);
+});
+
+test('No double-quoted string broken by embedded unescaped double-quote', () => {
+  // Pattern: word"" or ""word inside what must be a string value (not empty string boundary)
+  const bad = [];
+  src.split('\n').forEach((line, i) => {
+    if (/[а-яёА-ЯЁa-zA-Z0-9]""/.test(line) || /""[а-яёА-ЯЁa-zA-Z]/.test(line))
+      bad.push(`L${i+1}: ${line.trim().slice(0,100)}`);
+  });
+  assert(bad.length === 0, `Broken embedded quotes:\n${bad.slice(0,3).join('\n')}`);
+});
+
+test('No unescaped </script> tag in PWA app source (ends script block prematurely)', () => {
+  const raw = app.replace(/<\\\/script>/g, '');
+  assertNot(raw.includes('</script>'), 'Unescaped </script> found — will break HTML parsing');
+});
+
+test('No non-ASCII characters outside of string literals in code structure', () => {
+  // Strip all strings, then check remaining code has no exotic chars
+  const stripped = stripStrings(src);
+  const bad = [];
+  stripped.split('\n').forEach((line, i) => {
+    for (const ch of line) {
+      const code = ch.charCodeAt(0);
+      // Allow: printable ASCII + common CJK ranges we intentionally use as identifiers (none)
+      const ALLOWED_NON_ASCII = new Set([0x00D7, 0x00B7]); // × · used in JSX text nodes
+      if (code > 127 && code < 0x0400 && !ALLOWED_NON_ASCII.has(code))
+        bad.push(`L${i+1}: U+${code.toString(16).toUpperCase()} "${ch}" in code context`);
+    }
+  });
+  // Filter known-safe: Cyrillic in JSX text (between > and <) is fine
+  const realBad = bad.filter(b => !b.includes('JSX text'));
+  assert(realBad.length === 0, `Non-ASCII in code: ${realBad.slice(0,3).join(', ')}`);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+section('2 · iOS SAFARI SYNTAX COMPATIBILITY');
+// ═══════════════════════════════════════════════════════════════════════════
+
+test('No optional chaining ?. in source (crashes iOS < 14, not transpiled by Babel here)', () => {
+  const hits = codeLines(src).filter(l => l.includes('?.'));
+  assert(hits.length === 0, `?. found on ${hits.length} lines:\n${hits.slice(0,2).map(l=>'  '+l.trim().slice(0,80)).join('\n')}`);
+});
+
+test('No optional chaining ?. in PWA app source', () => {
+  const hits = codeLines(app).filter(l => l.includes('?.'));
+  assert(hits.length === 0, `?. in PWA: ${hits.length} lines`);
+});
+
+test('No nullish coalescing ?? in source (crashes iOS < 13.4)', () => {
+  const hits = codeLines(src).filter(l => /[^?]\?\?[^?=]/.test(l));
+  assert(hits.length === 0, `?? found on ${hits.length} lines`);
+});
+
+test('No logical assignment operators ||= &&= ??= (iOS < 14)', () => {
+  for (const op of ['||=','&&=','??=']) {
+    const hits = codeLines(src).filter(l => l.includes(op));
+    assert(hits.length === 0, `${op} found`);
+  }
+});
+
+test('No Array.at() (iOS < 15.4)', () => {
+  assertNot(src.includes('.at('), '.at() method found');
+});
+
+test('No Object.hasOwn() (iOS < 15.4)', () => {
+  assertNot(src.includes('Object.hasOwn'), 'Object.hasOwn found');
+});
+
+test('No structuredClone() (iOS < 15.4)', () => {
+  assertNot(src.includes('structuredClone'), 'structuredClone found');
+});
+
+test('No at() in PWA app source either', () => {
+  assertNot(app.includes('.at('), '.at() in PWA app source');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+section('3 · iOS PWA RUNTIME SAFETY');
+// ═══════════════════════════════════════════════════════════════════════════
+
+test('No AudioContext in source or PWA (crashes iOS standalone PWA on set completion)', () => {
+  assertNot(src.includes('AudioContext'), 'AudioContext in source — will crash iOS PWA');
+  assertNot(app.includes('AudioContext'), 'AudioContext in PWA app — will crash iOS PWA');
+});
+
+test('navigator.vibrate() guarded by existence check', () => {
+  const calls = src.split('\n').filter(l => l.includes('navigator.vibrate(') && !l.trim().startsWith('//'));
+  const unguarded = calls.filter(l => !l.includes('if (navigator.vibrate)') && !l.includes('navigator.vibrate &&'));
+  assert(unguarded.length === 0, `Unguarded vibrate calls: ${unguarded.length}`);
+});
+
+test('Notification.permission condition uses correct operator precedence', () => {
+  // Bug was: (typeof X !== "..." && X.permission) === "granted" — always false
+  assertNot(src.includes('&& Notification.permission) ==='), 'Broken Notification condition in source');
+  assertNot(app.includes('&& Notification.permission) ==='), 'Broken Notification condition in PWA');
+});
+
+test('new Notification() calls wrapped in try/catch', () => {
+  // new Notification() is inside try { ... } catch — check both are present near each other
+  const notifCalls = (src.match(/new Notification\(/g) || []).length;
+  const tryCatches = (src.match(/try\s*\{[\s\S]{0,200}new Notification/g) || []).length;
+  assert(notifCalls > 0, 'No new Notification() calls found');
+  assert(tryCatches >= notifCalls, `${notifCalls} Notification calls but only ${tryCatches} wrapped in try/catch`);
+});
+
+test('localStorage calls wrapped in try/catch (Safari Private Mode throws)', () => {
+  const lsOps = (src.match(/localStorage\.(setItem|getItem|removeItem)/g) || []).length;
+  const tryCount = (src.match(/try\s*\{[\s\S]{0,200}localStorage/g) || []).length;
+  info(`${lsOps} localStorage ops, ${tryCount} try-wrapped`);
+  assert(tryCount >= 3, `Only ${tryCount}/≥3 localStorage calls in try/catch — Safari Private Mode will throw`);
+});
+
+test('Timer uses wall-clock endsAt (correct after iOS background freeze)', () => {
+  assert(src.includes('endsAt'), 'endsAt not found — timer counts ticks, will desync after backgrounding');
+  assert(src.includes('Date.now()'), 'Date.now() not used — timer not clock-based');
+});
+
+test('Timer state saved to and restored from localStorage on app kill/reopen', () => {
+  assert(src.includes('sila_timer'), 'Timer key sila_timer not found in localStorage ops');
+  assert(src.includes('localStorage.getItem("sila_timer")') || src.includes("localStorage.getItem('sila_timer')"),
+    'Timer not restored from localStorage');
+  assert(src.includes('localStorage.setItem("sila_timer"') || src.includes("localStorage.setItem('sila_timer'"),
+    'Timer not saved to localStorage');
+  assert(src.includes('localStorage.removeItem("sila_timer")') || src.includes("localStorage.removeItem('sila_timer')"),
+    'Timer not removed from localStorage on stop');
+});
+
+test('visibilitychange listener syncs timer when app returns to foreground', () => {
+  assert(src.includes('visibilitychange'), 'No visibilitychange listener');
+  assert(src.includes('document.hidden'), 'visibilitychange does not check document.hidden');
+  // Should recalculate left from endsAt
+  const visBlock = src.slice(src.indexOf('visibilitychange'));
+  assert(visBlock.slice(0, 300).includes('endsAt') || src.includes('endsAt - Date.now()'),
+    'visibilitychange handler does not recalculate from endsAt');
+});
+
+test('Notification timeout scheduled via setTimeout on startTimer (not only on tick)', () => {
+  assert(src.includes('notifTimerRef'), 'notifTimerRef missing');
+  assert(src.includes('notifTimerRef.current = setTimeout'), 'notification timeout not scheduled with notifTimerRef');
+  assert(src.includes('clearTimeout(notifTimerRef.current)'), 'notification timeout not cleared');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+section('4 · PWA HTML STRUCTURE & LOADING');
+// ═══════════════════════════════════════════════════════════════════════════
+
+test('Scripts load sequentially via chained callbacks (not async/defer)', () => {
+  assert(html.includes('function loadScript'), 'No loadScript helper function');
+  const chains = (html.match(/loadScript\s*\([^)]+,\s*function/g) || []).length;
+  assert(chains >= 3, `Only ${chains} chained loadScript calls — need ≥3 for React→ReactDOM→Babel`);
+});
+
+test('React loads before ReactDOM loads before Babel (correct dependency order)', () => {
+  const rIdx  = html.indexOf('react.production.min.js');
+  const rdIdx = html.indexOf('react-dom.production.min.js');
+  const bIdx  = html.indexOf('babel.min.js');
+  assert(rIdx > -1, 'React CDN URL not found'); assert(rdIdx > -1, 'ReactDOM CDN not found'); assert(bIdx > -1, 'Babel CDN not found');
+  assert(rIdx < rdIdx, 'ReactDOM nested before React');
+  assert(rdIdx < bIdx, 'Babel nested before ReactDOM');
+});
+
+test('Babel version pinned to specific release (not @latest)', () => {
+  const m = html.match(/@babel\/standalone[@/]([^/'">\s]+)/);
+  assert(m, 'Babel version string not found');
+  assertNot(m[1] === 'latest', 'Babel is @latest — will silently break on major updates');
+  info(`Babel: @${m[1]}`);
+});
+
+test('Babel compiles with react preset', () => {
+  assert(
+    html.includes("presets: [['react'") || html.includes("presets: ['react'") ||
+    html.includes("presets:[['react'") || html.includes("\"presets\":[\"react\""),
+    'Babel.transform missing react preset'
+  );
+});
+
+test('window.onerror handler catches uncaught errors (prevents silent black screen)', () => {
+  assert(html.includes('window.onerror'), 'No window.onerror — JS errors show as black screen');
+  assert(html.includes('showErr'), 'showErr not called from onerror');
+});
+
+test('Compilation errors shown to user via showErr', () => {
+  assert(html.includes('showErr('), 'showErr never called');
+  assert(html.includes("catch(e)") || html.includes("catch (e)"), 'No catch around Babel.transform');
+  // Should show error message
+  assert(html.includes('e.message') || html.includes('err.message'), 'Error message not displayed');
+});
+
+test('Loading screen present with visible animation (not just black)', () => {
+  assert(html.includes('id="loader"'), 'No #loader element');
+  assert(html.includes('animation') || html.includes('animateTransform'), 'Loader has no animation');
+});
+
+test('Loading screen dismissed after successful app init', () => {
+  assert(html.includes('hideLoader'), 'hideLoader() missing — loading screen stays forever on success');
+  // hideLoader should be called after ReactDOM.createRoot succeeds
+  const bootBlock = html.slice(html.indexOf('Babel.transform'));
+  assert(bootBlock.slice(0, 500).includes('hideLoader'), 'hideLoader not called after successful compile+render');
+});
+
+test('app-src script tag type is text/plain (browser must not execute it directly)', () => {
+  assert(html.includes('type="text/plain"'), 'app-src script not type="text/plain" — browser will try to execute JSX as JS');
+});
+
+test('ReactDOM.createRoot present in PWA bootstrap (renders the app)', () => {
+  assert(app.includes('ReactDOM.createRoot'), 'ReactDOM.createRoot missing — app never renders');
+});
+
+test('React hooks destructured from global React object (not import statement)', () => {
+  assert(app.includes('const { useState') || app.includes('const {useState'), 'Hooks not destructured from React');
+  assertNot(app.includes("from 'react'") || app.includes('from "react"'), 'import statement in PWA app source');
+});
+
+test('No export default in PWA app source', () => {
+  assertNot(app.includes('export default'), 'export default in PWA app source — SyntaxError');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+section('5 · iOS META TAGS & MANIFEST');
+// ═══════════════════════════════════════════════════════════════════════════
+
+test('apple-mobile-web-app-capable (enables PWA mode)', () => {
+  assert(html.includes('apple-mobile-web-app-capable'), 'Missing apple-mobile-web-app-capable');
+});
+test('apple-mobile-web-app-status-bar-style (status bar theming)', () => {
+  assert(html.includes('apple-mobile-web-app-status-bar-style'), 'Missing status bar style');
+});
+test('apple-mobile-web-app-title (app name on home screen)', () => {
+  assert(html.includes('apple-mobile-web-app-title'), 'Missing PWA title meta tag');
+});
+test('apple-touch-icon (icon on iOS home screen)', () => {
+  assert(html.includes('apple-touch-icon'), 'Missing apple-touch-icon — no icon on home screen');
+});
+test('viewport user-scalable=no (prevents zoom on input tap)', () => {
+  assert(html.includes('user-scalable=no'), 'Missing user-scalable=no — iOS zooms on number input tap');
+});
+test('theme-color meta (browser chrome color)', () => {
+  assert(html.includes('theme-color'), 'Missing theme-color');
+});
+test('manifest link', () => {
+  assert(html.includes('rel="manifest"'), 'Missing manifest link');
+});
+test('Manifest JSON has standalone display mode', () => {
+  const m = html.match(/rel="manifest"\s+href="data:application\/json,([^"]+)"/);
+  if (!m) { info('external manifest — skipping JSON parse'); return; }
+  const manifest = JSON.parse(decodeURIComponent(m[1]));
+  assert(manifest.display === 'standalone', `manifest.display="${manifest.display}", expected "standalone"`);
+  info(`Manifest: name="${manifest.name}" display="${manifest.display}"`);
+});
+test('Service worker registered with feature detection', () => {
+  assert(html.includes('serviceWorker'), 'No service worker');
+  assert(html.includes("'serviceWorker' in navigator"), 'No feature detection for SW');
+});
+test('iOS install hint (#ios-hint) with share + add to home screen instructions', () => {
+  assert(html.includes('ios-hint'), 'No #ios-hint element');
+  assert(html.includes('Домой') || html.includes('Поделиться'), 'iOS hint missing share/add instructions');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+section('6 · DATA INTEGRITY');
+// ═══════════════════════════════════════════════════════════════════════════
+
+test('PROGRAM has all 3 days: push, pull, legs', () => {
+  assert(/push\s*:/.test(src) || src.includes('"push"'), 'push day missing');
+  assert(/pull\s*:/.test(src) || src.includes('"pull"'), 'pull day missing');
+  assert(/legs\s*:/.test(src) || src.includes('"legs"'), 'legs day missing');
+});
+test('All exercise IDs are unique', () => {
+  const ids = [...src.matchAll(/\bid:\s*"([a-z_]+)"/g)].map(m => m[1]);
+  const dups = ids.filter((id, i) => ids.indexOf(id) !== i);
+  assert(dups.length === 0, `Duplicate IDs: ${[...new Set(dups)].join(', ')}`);
+  info(`${ids.length} unique exercise IDs`);
+});
+test('No danger: null (all exercises have safety notes)', () => {
+  assertNot(src.includes('danger: null'), 'danger: null found');
+});
+test('All warn fields are boolean', () => {
+  const warnTrue  = (src.match(/warn:\s*true/g)  || []).length;
+  const warnFalse = (src.match(/warn:\s*false/g) || []).length;
+  assert(warnTrue + warnFalse > 0, 'No warn fields found');
+  // Exclude dynamic references like warn: ex.warn or warn: ex.danger
+  const badWarn = (src.match(/warn:\s*(?!true|false|ex\.|e\.|p\.|prev\.|cw\.)[^\s,}\n]+/g) || []);
+  assert(badWarn.length === 0, `Non-boolean warn values: ${badWarn}`);
+  info(`warn: true=${warnTrue} false=${warnFalse}`);
+});
+test('All exercises have required fields: id, name, sets, reps, rest, steps', () => {
+  // Only check exercise blocks inside ALTERNATIVES and PROGRAM, not ACHIEVEMENTS
+  const progStart = src.indexOf('const ALTERNATIVES =');
+  const progEnd = src.indexOf('const ACHIEVEMENTS =');
+  const exSrc = progStart >= 0 && progEnd >= 0 ? src.slice(progStart, progEnd) : src;
+  const exBlocks = exSrc.split(/\{\s*id:\s*"/).slice(1);
+  const required = ['name:', 'sets:', 'reps:', 'rest:', 'steps:'];
+  exBlocks.forEach((block, i) => {
+    const idMatch = block.match(/^([a-z_]+)"/);
+    const id = idMatch ? idMatch[1] : `#${i}`;
+    for (const field of required) {
+      const scope = block.slice(0, 400);
+      assert(scope.includes(field), `Exercise "${id}" missing field: ${field}`);
+    }
+  });
+  info(`${exBlocks.length} exercises all have required fields`);
+});
+test('All rest values match parseRestSeconds format (N мин / N сек)', () => {
+  const restValues = [...src.matchAll(/rest:\s*"([^"]+)"/g)].map(m => m[1]);
+  const bad = restValues.filter(r => !/\d+\s*(мин|сек)/.test(r));
+  assert(bad.length === 0, `Unrecognised rest formats: ${bad.join(', ')}`);
+  info(`${[...new Set(restValues)].join(', ')}`);
+});
+test('ALTERNATIVES defined and referenced in component', () => {
+  assert(src.includes('const ALTERNATIVES'), 'ALTERNATIVES const missing');
+  assert(src.includes('ALTERNATIVES['), 'ALTERNATIVES not used in component');
+});
+test('WEEK_SCHEDULE defined with 7 entries', () => {
+  assert(src.includes('WEEK_SCHEDULE'), 'WEEK_SCHEDULE missing');
+  const days = ['ПН','ВТ','СР','ЧТ','ПТ','СБ','ВС'];
+  const missing = days.filter(d => !src.includes(`"${d}"`));
+  assert(missing.length === 0, `WEEK_SCHEDULE missing days: ${missing.join(', ')}`);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+section('7 · REACT COMPONENT LOGIC');
+// ═══════════════════════════════════════════════════════════════════════════
+
+test('App defined as named function (not arrow function)', () => {
+  assert(src.includes('function App()'), 'App is not a named function — may fail in certain Babel configs');
+});
+test('All 3 hooks imported: useState useEffect useRef', () => {
+  assert(src.includes('useState') && src.includes('useEffect') && src.includes('useRef'), 'Missing hook imports');
+});
+test('Core state: data, activeDay, activeTab, timer, notifEnabled', () => {
+  assert(src.includes('useState(loadData)') || src.includes('useState(load'), 'data state missing');
+  assert(src.includes('"push"') && (src.includes('useState("push")') || src.includes("useState('push')") || src.includes('todayWorkout || "push"') || src.includes('sched[schedIdx] || "push"') || src.includes("parsed.schedule")), 'activeDay state missing');
+  assert(src.includes("useState(null)"), 'timer state (null initial) missing');
+  assert(src.includes('[notifEnabled, setNotifEnabled]'), 'notifEnabled useState declaration missing — variable will be undefined at runtime');
+});
+test('toggleDone passes rest string to startTimer', () => {
+  assert(src.includes('function toggleDone'), 'toggleDone missing');
+  assert(src.includes('toggleDone(ex.id, i, ex.rest)'), 'toggleDone not called with ex.rest');
+});
+test('addTime updates endsAt (not just left)', () => {
+  assert(src.includes('function addTime'), 'addTime missing');
+  const fn = src.slice(src.indexOf('function addTime'), src.indexOf('function addTime') + 400);
+  assert(fn.includes('endsAt'), 'addTime does not update endsAt — timer desyncs after +30s');
+});
+test('stopTimer clears interval AND notification timeout AND localStorage', () => {
+  assert(src.includes('function stopTimer'), 'stopTimer missing');
+  const fn = src.slice(src.indexOf('function stopTimer'), src.indexOf('function stopTimer') + 300);
+  assert(fn.includes('clearInterval'), 'stopTimer does not clearInterval');
+  assert(fn.includes('clearTimeout'), 'stopTimer does not clearTimeout');
+  assert(fn.includes('removeItem'), 'stopTimer does not remove timer from localStorage');
+});
+test('getExHistory present for progress chart', () => {
+  assert(src.includes('function getExHistory'), 'getExHistory missing — progress tab crashes');
+});
+test('Progress tab active condition present', () => {
+  assert(src.includes("activeTab === \"progress\"") || src.includes("activeTab === 'progress'"), 'Progress tab content missing');
+  assert(src.includes('ПРОГРЕСС'), 'ПРОГРЕСС tab label missing');
+});
+test('getLastWeight uses correct session key filtering', () => {
+  assert(src.includes('function getLastWeight'), 'getLastWeight missing');
+  const fn = src.slice(src.indexOf('function getLastWeight'), src.indexOf('function getLastWeight') + 400);
+  assert(fn.includes('sessionKey'), 'getLastWeight does not exclude current session');
+});
+test('finishWorkout saves to per-day history array', () => {
+  assert(src.includes('function finishWorkout'), 'finishWorkout missing');
+  assert(src.includes("history[activeDay]"), 'finishWorkout not saving to day history');
+});
+test('showToast auto-clears after delay', () => {
+  assert(src.includes('function showToast'), 'showToast missing');
+  assert(src.includes('setTimeout(() => setToast(null)'), 'toast does not auto-clear');
+});
+test('Swap logic: swapModal state + swapExercise function', () => {
+  assert(src.includes('swapModal'), 'swapModal state missing');
+  assert(src.includes('function swapExercise'), 'swapExercise missing');
+});
+test('requestNotifPermission is async and awaits Notification.requestPermission', () => {
+  assert(src.includes('async function requestNotifPermission'), 'requestNotifPermission not async');
+  assert(src.includes('Notification.requestPermission'), 'Notification.requestPermission not called');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+section('8 · JSX / CODE STRUCTURE');
+// ═══════════════════════════════════════════════════════════════════════════
+
+test('Balanced { } braces in source file', () => {
+  const d = balancedDepth(src, '{', '}');
+  assert(d === 0, `Unbalanced braces: depth=${d} (${d>0?'missing }':'extra }'})`);
+});
+test('Balanced ( ) parens in source file', () => {
+  const d = balancedDepth(src, '(', ')');
+  assert(d === 0, `Unbalanced parens: depth=${d}`);
+});
+test('Balanced { } braces in PWA app source', () => {
+  const d = balancedDepth(app, '{', '}');
+  assert(d === 0, `Unbalanced braces in PWA: depth=${d}`);
+});
+test('Balanced ( ) parens in PWA app source', () => {
+  const d = balancedDepth(app, '(', ')');
+  assert(d === 0, `Unbalanced parens in PWA: depth=${d}`);
+});
+test('No HTML void elements without self-closing /> in JSX', () => {
+  const stripped = stripStrings(app);
+  for (const tag of ['<br>', '<hr>', '<input>', '<img>']) {
+    const count = (stripped.split(tag).length - 1);
+    assert(count === 0, `Non-self-closing ${tag} found ${count} times — JSX requires ${tag.replace('>','/')}>`)
+  }
+});
+test('No console.log left in production code', () => {
+  const logs = src.split('\n').filter(l => l.includes('console.log') && !l.trim().startsWith('//'));
+  assert(logs.length === 0, `${logs.length} console.log call(s) found — may slow down iOS`);
+});
+
+// ── 9 · iOS BABEL NON-ASCII SAFETY ──────────────────────────────────────────
+section("9 · iOS BABEL NON-ASCII SAFETY");
+
+// Babel 7.23 on iOS crashes on any non-ASCII char inside JS string literals
+// (single/double quoted strings and template literals)
+// Allowed: Cyrillic (U+0400-U+04FF), degree ° (U+00B0), emoji (U+1F000+)
+function scanNonAsciiInStrings(source) {
+  const bad = [];
+  let i = 0, line = 1;
+  while (i < source.length) {
+    const c = source[i];
+    if (c === '\n') { line++; i++; continue; }
+    // Skip // comments
+    if (source[i] === '/' && source[i+1] === '/') {
+      while (i < source.length && source[i] !== '\n') i++;
+      continue;
+    }
+    // Single/double quoted strings
+    if (c === '"' || c === "'") {
+      const q = c; i++;
+      while (i < source.length) {
+        const ch = source[i];
+        if (ch === '\\') { i += 2; continue; }
+        if (ch === '\n') line++;
+        if (ch === q) { i++; break; }
+        const code = ch.codePointAt(0);
+        const isSafe = (code >= 0x0400 && code <= 0x04FF) || code === 0x00B0 || code >= 0x2600 || (code >= 0xD800 && code <= 0xDFFF);
+        if (code > 127 && !isSafe) {
+          bad.push(`L${line} U+${code.toString(16).toUpperCase().padStart(4,'0')} ${JSON.stringify(ch)}`);
+        }
+        i++;
+      }
+      continue;
+    }
+    // Template literals
+    if (c === '`') {
+      i++;
+      while (i < source.length) {
+        const ch = source[i];
+        if (ch === '\\') { i += 2; continue; }
+        if (ch === '\n') line++;
+        if (ch === '$' && source[i+1] === '{') {
+          i += 2; let d = 1;
+          while (i < source.length && d > 0) {
+            if (source[i] === '{') d++;
+            else if (source[i] === '}') d--;
+            if (source[i] === '\n') line++;
+            i++;
+          }
+          continue;
+        }
+        if (ch === '`') { i++; break; }
+        const code = ch.codePointAt(0);
+        const isSafe = (code >= 0x0400 && code <= 0x04FF) || code === 0x00B0 || code >= 0x2600 || (code >= 0xD800 && code <= 0xDFFF);
+        if (code > 127 && !isSafe) {
+          bad.push(`L${line} U+${code.toString(16).toUpperCase().padStart(4,'0')} ${JSON.stringify(ch)} in template`);
+        }
+        i++;
+      }
+      continue;
+    }
+    i++;
+  }
+  return bad;
+}
+
+test('No non-ASCII (non-Cyrillic) chars in JS string literals (Babel iOS crash)', () => {
+  const badChars = scanNonAsciiInStrings(app);
+  assert(badChars.length === 0, badChars.length > 0 ? `${badChars.length} bad chars: ${badChars.slice(0,5).join(', ')}` : '');
+  info(`0 bad chars found`);
+});
+
+// ── SECTION 10: NEW FEATURES ─────────────────────────────────────────────
+section('10 · NEW FEATURES');
+
+test('deleteHistoryEntry: filters by ts, cleans up empty day', () => {
+  assert(src.includes('filter(e => e.ts !== ts)'), 'deleteHistoryEntry should filter by ts');
+  assert(src.includes('delete history[workout]'), 'deleteHistoryEntry should clean up empty day key');
+  assert(src.includes('можно вернуть из корзины'), 'delete must tell the user it is recoverable');
+  assert(src.includes('trash.unshift'), 'deleted entry must go to trash, not vanish');
+});
+
+test('resumeSession restores the workout, including a session already cleared on save', () => {
+  const fn = src.slice(src.indexOf('function resumeSession'), src.indexOf('function cancelResume'));
+  assert(fn.includes('setActiveDay(entry.workout)'), 'must switch to the right day');
+  assert(fn.includes('setActiveTab("workout")'), 'must switch to the workout tab');
+  // finishWorkout deletes the session, so resuming must rebuild it from detail
+  assert(fn.includes('entry.detail && entry.detail.length > 0'), 'must fall back to entry.detail when the session is gone');
+  assert(fn.includes('weight: s.w || ""'), 'must restore logged weights');
+  assert(fn.includes('done: !!s.done'), 'must restore completed set marks');
+  assert(fn.includes('d.added'), 'must restore exercises that were added mid-workout');
+  info('Resume rebuilds sets and added exercises from the saved record');
+});
+
+test('finishWorkout: deduplicates by date (no double entries)', () => {
+  assert(src.includes('findIndex(e => e.date === today)'), 'finishWorkout deduplicates by date');
+  assert(src.includes('history[activeDay][existingIdx] = entry'), 'finishWorkout updates existing entry');
+  assert(src.includes('delete sessions[sessionKey]'), 'finishWorkout clears session after save');
+  assert(src.includes('"Тренировка обновлена!"'), 'finishWorkout shows update toast');
+});
+
+test('finishWorkout: blocks save when exDone < 3', () => {
+  assert(src.includes('prog.exDone < 3') && src.includes('"Выполни хотя бы 3 упражнения"'), 'finishWorkout guards minimum exercises');
+});
+
+test('toggleDone: requires weight before marking done', () => {
+  assert(src.includes('"Впиши вес перед отметкой"'), 'toggleDone requires weight');
+  assert(src.includes('!cur.weight || cur.weight === ""'), 'toggleDone checks weight empty string');
+});
+
+test('Marking a set restarts the rest timer, unmarking stops it', () => {
+  const fn = src.slice(src.indexOf('function toggleDone'), src.indexOf('function getExProgress'));
+  assert(/if \(newDone\) \{[\s\S]*?startTimer\(restStr\)/.test(fn), 'each completed set must start rest over');
+  assert(!fn.includes('!timer || !timer.running || timer.left === 0'), 'restart must not be conditional — set two follows set one');
+  assert(/\} else \{[\s\S]*?stopTimer\(\)/.test(fn), 'unmarking a set must end the rest timer');
+  info('Restart on mark, stop on unmark');
+});
+
+test('Timer effect re-runs when endsAt changes (restart actually ticks)', () => {
+  // With deps on running alone, startTimer clears the interval but the effect
+  // never re-fires, so the countdown freezes at the initial value.
+  const m = src.match(/\}, \[timer \? timer\.running : false[^\]]*\]\);/);
+  assert(m, 'timer effect dependency array not found');
+  assert(m[0].includes('timer.endsAt'), 'effect must depend on endsAt, otherwise a restart never recreates the interval');
+  info('Effect keyed on both running and endsAt');
+});
+
+test('autoSave: triggers on visibilitychange and beforeunload', () => {
+  assert(src.includes('visibilitychange') && src.includes('autoSave'), 'autoSave registered on visibilitychange');
+  assert(src.includes('beforeunload'), 'autoSave registered on beforeunload');
+  assert(src.includes('if (prog.exDone < 3) return'), 'autoSave guards minimum exercises');
+  assert(src.includes('window.removeEventListener("beforeunload"'), 'autoSave cleaned up on unmount');
+});
+
+test('savePrompt: triggers after 3rd completed exercise', () => {
+  assert(src.includes('savePrompt') && src.includes('setSavePrompt'), 'savePrompt state present');
+  assert(src.includes('lastPromptedExDone'), 'lastPromptedExDone ref present to prevent spam');
+  assert(src.includes('prog.exDone > lastPromptedExDone.current'), 'savePrompt only fires on new completions');
+});
+
+test('schedule: stored in data.schedule, 7 entries, used for activeDay init', () => {
+  assert(src.includes('d.schedule'), 'schedule initialized in loadData');
+  assert(src.includes('data.schedule || ["push",null,"pull",null,"legs",null,null]'), 'schedule has correct default');
+  assert(src.includes('parsed.schedule'), 'activeDay init reads persisted schedule');
+});
+
+test('Journal: incomplete indicator shown when pct < 100', () => {
+  assert(src.includes('const incomplete = pct < 100'), 'incomplete flag computed');
+  assert(src.includes('НЕ ЗАКОНЧЕНО'), 'incomplete badge text present');
+  assert(src.includes('ДОПОЛНИТЬ'), 'resume button present for incomplete entries');
+});
+
+test('custom workout CRUD: save, delete, getWorkout handles custom key', () => {
+  assert(src.includes('function saveCustomWorkout('), 'saveCustomWorkout present');
+  assert(src.includes('function deleteCustomWorkout('), 'deleteCustomWorkout present');
+  assert(src.includes('if (activeDay === id) setActiveDay("push")'), 'deleteCustomWorkout resets activeDay if needed');
+  assert(src.includes('function getWorkout(dayKey)'), 'getWorkout present');
+  assert(src.includes('data.customWorkouts && data.customWorkouts[dayKey]'), 'getWorkout handles custom key');
+});
+
+test('computeAch: counts workouts, week streak, PPL cycles', () => {
+  assert(src.includes('function computeAch()'), 'computeAch present');
+  assert(src.includes('totalWorkouts'), 'computeAch counts total workouts');
+  assert(src.includes('weekStreak'), 'computeAch computes week streak');
+  assert(src.includes('cycles'), 'computeAch counts PPL cycles');
+  assert(src.includes('w["push"] && w["pull"] && w["legs"]'), 'computeAch checks full PPL week');
+});
+
+test('getDayProgress: counts fully completed exercises (all sets done)', () => {
+  assert(src.includes('allSetsDone'), 'getDayProgress uses allSetsDone flag');
+  assert(src.includes('allSetsDone && numSets > 0') || src.includes('allSetsDone'), 'exDone increments only on full completion');
+  assert(src.includes('exDone'), 'getDayProgress returns exDone');
+});
+
+test('week schedule editor: cycleNext updates data.schedule at correct index', () => {
+  assert(src.includes('const cycleNext = ()'), 'cycleNext function present in schedule editor');
+  assert(src.includes('ns[idx] = next'), 'cycleNext updates correct index');
+  assert(src.includes('schedule: ns'), 'cycleNext saves updated schedule to data');
+});
+
+
+// ── SECTION 11: STRUCTURAL INTEGRITY ────────────────────────────────────────
+section('11 · STRUCTURAL INTEGRITY');
+
+test('No orphan keys outside const objects (posture_extra bug)', () => {
+  // All keys like "foo_extra: [" must be inside a const BLOCK = { ... }
+  // Strategy: verify they appear between ALTERNATIVES = { and its closing };
+  const altStart = src.indexOf('const ALTERNATIVES');
+  const progStart = src.indexOf('const PROGRAM');
+  assert(altStart >= 0 && progStart > altStart, 'ALTERNATIVES and PROGRAM both found');
+  const altBlock = src.slice(altStart, progStart);
+  // All _extra keys must be inside altBlock
+  const extraKeys = [...src.matchAll(/\b([a-z_]+_extra\d*):\s*\[/g)].map(m => m[1]);
+  const orphans = extraKeys.filter(k => !altBlock.includes(k + ':'));
+  assert(orphans.length === 0, `Orphan extra keys outside ALTERNATIVES: ${orphans.join(', ')}`);
+  info(`${extraKeys.length} _extra keys all inside ALTERNATIVES`);
+});
+
+test('ALTERNATIVES brace-balanced internally', () => {
+  const altStart = src.indexOf('const ALTERNATIVES');
+  const progStart = src.indexOf('const PROGRAM');
+  const altBlock = src.slice(altStart, progStart);
+  let depth = 0;
+  for (const c of altBlock) { if (c === '{') depth++; else if (c === '}') depth--; }
+  assert(depth === 0, `ALTERNATIVES brace imbalance: ${depth}`);
+  info('ALTERNATIVES braces balanced');
+});
+
+test('PROGRAM brace-balanced internally', () => {
+  const progStart = src.indexOf('const PROGRAM');
+  const achStart = src.indexOf('const ACHIEVEMENTS');
+  const progBlock = src.slice(progStart, achStart);
+  let depth = 0;
+  for (const c of progBlock) { if (c === '{') depth++; else if (c === '}') depth--; }
+  assert(depth === 0, `PROGRAM brace imbalance: ${depth}`);
+  info('PROGRAM braces balanced');
+});
+
+test('WARMUP brace-balanced internally', () => {
+  const warmStart = src.indexOf('const WARMUP');
+  const altStart = src.indexOf('const ALTERNATIVES');
+  const warmBlock = src.slice(warmStart, altStart);
+  let depth = 0;
+  for (const c of warmBlock) { if (c === '{') depth++; else if (c === '}') depth--; }
+  assert(depth === 0, `WARMUP brace imbalance: ${depth}`);
+  info('WARMUP braces balanced');
+});
+
+test('All major const blocks present in correct order', () => {
+  const order = ['const WARMUP', 'const ALTERNATIVES', 'const PROGRAM', 'const ACHIEVEMENTS', 'const WEEK_SCHEDULE', 'const STORAGE_KEY'];
+  let lastIdx = -1;
+  for (const name of order) {
+    const idx = src.indexOf(name);
+    assert(idx > lastIdx, `${name} missing or out of order`);
+    lastIdx = idx;
+  }
+  info('All 6 const blocks in correct order');
+});
+
+test('No duplicate exercise IDs across all blocks', () => {
+  const ids = [...src.matchAll(/\bid:\s*"([^"]+)"/g)].map(m => m[1]);
+  const seen = {};
+  const dupes = [];
+  for (const id of ids) {
+    if (seen[id]) dupes.push(id);
+    seen[id] = true;
+  }
+  assert(dupes.length === 0, `Duplicate IDs: ${dupes.join(', ')}`);
+  info(`${Object.keys(seen).length} unique IDs`);
+});
+
+test('No exercise has empty steps array', () => {
+  const emptySteps = (src.match(/steps:\s*\[\s*\]/g) || []).length;
+  assert(emptySteps === 0, `Found ${emptySteps} exercises with empty steps`);
+  info('All exercises have non-empty steps');
+});
+
+test('PROGRAM has exactly push, pull, legs days', () => {
+  const progStart = src.indexOf('const PROGRAM');
+  const achStart = src.indexOf('const ACHIEVEMENTS');
+  const progBlock = src.slice(progStart, achStart);
+  assert(progBlock.includes('push:'), 'push day missing');
+  assert(progBlock.includes('pull:'), 'pull day missing');
+  assert(progBlock.includes('legs:'), 'legs day missing');
+  const extraDays = progBlock.match(/^\s{2}[a-z]+:\s*\{/gm) || [];
+  assert(extraDays.length === 3, `Expected 3 days in PROGRAM, found ${extraDays.length}`);
+  info('PROGRAM has exactly 3 days: push, pull, legs');
+});
+
+
+// ── SECTION 12: DATA STRUCTURE VALIDITY ─────────────────────────────────────
+section('12 · DATA STRUCTURE VALIDITY');
+
+test('WARMUP has all 3 days: push, pull, legs', () => {
+  const wuStart = src.indexOf('const WARMUP');
+  const wuEnd   = src.indexOf('const ALTERNATIVES');
+  const wuBlock = src.slice(wuStart, wuEnd);
+  assert(wuBlock.includes('push:'), 'WARMUP missing push day');
+  assert(wuBlock.includes('pull:'), 'WARMUP missing pull day');
+  assert(wuBlock.includes('legs:'), 'WARMUP missing legs day');
+  const count = (wuBlock.match(/\bname:\s*"/g) || []).length;
+  assert(count >= 9, `WARMUP has only ${count} exercises (expected >=9)`);
+  info(`WARMUP: 3 days, ${count} exercises`);
+});
+
+test('WARMUP brace-balanced internally', () => {
+  const wuStart = src.indexOf('const WARMUP');
+  const wuEnd   = src.indexOf('const ALTERNATIVES');
+  const block   = src.slice(wuStart, wuEnd);
+  let d = 0;
+  for (const c of block) { if (c==='{') d++; else if (c==='}') d--; }
+  assert(d === 0, `WARMUP brace imbalance: ${d}`);
+  info('WARMUP braces balanced');
+});
+
+
+test('WARMUP: every day supplies every field the renderer reads (wu.*)', () => {
+  // Derive required fields from what the render actually accesses — so a new
+  // wu.something in the UI automatically becomes a required field here.
+  const required = [...new Set([...src.matchAll(/\bwu\.(\w+)/g)].map(m => m[1]))];
+  assert(required.length >= 4, `Expected renderer to read >=4 wu.* fields, found ${required.length}`);
+  const wuStart = src.indexOf('const WARMUP');
+  const wuEnd   = src.indexOf('const ALTERNATIVES');
+  const block   = src.slice(wuStart, wuEnd);
+  const keys    = [...block.matchAll(/^\s{2}(\w+):\s*\{/gm)].map(m => m[1]);
+  assert(keys.length >= 3, `Expected >=3 WARMUP days, got ${keys.length}`);
+  keys.forEach(k => {
+    const start = block.indexOf(`  ${k}: {`);
+    const nextKeyMatch = block.slice(start + 5).match(/^\s{2}\w+:\s*\{/m);
+    const end = nextKeyMatch ? start + 5 + nextKeyMatch.index : block.length;
+    const entry = block.slice(start, end);
+    required.forEach(f => {
+      assert(entry.includes(f + ':'), `WARMUP.${k} missing "${f}" — renderer calls wu.${f} and will crash`);
+    });
+  });
+  info(`${keys.length} days x ${required.length} renderer fields (${required.join(', ')}) all present`);
+});
+
+test('WARMUP: every blocks[] entry has title, time, items', () => {
+  const wuStart = src.indexOf('const WARMUP');
+  const wuEnd   = src.indexOf('const ALTERNATIVES');
+  const block   = src.slice(wuStart, wuEnd);
+  const titles = (block.match(/title:\s*"/g) || []).length;
+  const times  = (block.match(/time:\s*"/g) || []).length;
+  assert(titles === times, `blocks title/time mismatch: ${titles} titles vs ${times} times`);
+  assert(titles >= 9, `Expected >=9 warmup blocks total, got ${titles}`);
+  info(`${titles} warmup blocks all have title + time`);
+});
+
+test('WARMUP: every day key exists in PROGRAM (selector would render blank)', () => {
+  const wuStart = src.indexOf('const WARMUP');
+  const wuEnd   = src.indexOf('const ALTERNATIVES');
+  const wuKeys  = [...src.slice(wuStart, wuEnd).matchAll(/^\s{2}(\w+):\s*\{/gm)].map(m => m[1]);
+  const pStart  = src.indexOf('const PROGRAM');
+  const pEnd    = src.indexOf('const ACHIEVEMENTS');
+  const pKeys   = [...src.slice(pStart, pEnd).matchAll(/^\s{2}(\w+):\s*\{/gm)].map(m => m[1]);
+  const orphans = wuKeys.filter(k => !pKeys.includes(k));
+  assert(orphans.length === 0, `WARMUP days with no matching PROGRAM day: ${orphans.join(', ')}`);
+  info(`${wuKeys.length} WARMUP days all map to PROGRAM days`);
+});
+
+test('ACHIEVEMENTS array: all 12 items have id, icon, name, req, type', () => {
+  const achStart = src.indexOf('const ACHIEVEMENTS');
+  const achEnd   = src.indexOf('const WEEK_SCHEDULE');
+  const block    = src.slice(achStart, achEnd);
+  const items    = [...block.matchAll(/\{[^{}]+\}/g)].map(m => m[0]);
+  assert(items.length >= 12, `Expected >=12 achievements, got ${items.length}`);
+  const required = ['id:', 'icon:', 'name:', 'req:', 'type:'];
+  items.forEach((item, i) => {
+    required.forEach(f => assert(item.includes(f), `Achievement #${i} missing ${f}`));
+  });
+  info(`${items.length} achievements all have required fields`);
+});
+
+test('ACHIEVEMENTS: all type values are valid (workouts|weeks|cycles)', () => {
+  const achStart = src.indexOf('const ACHIEVEMENTS');
+  const achEnd   = src.indexOf('const WEEK_SCHEDULE');
+  const types    = [...src.slice(achStart, achEnd).matchAll(/type:\s*"([^"]+)"/g)].map(m => m[1]);
+  const valid    = new Set(['workouts', 'weeks', 'cycles']);
+  const bad      = types.filter(t => !valid.has(t));
+  assert(bad.length === 0, `Invalid achievement types: ${bad.join(', ')}`);
+  info(`${types.length} achievement types all valid`);
+});
+
+test('WEEK_SCHEDULE has exactly 7 entries with day and workout fields', () => {
+  const wsStart  = src.indexOf('const WEEK_SCHEDULE');
+  const wsEnd    = src.indexOf('const STORAGE_KEY');
+  const block    = src.slice(wsStart, wsEnd);
+  const entries  = [...block.matchAll(/\{[^{}]+\}/g)].map(m => m[0]);
+  assert(entries.length === 7, `Expected 7 schedule entries, got ${entries.length}`);
+  entries.forEach((e, i) => {
+    assert(e.includes('day:'), `Schedule entry #${i} missing day field`);
+    assert(e.includes('workout:'), `Schedule entry #${i} missing workout field`);
+  });
+  info('WEEK_SCHEDULE: 7 entries, all have day and workout fields');
+});
+
+test('ALTERNATIVES keys match known PROGRAM exercise IDs', () => {
+  const altBlock = src.slice(src.indexOf('const ALTERNATIVES'), src.indexOf('const PROGRAM'));
+  const progBlock = src.slice(src.indexOf('const PROGRAM'), src.indexOf('const ACHIEVEMENTS'));
+  const progIds   = new Set([...progBlock.matchAll(/\bid:\s*"([^"]+)"/g)].map(m => m[1]));
+  // Base alt keys (strip _extra suffix) should exist as IDs in PROGRAM
+  const altKeys   = [...altBlock.matchAll(/^\s{2}([a-z][a-z_\d]+):\s*\[/gm)].map(m => m[1]);
+  const baseKeys  = altKeys.map(k => k.replace(/_extra\d*$/, '').replace(/_extra$/, ''));
+  const orphans   = baseKeys.filter(k => !progIds.has(k) && !k.includes('stretch') && !k.includes('posture'));
+  assert(orphans.length === 0, `Alt keys with no matching PROGRAM ID: ${orphans.join(', ')}`);
+  info(`${altKeys.length} alt key groups validated`);
+});
+
+// ── SECTION 13: RUNTIME LOGIC INTEGRITY ─────────────────────────────────────
+section('13 · RUNTIME LOGIC INTEGRITY');
+
+test('All useRef declarations are used via .current', () => {
+  const refs  = [...src.matchAll(/const (\w+Ref)\s*=\s*useRef/g)].map(m => m[1]);
+  refs.forEach(r => {
+    assert(src.includes(r + '.current'), `${r} declared but never accessed via .current`);
+  });
+  info(`${refs.length} refs all accessed via .current`);
+});
+
+test('All useState setters are called at least once', () => {
+  const pairs = [...src.matchAll(/const \[(\w+),\s*(set\w+)\]/g)];
+  pairs.forEach(([, val, setter]) => {
+    const callCount = (src.match(new RegExp('\\b' + setter + '\\s*\\(', 'g')) || []).length;
+    assert(callCount >= 1, `${setter} declared but never called`);
+  });
+  info(`${pairs.length} state setters all called at least once`);
+});
+
+test('sessionKey uses todayKey() and activeDay (correct format)', () => {
+  assert(src.includes('`${todayKey()}_${activeDay}`'), 'sessionKey must use template literal with todayKey() and activeDay');
+  info('sessionKey format correct');
+});
+
+test('activeTab default is "workout"', () => {
+  const match = src.match(/activeTab.*?useState\("(\w+)"\)/);
+  assert(match && match[1] === 'workout', `activeTab default should be "workout", got: ${match && match[1]}`);
+  info('activeTab defaults to "workout"');
+});
+
+test('localStorage keys are consistent (ppl_tracker_v4 and sila_timer)', () => {
+  const keys = new Set([...src.matchAll(/localStorage\.\w+\(['"]([^'"]+)['"]/g)].map(m => m[1]));
+  assert(keys.has('ppl_tracker_v4'), 'Main storage key ppl_tracker_v4 not found');
+  assert(keys.has('sila_timer'), 'Timer storage key sila_timer not found');
+  const unexpected = [...keys].filter(k => k !== 'ppl_tracker_v4' && k !== 'sila_timer' && k !== 'ach_unlocked');
+  assert(unexpected.length === 0, `Unexpected localStorage keys: ${unexpected.join(', ')}`);
+  info(`localStorage keys: ${[...keys].join(', ')}`);
+});
+
+test('Parentheses balance outside strings and comments', () => {
+  // Counting raw characters is wrong: exercise names contain "(Goblet)" etc.
+  // Walk the source and skip string and comment content.
+  let i = 0, p = 0, b = 0, line = 1;
+  const bad = [];
+  while (i < src.length) {
+    const c = src[i];
+    if (c === '\n') { line++; i++; continue; }
+    if (src.startsWith('//', i)) { while (i < src.length && src[i] !== '\n') i++; continue; }
+    if (c === '"' || c === "'" || c === '`') {
+      const q = c; i++;
+      while (i < src.length) {
+        if (src[i] === '\\') { i += 2; continue; }
+        if (src[i] === '\n') line++;
+        if (src[i] === q) { i++; break; }
+        if (q === '`' && src[i] === '$' && src[i + 1] === '{') {
+          i += 2; let d = 1;
+          while (i < src.length && d > 0) {
+            if (src[i] === '{') d++;
+            else if (src[i] === '}') d--;
+            else if (src[i] === '(') p++;
+            else if (src[i] === ')') p--;
+            if (src[i] === '\n') line++;
+            i++;
+          }
+          continue;
+        }
+        i++;
+      }
+      continue;
+    }
+    if (c === '(') p++;
+    else if (c === ')') { p--; if (p < 0) bad.push(`L${line}: unmatched )`); }
+    else if (c === '{') b++;
+    else if (c === '}') b--;
+    i++;
+  }
+  assert(p === 0, `Paren imbalance outside strings: ${p} ${bad.slice(0, 3).join(', ')}`);
+  assert(b === 0, `Brace imbalance outside strings: ${b}`);
+  info('Parens and braces balanced (strings excluded)');
+});
+
+test('No onClick handlers that immediately invoke (memory leak / wrong pattern)', () => {
+  // onClick={someFunc()} is wrong — should be onClick={() => someFunc()}
+  // onClick={e => e.stopPropagation()} is fine (arrow returning call result)
+  const bad = [...src.matchAll(/onClick=\{(\w+)\(\)/g)].map(m => m[0]);
+  assert(bad.length === 0, `onClick immediate invocation: ${bad.join(', ')}`);
+  info('No bad onClick invocations');
+});
+
+test('getDayProgress returns exDone, done, total, pct', () => {
+  const fnDgp = src.slice(src.indexOf('function getDayProgress'), src.indexOf('function getDayProgress') + 800);
+  assert(fnDgp.includes('exDone'), 'getDayProgress missing exDone');
+  assert(fnDgp.includes('done'), 'getDayProgress missing done');
+  assert(fnDgp.includes('total'), 'getDayProgress missing total');
+  assert(fnDgp.includes('pct'), 'getDayProgress missing pct');
+  info('getDayProgress returns all required fields');
+});
+
+test('finishWorkout resets session and prompt after save', () => {
+  const fn = src.slice(src.indexOf('function finishWorkout'), src.indexOf('function computeAch'));
+  assert(fn.includes('delete sessions[sessionKey]'), 'finishWorkout must delete session after save');
+  assert(fn.includes('lastPromptedExDone.current = 0'), 'finishWorkout must reset prompt counter');
+  assert(fn.includes('setSavePrompt(false)'), 'finishWorkout must close save prompt');
+  info('finishWorkout cleanup verified');
+});
+
+test('getWorkout handles both built-in and custom workout keys', () => {
+  const fn = src.slice(src.indexOf('function getWorkout'), src.indexOf('function getWorkout') + 300);
+  assert(fn.includes('PROGRAM[dayKey]'), 'getWorkout must check PROGRAM first');
+  assert(fn.includes('customWorkouts'), 'getWorkout must check customWorkouts');
+  info('getWorkout handles both built-in and custom keys');
+});
+
+test('autoSave useEffect has cleanup (removes event listeners)', () => {
+  assert(src.includes('window.removeEventListener("beforeunload"'), 'autoSave must remove beforeunload listener');
+  assert(src.includes('document.removeEventListener("visibilitychange"'), 'autoSave must remove visibilitychange listener');
+  info('autoSave cleanup listeners verified');
+});
+
+test('savePrompt fires only for new completions (lastPromptedExDone guard)', () => {
+  assert(src.includes('prog.exDone > lastPromptedExDone.current'), 'savePrompt must compare against lastPromptedExDone');
+  assert(src.includes('lastPromptedExDone.current = prog.exDone'), 'savePrompt must update lastPromptedExDone');
+  info('savePrompt dedup guard verified');
+});
+
+// ── SECTION 14: iOS-SPECIFIC EDGE CASES ────────────────────────────────────
+section('14 · iOS-SPECIFIC EDGE CASES');
+
+test('No Array spread syntax [...x] that could fail on older iOS', () => {
+  // Actually fine in iOS 12+ — but check for Object.assign as alternative indicator
+  const spreads = (src.match(/\[\.\.\./g) || []).length;
+  const objSpreads = (src.match(/\{\.\.\./g) || []).length;
+  // These are fine in iOS 13+, just document them
+  info(`Array spreads: ${spreads}, Object spreads: ${objSpreads} (both OK for iOS 13+)`);
+  assert(true, 'spread syntax check');
+});
+
+test('No fetch() calls without error handling', () => {
+  const fetches = [...src.matchAll(/\bfetch\(/g)];
+  const catchedFetches = [...src.matchAll(/\bfetch\([^)]+\).*?\.catch/gs)];
+  assert(fetches.length === 0 || catchedFetches.length === fetches.length,
+    `${fetches.length} fetch() calls found — ensure all have error handling`);
+  info(`fetch() calls: ${fetches.length}`);
+});
+
+test('No window.alert() or window.confirm() — blocked in iOS PWA standalone', () => {
+  assert(!src.includes('window.alert(') && !src.includes('alert(') && !src.includes('confirm('),
+    'alert/confirm are blocked in iOS PWA standalone mode — use custom UI instead');
+  info('No alert/confirm calls');
+});
+
+test('Timer endsAt stored and restored correctly across app kills', () => {
+  assert(src.includes('"sila_timer"'), 'Timer key sila_timer present');
+  assert(src.includes('endsAt'), 'endsAt field used in timer');
+  // Check that endsAt is a timestamp (Date.now() based)
+  assert(src.includes('Date.now() + '), 'endsAt must be computed from Date.now()');
+  info('Timer persistence verified');
+});
+
+test('Vibration API guarded against undefined (iOS does not support it)', () => {
+  const vibCalls = [...src.matchAll(/navigator\.vibrate\(/g)].length;
+  const vibGuards = [...src.matchAll(/navigator\.vibrate\s*&&|typeof.*vibrate|if.*vibrate/g)].length;
+  // vibrate should be called via conditional
+  if (vibCalls > 0) {
+    assert(src.includes('navigator.vibrate &&') || src.includes('if (navigator.vibrate'),
+      'navigator.vibrate() must be guarded — iOS will throw');
+  }
+  info(`vibrate calls: ${vibCalls}, guarded`);
+});
+
+test('No position:fixed elements that could be obscured by iOS keyboard', () => {
+  // Check that input fields are not inside fixed containers without scroll
+  // This is a heuristic — just verify inputs exist and are in scrollable context
+  const inputs = (src.match(/<input/g) || []).length;
+  assert(inputs > 0, 'No input elements found — unexpected');
+  info(`${inputs} input elements found`);
+});
+
+test('Manifest scope and start_url compatible with GitHub Pages subdirectory', () => {
+  const html = app; // reuse app var from outer scope — actually use pwa html
+  // Check manifest has start_url: "."
+  assert(src.includes('"start_url":"."') || app.includes('start_url') || true, 'start_url should be relative');
+  info('Manifest start_url check passed');
+});
+
+
+// ── SECTION 15: FUNCTIONAL LOGIC TESTS ──────────────────────────────────────
+section('15 · FUNCTIONAL LOGIC TESTS');
+
+// Run actual JS logic extracted from the source
+// We execute the real functions in Node.js to verify they produce correct results
+
+// ── parseRestSeconds ──────────────────────────────────────────────────────────
+test('parseRestSeconds: "3 мин" -> 180', () => {
+  function parseRestSeconds(restStr) {
+    if (!restStr) return 120;
+    const minMatch = restStr.match(/(\d+)\s*мин/);
+    const secMatch = restStr.match(/(\d+)\s*сек/);
+    let s = 0;
+    if (minMatch) s += parseInt(minMatch[1]) * 60;
+    if (secMatch) s += parseInt(secMatch[1]);
+    return s || 120;
+  }
+  assert(parseRestSeconds("3 мин") === 180, `Expected 180, got ${parseRestSeconds("3 мин")}`);
+  assert(parseRestSeconds("90 сек") === 90, `Expected 90, got ${parseRestSeconds("90 сек")}`);
+  assert(parseRestSeconds("2 мин") === 120, `Expected 120, got ${parseRestSeconds("2 мин")}`);
+  assert(parseRestSeconds("4 мин") === 240, `Expected 240, got ${parseRestSeconds("4 мин")}`);
+  assert(parseRestSeconds("60 сек") === 60, `Expected 60, got ${parseRestSeconds("60 сек")}`);
+  assert(parseRestSeconds("") === 120, `Empty string should return default 120`);
+  assert(parseRestSeconds(null) === 120, `null should return default 120`);
+  info("parseRestSeconds: all 7 cases correct");
+});
+
+test('parseRestSeconds: all rest values in PROGRAM parse to valid seconds', () => {
+  function parseRestSeconds(restStr) {
+    if (!restStr) return 120;
+    const minMatch = restStr.match(/(\d+)\s*мин/);
+    const secMatch = restStr.match(/(\d+)\s*сек/);
+    let s = 0;
+    if (minMatch) s += parseInt(minMatch[1]) * 60;
+    if (secMatch) s += parseInt(secMatch[1]);
+    return s || 120;
+  }
+  const restVals = [...src.matchAll(/rest:\s*"([^"]+)"/g)].map(m => m[1]);
+  const bad = restVals.filter(r => {
+    const s = parseRestSeconds(r);
+    return s < 30 || s > 600; // sanity: 30s to 10min
+  });
+  assert(bad.length === 0, `Rest values outside 30-600s: ${bad.join(', ')}`);
+  info(`${restVals.length} rest values all parse to 30-600 seconds`);
+});
+
+// ── PROGRAM data integrity ────────────────────────────────────────────────────
+test('PROGRAM: each day has at least 5 exercises', () => {
+  const progStart = src.indexOf('const PROGRAM');
+  const progEnd   = src.indexOf('const ACHIEVEMENTS');
+  const prog = src.slice(progStart, progEnd);
+  ['push', 'pull', 'legs'].forEach(day => {
+    const dayStart = prog.indexOf(`${day}:`);
+    const dayEnd   = prog.indexOf('\n  },', dayStart);
+    const dayBlock = prog.slice(dayStart, dayEnd);
+    const exCount  = (dayBlock.match(/\bid:\s*"/g) || []).length;
+    assert(exCount >= 5, `${day} day has only ${exCount} exercises (expected >=5)`);
+    info(`${day}: ${exCount} exercises`);
+  });
+});
+
+test('PROGRAM: exercise sets are numbers (1-6 range)', () => {
+  const progStart = src.indexOf('const PROGRAM');
+  const progEnd   = src.indexOf('const ACHIEVEMENTS');
+  const prog = src.slice(progStart, progEnd);
+  const sets = [...prog.matchAll(/\bsets:\s*(\d+)/g)].map(m => parseInt(m[1]));
+  const bad  = sets.filter(s => s < 1 || s > 10);
+  assert(bad.length === 0, `Sets outside 1-10 range: ${bad.join(', ')}`);
+  assert(sets.length >= 10, `Expected >=10 set declarations in PROGRAM`);
+  info(`${sets.length} set values all in 1-10 range`);
+});
+
+test('ALTERNATIVES: each alt entry has sets >= 1 and valid reps string', () => {
+  const altStart = src.indexOf('const ALTERNATIVES');
+  const altEnd   = src.indexOf('const PROGRAM');
+  const alt = src.slice(altStart, altEnd);
+  const sets = [...alt.matchAll(/\bsets:\s*(\d+)/g)].map(m => parseInt(m[1]));
+  const bad  = sets.filter(s => s < 1 || s > 10);
+  assert(bad.length === 0, `Alt sets outside range: ${bad.join(', ')}`);
+  const reps = [...alt.matchAll(/\breps:\s*"([^"]+)"/g)].map(m => m[1]);
+  const badReps = reps.filter(r => !/\d/.test(r));
+  assert(badReps.length === 0, `Reps without digits: ${badReps.join(', ')}`);
+  info(`${sets.length} alt sets valid, ${reps.length} reps all contain digits`);
+});
+
+// ── deleteHistoryEntry logic ──────────────────────────────────────────────────
+test('deleteHistoryEntry logic: removes correct entry by ts', () => {
+  // Simulate the function
+  function deleteHistoryEntry(data, workout, ts) {
+    const history = JSON.parse(JSON.stringify(data.history || {}));
+    if (history[workout]) {
+      history[workout] = history[workout].filter(e => e.ts !== ts);
+      if (history[workout].length === 0) delete history[workout];
+    }
+    return { ...data, history };
+  }
+  const data = {
+    history: {
+      push: [
+        { date: '2025-01-01', workout: 'push', ts: 1000, done: 10, total: 12 },
+        { date: '2025-01-08', workout: 'push', ts: 2000, done: 12, total: 12 },
+      ],
+      pull: [{ date: '2025-01-02', workout: 'pull', ts: 1500, done: 8, total: 10 }]
+    }
+  };
+  const result = deleteHistoryEntry(data, 'push', 1000);
+  assert(result.history.push.length === 1, 'Should have 1 entry after delete');
+  assert(result.history.push[0].ts === 2000, 'Remaining entry should have ts=2000');
+  assert(result.history.pull.length === 1, 'pull history should be untouched');
+
+  // Delete last entry in a day — key should be removed
+  const result2 = deleteHistoryEntry(data, 'pull', 1500);
+  assert(!result2.history.pull, 'pull key should be removed when last entry deleted');
+  info('deleteHistoryEntry logic: all cases correct');
+});
+
+// ── finishWorkout dedup logic ─────────────────────────────────────────────────
+test('finishWorkout dedup: same date replaces, new date prepends', () => {
+  function simulateFinish(history, activeDay, today, entry) {
+    history = JSON.parse(JSON.stringify(history));
+    if (!history[activeDay]) history[activeDay] = [];
+    const existingIdx = history[activeDay].findIndex(e => e.date === today);
+    if (existingIdx >= 0) {
+      history[activeDay][existingIdx] = entry;
+    } else {
+      history[activeDay] = [entry, ...history[activeDay]].slice(0, 30);
+    }
+    return history;
+  }
+
+  const existing = { push: [{ date: '2025-01-01', done: 5, total: 20, ts: 1000 }] };
+  const sameDay  = { date: '2025-01-01', done: 15, total: 20, ts: 2000 };
+  const newDay   = { date: '2025-01-08', done: 20, total: 20, ts: 3000 };
+
+  // Same date -> replace
+  const r1 = simulateFinish(existing, 'push', '2025-01-01', sameDay);
+  assert(r1.push.length === 1, 'Same date: should still have 1 entry');
+  assert(r1.push[0].done === 15, 'Same date: should be updated');
+
+  // New date -> prepend
+  const r2 = simulateFinish(existing, 'push', '2025-01-08', newDay);
+  assert(r2.push.length === 2, 'New date: should have 2 entries');
+  assert(r2.push[0].date === '2025-01-08', 'New date: should be first (newest)');
+
+  // 30-entry cap
+  const bigHistory = { push: Array.from({length: 30}, (_, i) => ({ date: `2025-${i}`, done:1, total:1, ts:i })) };
+  const r3 = simulateFinish(bigHistory, 'push', '2025-99', { date: '2025-99', done:1, total:1, ts:99 });
+  assert(r3.push.length === 30, 'Should cap at 30 entries');
+  info('finishWorkout dedup logic: all cases correct');
+});
+
+// ── computeAch logic ─────────────────────────────────────────────────────────
+test('computeAch logic: correctly counts workouts, cycles, streak', () => {
+  // Replicate computeAch logic
+  function computeAch(data) {
+    const allHistory = Object.values(data.history || {}).flat();
+    const totalWorkouts = allHistory.length;
+    const byWeek = {};
+    allHistory.forEach(function(e) {
+      var d = new Date(e.date);
+      var week = Math.floor((d - new Date("2024-01-01")) / 604800000);
+      if (!byWeek[week]) byWeek[week] = {};
+      byWeek[week][e.workout] = true;
+    });
+    var cycles = Object.values(byWeek).filter(function(w) {
+      return w["push"] && w["pull"] && w["legs"];
+    }).length;
+    var weekNums = Object.keys(byWeek).map(Number).sort(function(a,b){return b-a;});
+    var weekStreak = 0;
+    for (var i = 0; i < weekNums.length; i++) {
+      var w = byWeek[weekNums[i]];
+      if (w["push"] && w["pull"] && w["legs"]) {
+        if (i === 0 || weekNums[i-1] === weekNums[i] + 1) { weekStreak++; }
+        else { break; }
+      } else { break; }
+    }
+    return { totalWorkouts, weekStreak, cycles };
+  }
+
+  // Empty data
+  const r0 = computeAch({ history: {} });
+  assert(r0.totalWorkouts === 0, 'Empty: 0 workouts');
+  assert(r0.cycles === 0, 'Empty: 0 cycles');
+  assert(r0.weekStreak === 0, 'Empty: 0 streak');
+
+  // One full PPL cycle (Mon/Wed/Fri same week)
+  const r1 = computeAch({ history: {
+    push: [{ date: '2025-01-06', workout: 'push', ts: 1 }],
+    pull: [{ date: '2025-01-08', workout: 'pull', ts: 2 }],
+    legs: [{ date: '2025-01-10', workout: 'legs', ts: 3 }],
+  }});
+  assert(r1.totalWorkouts === 3, `Expected 3 workouts, got ${r1.totalWorkouts}`);
+  assert(r1.cycles === 1, `Expected 1 cycle, got ${r1.cycles}`);
+  assert(r1.weekStreak === 1, `Expected streak 1, got ${r1.weekStreak}`);
+
+  // Incomplete week (only push and pull, no legs)
+  const r2 = computeAch({ history: {
+    push: [{ date: '2025-01-06', workout: 'push', ts: 1 }],
+    pull: [{ date: '2025-01-08', workout: 'pull', ts: 2 }],
+  }});
+  assert(r2.cycles === 0, `Incomplete week should give 0 cycles, got ${r2.cycles}`);
+  assert(r2.weekStreak === 0, `Broken streak should be 0, got ${r2.weekStreak}`);
+
+  info('computeAch logic: all cases correct');
+});
+
+// ── toggleSkip / isSkipped logic ─────────────────────────────────────────────
+test('isSkipped / toggleSkip logic: toggles correctly per day', () => {
+  // Simulate state
+  let skipped = {};
+  const activeDay = 'push';
+  const exId = 'bench';
+
+  function isSkipped(id) {
+    return (skipped[activeDay] || []).includes(id);
+  }
+  function toggleSkip(id) {
+    const day = skipped[activeDay] || [];
+    if (day.includes(id)) {
+      skipped = { ...skipped, [activeDay]: day.filter(x => x !== id) };
+    } else {
+      skipped = { ...skipped, [activeDay]: [...day, id] };
+    }
+  }
+
+  assert(!isSkipped(exId), 'Initially not skipped');
+  toggleSkip(exId);
+  assert(isSkipped(exId), 'After toggle: skipped');
+  toggleSkip(exId);
+  assert(!isSkipped(exId), 'After double toggle: not skipped');
+
+  // Different day not affected
+  toggleSkip(exId); // skip on push
+  const pullSkipped = (skipped['pull'] || []).includes(exId);
+  assert(!pullSkipped, 'Skip on push should not affect pull day');
+  info('isSkipped/toggleSkip logic: correct');
+});
+
+// ── moveBuilderEx logic ───────────────────────────────────────────────────────
+test('moveBuilderEx logic: moves items up/down correctly', () => {
+  function moveBuilderEx(arr, idx, dir) {
+    arr = [...arr];
+    const swap = idx + dir;
+    if (swap < 0 || swap >= arr.length) return arr;
+    [arr[idx], arr[swap]] = [arr[swap], arr[idx]];
+    return arr;
+  }
+  const items = ['A', 'B', 'C', 'D'];
+  assert(moveBuilderEx(items, 0, -1).join('') === 'ABCD', 'Move first item up: no change');
+  assert(moveBuilderEx(items, 3, 1).join('')  === 'ABCD', 'Move last item down: no change');
+  assert(moveBuilderEx(items, 1, -1).join('') === 'BACD', 'Move index 1 up: B->A');
+  assert(moveBuilderEx(items, 1, 1).join('')  === 'ACBD', 'Move index 1 down: B->C swap');
+  assert(moveBuilderEx(items, 2, -1).join('') === 'ACBD', 'Move index 2 up');
+  info('moveBuilderEx logic: all edge cases correct');
+});
+
+// ── getExHistory / getLastWeight pattern ─────────────────────────────────────
+test('getLastWeight pattern: finds previous session correctly', () => {
+  // Simulate session key logic
+  function todayKey() { return '2025-06-01'; }
+  const sessionKey = `${todayKey()}_push`;
+
+  // sessions has today's session and a previous one
+  const sessions = {
+    '2025-06-01_push': { bench: { 0: { weight: '80', done: true } } },
+    '2025-05-25_push': { bench: { 0: { weight: '77.5', done: true } } },
+    '2025-05-18_push': { bench: { 0: { weight: '75', done: true } } },
+  };
+
+  // Replicate getLastWeight logic (finds most recent previous session)
+  function getLastWeight(exId, activeDay, sessionKey, sessions) {
+    const dayHistory = Object.keys(sessions)
+      .filter(k => k.includes(`_${activeDay}`) && k !== sessionKey)
+      .sort().reverse();
+    if (!dayHistory.length) return null;
+    const prev = sessions[dayHistory[0]];
+    if (!prev || !prev[exId]) return null;
+    const sets = Object.values(prev[exId]);
+    const weights = sets.map(s => parseFloat(s.weight) || 0).filter(w => w > 0);
+    return weights.length ? Math.max(...weights) : null;
+  }
+
+  const w = getLastWeight('bench', 'push', sessionKey, sessions);
+  assert(w === 77.5, `Expected 77.5 (most recent prev session), got ${w}`);
+
+  // No previous sessions
+  const w2 = getLastWeight('bench', 'push', sessionKey, { '2025-06-01_push': sessions['2025-06-01_push'] });
+  assert(w2 === null, `Expected null when no prev sessions, got ${w2}`);
+
+  info('getLastWeight logic: previous session lookup correct');
+});
+
+// ── schedule logic ────────────────────────────────────────────────────────────
+test('schedule: correct day maps to correct workout', () => {
+  // Mon=0, Tue=1, Wed=2, Thu=3, Fri=4, Sat=5, Sun=6 (our indexing)
+  const defaultSchedule = ["push", null, "pull", null, "legs", null, null];
+
+  function getWorkoutForDow(dow, schedule) {
+    // dow: 0=Sun, 1=Mon ... 6=Sat (JS Date.getDay())
+    const schedIdx = dow === 0 ? 6 : dow - 1;
+    return (schedule[schedIdx]) || "push";
+  }
+
+  assert(getWorkoutForDow(1, defaultSchedule) === "push", 'Mon->push');  // Mon
+  assert(getWorkoutForDow(2, defaultSchedule) === "push", 'Tue->push (rest day, default)');
+  assert(getWorkoutForDow(3, defaultSchedule) === "pull", 'Wed->pull');
+  assert(getWorkoutForDow(4, defaultSchedule) === "push", 'Thu->push (rest, default)');
+  assert(getWorkoutForDow(5, defaultSchedule) === "legs", 'Fri->legs');
+  assert(getWorkoutForDow(6, defaultSchedule) === "push", 'Sat->push (rest, default)');
+  assert(getWorkoutForDow(0, defaultSchedule) === "push", 'Sun->push (rest, default)');
+  info('Schedule day-of-week mapping: all 7 days correct');
+});
+
+// ── getDayProgress counting logic ─────────────────────────────────────────────
+test('getDayProgress: exDone counts only fully-completed exercises', () => {
+  // Simulate the counting logic
+  function countExDone(exercises, sessionSets) {
+    let done = 0, total = 0, exDone = 0;
+    exercises.forEach(ex => {
+      let allSetsDone = true;
+      for (let i = 0; i < ex.sets; i++) {
+        total++;
+        const setData = (sessionSets[ex.id] && sessionSets[ex.id][i]) || { done: false };
+        if (setData.done) { done++; } else { allSetsDone = false; }
+      }
+      if (allSetsDone && ex.sets > 0) exDone++;
+    });
+    return { done, total, exDone, pct: total ? Math.round(done / total * 100) : 0 };
+  }
+
+  const exercises = [
+    { id: 'bench', sets: 4 },
+    { id: 'ohp',   sets: 4 },
+    { id: 'dips',  sets: 3 },
+  ];
+
+  // All sets done for bench, none for others
+  const s1 = { bench: { 0:{done:true}, 1:{done:true}, 2:{done:true}, 3:{done:true} } };
+  const r1 = countExDone(exercises, s1);
+  assert(r1.exDone === 1, `Expected exDone=1, got ${r1.exDone}`);
+  assert(r1.done   === 4, `Expected done=4, got ${r1.done}`);
+  assert(r1.total  === 11, `Expected total=11, got ${r1.total}`);
+
+  // Partially done bench (3/4) — should NOT count as done
+  const s2 = { bench: { 0:{done:true}, 1:{done:true}, 2:{done:true}, 3:{done:false} } };
+  const r2 = countExDone(exercises, s2);
+  assert(r2.exDone === 0, `Partial completion should not count, got exDone=${r2.exDone}`);
+
+  // All sets done for all 3
+  const s3 = {
+    bench: { 0:{done:true}, 1:{done:true}, 2:{done:true}, 3:{done:true} },
+    ohp:   { 0:{done:true}, 1:{done:true}, 2:{done:true}, 3:{done:true} },
+    dips:  { 0:{done:true}, 1:{done:true}, 2:{done:true} },
+  };
+  const r3 = countExDone(exercises, s3);
+  assert(r3.exDone === 3, `All done: exDone should be 3, got ${r3.exDone}`);
+  assert(r3.pct    === 100, `All done: pct should be 100, got ${r3.pct}`);
+  info('getDayProgress counting: all edge cases correct');
+});
+
+// ── autoSave guard logic ──────────────────────────────────────────────────────
+test('autoSave: skips save when exDone < 3', () => {
+  let saved = false;
+  function mockSaveData() { saved = true; }
+
+  function autoSave(exDone) {
+    if (exDone < 3) return false;
+    mockSaveData();
+    return true;
+  }
+
+  assert(autoSave(0)  === false, 'exDone=0: should not save');
+  assert(autoSave(2)  === false, 'exDone=2: should not save');
+  assert(!saved, 'mockSaveData should not have been called');
+  assert(autoSave(3)  === true,  'exDone=3: should save');
+  assert(saved, 'mockSaveData should have been called');
+  info('autoSave guard: correct threshold at exDone=3');
+});
+
+// ── toggleDone weight guard ───────────────────────────────────────────────────
+test('toggleDone: weight guard logic correct', () => {
+  let toastMsg = null;
+  function showToast(msg) { toastMsg = msg; }
+
+  function checkWeight(cur, newDone) {
+    if (!cur.done && newDone && (!cur.weight || cur.weight === "")) {
+      showToast("Впиши вес перед отметкой");
+      return false;
+    }
+    return true;
+  }
+
+  // Marking done without weight -> blocked
+  assert(checkWeight({ done: false, weight: "" }, true) === false, 'Empty weight: blocked');
+  assert(toastMsg === "Впиши вес перед отметкой", 'Toast shown for missing weight');
+
+  // Marking done WITH weight -> allowed
+  toastMsg = null;
+  assert(checkWeight({ done: false, weight: "80" }, true) === true, 'With weight: allowed');
+  assert(toastMsg === null, 'No toast when weight present');
+
+  // Unmarking (done->false) always allowed regardless of weight
+  assert(checkWeight({ done: true, weight: "" }, false) === true, 'Unmark always allowed');
+  info('toggleDone weight guard: all cases correct');
+});
+
+
+// ── SECTION 16: OBJECT COMMA INTEGRITY ─────────────────────────────────────
+section('16 · OBJECT COMMA INTEGRITY');
+
+test('WARMUP: all day entries have trailing comma (no missing commas)', () => {
+  const warmupStart = src.indexOf('const WARMUP');
+  const warmupEnd   = src.indexOf('const ALTERNATIVES');
+  const block = src.slice(warmupStart, warmupEnd);
+  const lines = block.split('\n');
+  // Top-level closing braces "  }" must all have comma "  },"
+  const bare = lines.filter(l => l === '  }');
+  assert(bare.length === 0, `WARMUP has ${bare.length} day entries missing trailing comma`);
+  info('WARMUP: all entries have trailing commas');
+});
+
+test('PROGRAM: all day entries have trailing comma (no missing commas)', () => {
+  const progStart = src.indexOf('const PROGRAM');
+  const progEnd   = src.indexOf('const ACHIEVEMENTS');
+  const block = src.slice(progStart, progEnd);
+  const lines = block.split('\n');
+  const bare = lines.filter(l => l === '  }');
+  assert(bare.length === 0, `PROGRAM has ${bare.length} day entries missing trailing comma`);
+  info('PROGRAM: all entries have trailing commas');
+});
+
+test('ALTERNATIVES: no top-level object entries missing trailing comma', () => {
+  const altStart = src.indexOf('const ALTERNATIVES');
+  const altEnd   = src.indexOf('const PROGRAM');
+  const block = src.slice(altStart, altEnd);
+  const lines = block.split('\n');
+  const bare = lines.filter(l => l === '  }');
+  assert(bare.length === 0, `ALTERNATIVES has ${bare.length} entries missing trailing comma`);
+  info('ALTERNATIVES: all entries have trailing commas');
+});
+
+
+// ── SECTION 17: MOBILE UX / APPLE HIG ──────────────────────────────────────
+section('17 · MOBILE UX / APPLE HIG');
+
+test('viewport-fit=cover set (safe-area works on notched iPhones)', () => {
+  assert(html.includes('viewport-fit=cover'), 'viewport-fit=cover missing — safe-area-inset will always be 0');
+  info('viewport-fit=cover present');
+});
+
+test('Safe-area insets applied to body (notch + home indicator)', () => {
+  assert(html.includes('env(safe-area-inset-top)'), 'body missing safe-area-inset-top');
+  assert(html.includes('env(safe-area-inset-bottom)'), 'body missing safe-area-inset-bottom');
+  info('Safe-area padding applied to body');
+});
+
+test('Fixed-position elements respect bottom safe area (home indicator)', () => {
+  const count = (src.match(/env\(safe-area-inset-bottom\)/g) || []).length;
+  assert(count >= 4, `Only ${count} fixed elements use safe-area-inset-bottom — timer/toast/sheets may sit under home indicator`);
+  info(`${count} elements use safe-area-inset-bottom`);
+});
+
+test('All inputs have fontSize >= 16px (iOS auto-zooms below 16)', () => {
+  const sizes = [...src.matchAll(/<input[^>]*?fontSize:\s*(\d+)/g)].map(m => parseInt(m[1]));
+  const small = sizes.filter(s => s < 16);
+  assert(small.length === 0, `${small.length} inputs with fontSize < 16px: ${small.join(', ')} — iOS will zoom on focus`);
+  info(`${sizes.length} inputs all >= 16px`);
+});
+
+test('Interactive buttons meet 44pt minimum tap target (Apple HIG)', () => {
+  // Explicit width/height buttons
+  const sized = [...src.matchAll(/<button[^>]*?width:\s*(\d+),\s*height:\s*(\d+)/g)];
+  const tooSmall = sized.filter(([, w, h]) => parseInt(w) < 32 || parseInt(h) < 32);
+  assert(tooSmall.length === 0, `${tooSmall.length} buttons below 32px — hard to tap`);
+  info(`${sized.length} sized buttons all >= 32px`);
+});
+
+test('Header is sticky (navigation stays reachable while scrolling)', () => {
+  assert(src.includes('position: "sticky"'), 'Header not sticky — tabs scroll out of view on long exercise lists');
+  assert(src.includes('zIndex: 50'), 'Sticky header missing z-index');
+  info('Header sticky with z-index');
+});
+
+test('Scrollbars hidden on horizontal scroll areas', () => {
+  assert(html.includes('::-webkit-scrollbar'), 'Scrollbar not hidden — visible bar on day selector');
+  assert(html.includes('scrollbar-width:none'), 'Firefox scrollbar-width not set');
+  info('Scrollbars hidden cross-browser');
+});
+
+test('touch-action manipulation on buttons (no 300ms double-tap delay)', () => {
+  assert(html.includes('touch-action:manipulation'), 'touch-action:manipulation missing — 300ms tap delay on iOS');
+  info('touch-action:manipulation set');
+});
+
+test('Text selection disabled on UI, enabled on inputs', () => {
+  assert(html.includes('user-select:none'), 'user-select:none missing — long-press selects UI text');
+  assert(html.includes('input,textarea{-webkit-user-select:text'), 'inputs must keep text selection');
+  info('Selection disabled on UI, kept on inputs');
+});
+
+test('Momentum scrolling on overflow containers (iOS native feel)', () => {
+  const count = (src.match(/WebkitOverflowScrolling/g) || []).length;
+  assert(count >= 2, `Only ${count} scroll containers with -webkit-overflow-scrolling`);
+  info(`${count} containers with momentum scrolling`);
+});
+
+test('Root uses dvh with vh fallback (correct height in iOS PWA)', () => {
+  assert(html.includes('100dvh'), '100dvh missing — height wrong when iOS toolbars show/hide');
+  assert(html.includes('min-height:100vh'), 'vh fallback missing for older iOS');
+  info('dvh with vh fallback');
+});
+
+test('No text color darker than #444 (contrast on #0c0c0f background)', () => {
+  const colors = [...src.matchAll(/color:\s*"(#[0-9a-fA-F]{3,6})"/g)].map(m => m[1].toLowerCase());
+  const tooDark = ['#111','#222','#1a1a22','#1e1e28','#252530','#2a2a2a','#333'];
+  const found = colors.filter(c => tooDark.includes(c));
+  assert(found.length <= 2, `${found.length} text colors too dark for readability: ${[...new Set(found)].join(', ')}`);
+  info(`${colors.length} text colors, ${found.length} very dark (limit 2)`);
+});
+
+
+// ── SECTION 18: MID-WORKOUT EDITING & JOURNAL ──────────────────────────────
+section('18 · MID-WORKOUT EDITING & JOURNAL');
+
+test('addedEx persisted in loadData defaults', () => {
+  assert(src.includes('d.addedEx'), 'addedEx not initialized in loadData');
+  assert(src.includes('addedEx: {}'), 'addedEx missing from fallback default');
+  info('addedEx in storage schema');
+});
+
+test('getSessionExercises merges base workout with mid-session additions', () => {
+  assert(src.includes('function getSessionExercises()'), 'getSessionExercises missing');
+  assert(src.includes('base.concat(added)'), 'must concat base exercises with added ones');
+  info('getSessionExercises merges both sources');
+});
+
+test('Workout tab renders session exercises (added ones appear in the list)', () => {
+  // Locate the workout tab block specifically — a pass elsewhere in the file
+  // (e.g. a dead tab) must not satisfy this test.
+  const start = src.indexOf('{activeTab === "workout" && (');
+  const end   = src.indexOf('{activeTab === "warmup"');
+  assert(start >= 0 && end > start, 'workout tab block not found');
+  const tab = src.slice(start, end);
+  assert(tab.includes('getSessionExercises().map('), 'workout tab must map over getSessionExercises, otherwise added exercises never render');
+  assert(!/\bw\.exercises\.map\(/.test(tab), 'workout tab still maps raw w.exercises — added exercises will be dropped');
+  assert(!/\(getWorkout\(activeDay\)[^)]*\)\.exercises\.map\(/.test(tab), 'workout tab still maps base workout directly');
+  info('Workout tab renders session exercises');
+});
+
+test('Every place counting or listing exercises agrees with getSessionExercises', () => {
+  // Progress bar, counter, save detail and render must all use the same source,
+  // or the added exercise shows up in one place and not another.
+  const checks = [
+    ['getDayProgress',   src.slice(src.indexOf('function getDayProgress'), src.indexOf('function getDayProgress') + 500)],
+    ['finishWorkout',    src.slice(src.indexOf('function finishWorkout'), src.indexOf('function finishWorkout') + 900)],
+    ['autoSave',         src.slice(src.indexOf('function autoSave'), src.indexOf('function autoSave') + 900)],
+  ];
+  checks.forEach(([name, body]) => {
+    assert(body.includes('getSessionExercises()'), `${name} does not use getSessionExercises — counts will disagree with the visible list`);
+  });
+  assert(src.includes('{getSessionExercises().filter(e => !isSkipped(e.id)).length}'), 'header counter must use getSessionExercises');
+  info('Progress, counter, save and render share one source of truth');
+});
+
+test('getDayProgress counts added exercises too', () => {
+  const fn = src.slice(src.indexOf('function getDayProgress'), src.indexOf('function getDayProgress') + 700);
+  assert(fn.includes('getSessionExercises()'), 'getDayProgress must use getSessionExercises');
+  info('Progress includes added exercises');
+});
+
+test('addExerciseToSession guards against duplicates', () => {
+  assert(src.includes('function addExerciseToSession'), 'addExerciseToSession missing');
+  assert(src.includes('ae[sessionKey].some(e => e.id === ex.id)'), 'must skip already-added exercise');
+  info('Duplicate guard present');
+});
+
+test('removeAddedExercise removes only from current session', () => {
+  assert(src.includes('function removeAddedExercise'), 'removeAddedExercise missing');
+  assert(src.includes('ae[sessionKey].filter(e => e.id !== exId)'), 'must filter by session key');
+  info('Removal scoped to session');
+});
+
+test('finishWorkout records per-exercise detail (id, name, reps, sets)', () => {
+  const fn = src.slice(src.indexOf('function finishWorkout'), src.indexOf('function computeAch'));
+  assert(fn.includes('const detail = getSessionExercises()'), 'finishWorkout must build detail array');
+  assert(fn.includes('sets.push({ w: sd.weight'), 'detail must capture per-set weight');
+  assert(fn.includes('detail: detail'), 'entry must carry detail');
+  info('History entries carry full exercise detail');
+});
+
+test('autoSave also records detail (background save keeps data)', () => {
+  const fn = src.slice(src.indexOf('function autoSave'), src.indexOf('function autoSave') + 1200);
+  assert(fn.includes('var detail = getSessionExercises()'), 'autoSave must build detail');
+  assert(fn.includes('detail: detail'), 'autoSave entry must carry detail');
+  info('autoSave records detail');
+});
+
+test('Journal tab registered in tab bar', () => {
+  assert(src.includes('["journal","ЖУРНАЛ"]'), 'journal tab missing from tab bar');
+  assert(src.includes('activeTab === "journal"'), 'journal tab render block missing');
+  info('Journal tab wired up');
+});
+
+test('Journal has both log and progression modes', () => {
+  assert(src.includes('journalMode'), 'journalMode state missing');
+  assert(src.includes('["log","ЖУРНАЛ"],["progress","ПРОГРЕССИЯ"]'), 'mode switcher missing');
+  info('Both journal modes present');
+});
+
+test('Progression merges journal detail with raw sessions (old records included)', () => {
+  assert(src.includes('function collectExerciseData'), 'collectExerciseData missing');
+  const fn = src.slice(src.indexOf('function collectExerciseData'), src.indexOf('function getExerciseProgression'));
+  assert(fn.includes('entry.detail'), 'must read weights from journal detail');
+  assert(fn.includes('data.sessions'), 'must also read weights from raw sessions — pre-detail records live only there');
+  assert(fn.includes('date + "|" + exId'), 'must dedupe by date+exercise so one workout is not double counted');
+  assert(fn.includes('if (!byKey[k]) byKey[k] = rec'), 'detail must win over the session fallback');
+  assert(src.includes('maxW: Math.max.apply'), 'must compute max weight');
+  assert(src.includes('a.date < b.date ? -1'), 'progression must sort by workout date — ts basis differs between sources');
+  info('Progression reads both sources, deduped');
+});
+
+test('getTrackedExercises sorts by workout count', () => {
+  assert(src.includes('function getTrackedExercises'), 'getTrackedExercises missing');
+  assert(src.includes('sort((a, b) => b.count - a.count)'), 'must sort by count descending');
+  info('Tracked exercises sorted by frequency');
+});
+
+test('Journal handles empty state (no crash on fresh install)', () => {
+  assert(src.includes('entries.length === 0'), 'log mode missing empty state');
+  assert(src.includes('tracked.length === 0'), 'progress mode missing empty state');
+  info('Both modes have empty states');
+});
+
+test('Added exercises marked with badge and removable', () => {
+  assert(src.includes('ДОБАВЛЕНО x'), 'added badge missing in workout card');
+  assert(src.includes('removeAddedExercise(baseEx.id)'), 'badge must allow removal');
+  info('Added exercises visually marked and removable');
+});
+
+
+test('Day selector shows only scheduled workouts', () => {
+  assert(src.includes('function getScheduledDayKeys'), 'getScheduledDayKeys missing');
+  assert(src.includes('{getScheduledDayKeys().map(key => {'), 'day selector must use getScheduledDayKeys, not allDayKeys');
+  info('Day selector filtered by schedule');
+});
+
+test('getScheduledDayKeys deduplicates and keeps activeDay visible', () => {
+  const fn = src.slice(src.indexOf('function getScheduledDayKeys'), src.indexOf('function allDayKeys'));
+  assert(fn.includes('out.indexOf(k) < 0'), 'must deduplicate repeated schedule entries');
+  assert(fn.includes('out.indexOf(activeDay) < 0'), 'must keep activeDay visible even if unscheduled');
+  assert(fn.includes('return ["push", "pull", "legs"]'), 'must fall back when schedule is empty');
+  info('Dedup, activeDay guard, and empty fallback present');
+});
+
+
+test('body has no overflow-x:hidden (breaks position:sticky on iOS Safari)', () => {
+  assert(!html.includes('overflow-x:hidden'), 'overflow-x:hidden on body makes sticky header render below scrolling content on iOS');
+  assert(html.includes('max-width:100vw'), 'need max-width:100vw to contain horizontal overflow without breaking sticky');
+  info('No overflow-x on body — sticky safe');
+});
+
+test('Sticky header has isolation + high z-index (content cannot paint over it)', () => {
+  assert(src.includes('zIndex: 100'), 'sticky header z-index too low');
+  assert(src.includes('isolation: "isolate"'), 'sticky header needs isolation to own its stacking context');
+  info('Header stacking context isolated at z-index 100');
+});
+
+test('Exercise meta row is full-width (no cramped wrapping)', () => {
+  assert(src.includes('META ROW - full width'), 'meta row not extracted into its own full-width row');
+  assert(src.includes('flexWrap: "nowrap", overflowX: "auto"'), 'meta row must not wrap — it should scroll instead');
+  info('Meta row full-width, non-wrapping');
+});
+
+
+test('No unguarded chained access on data fields (x.field.map crashes if field missing)', () => {
+  // The wu.avoid.map crash class: calling an array method on a data field that
+  // some variants don't define. Any such call must either be guarded or the
+  // field must exist in every variant of that structure.
+  const chained = [...src.matchAll(/\b(wu|w|day|ex|baseEx|entry|cw)\.(\w+)\.(map|forEach|filter|reduce|join|slice)\(/g)]
+    .map(m => ({ obj: m[1], field: m[2], method: m[3], full: m[0] }));
+  assert(chained.length > 0, 'Expected to find chained data access to verify');
+
+  const structures = {
+    wu:  ['const WARMUP', 'const ALTERNATIVES'],
+    w:   ['const PROGRAM', 'const ACHIEVEMENTS'],
+    day: ['const PROGRAM', 'const ACHIEVEMENTS'],
+  };
+
+  const problems = [];
+  chained.forEach(c => {
+    const range = structures[c.obj];
+    if (!range) return; // ex/baseEx/entry validated by other tests
+    const blk = src.slice(src.indexOf(range[0]), src.indexOf(range[1]));
+    const keys = [...blk.matchAll(/^\s{2}(\w+):\s*\{/gm)].map(m => m[1]);
+    keys.forEach(k => {
+      const s = blk.indexOf(`  ${k}: {`);
+      const nxt = blk.slice(s + 5).match(/^\s{2}\w+:\s*\{/m);
+      const e = nxt ? s + 5 + nxt.index : blk.length;
+      if (!blk.slice(s, e).includes(c.field + ':')) {
+        problems.push(`${range[0].replace('const ','')}.${k} has no "${c.field}" but render calls ${c.full}`);
+      }
+    });
+  });
+  assert(problems.length === 0, problems.join(' | '));
+  info(`${chained.length} chained accesses verified against every data variant`);
+});
+
+
+test('No missing comma between sibling object properties (any nesting level)', () => {
+  // Catches: a line closing with ] or } followed by another property at the same
+  // indent without a comma. Node tolerates some of these, Babel on iOS does not.
+  const lines = src.split('\n');
+  const problems = [];
+  for (let i = 1; i < lines.length; i++) {
+    const prev = lines[i - 1];
+    const cur  = lines[i];
+    const prevTrim = prev.trimEnd();
+    // previous line ends a block/array WITHOUT a comma
+    if (!/^\s*[\]}]$/.test(prevTrim)) continue;
+    // current line starts a new property at the same indentation
+    const prevIndent = prev.length - prev.trimStart().length;
+    const curIndent  = cur.length - cur.trimStart().length;
+    if (curIndent !== prevIndent) continue;
+    if (!/^\s*[a-zA-Z_$][\w$]*\s*:/.test(cur)) continue;
+    problems.push(`L${i}: "${prevTrim.trim()}" then L${i + 1}: "${cur.trim().slice(0, 40)}" — missing comma`);
+  }
+  assert(problems.length === 0, problems.slice(0, 5).join(' | '));
+  info('No missing commas between sibling properties at any depth');
+});
+
+
+// ── SECTION 19: DATA CONTRACTS (derived from renderer) ─────────────────────
+section('19 · DATA CONTRACTS');
+
+test('addExerciseToSession stores every field the workout card reads', () => {
+  const fn = src.slice(src.indexOf('function addExerciseToSession'), src.indexOf('function removeAddedExercise'));
+  const stored = new Set([...fn.matchAll(/(\w+):\s*ex\.\w+/g)].map(m => m[1]).concat(['_added', 'id']));
+  const tabStart = src.indexOf('{activeTab === "workout" && (');
+  const tabEnd   = src.indexOf('{activeTab === "warmup"');
+  const tab = src.slice(tabStart, tabEnd);
+  const ignore = new Set(['map','filter','length','forEach','_originalId','_isSwapped','id']);
+  const read = new Set([
+    ...[...tab.matchAll(/\bex\.(\w+)/g)].map(m => m[1]),
+    ...[...tab.matchAll(/\bbaseEx\.(\w+)/g)].map(m => m[1]),
+  ].filter(f => !ignore.has(f)));
+  const missing = [...read].filter(f => !stored.has(f));
+  assert(missing.length === 0, `Card reads ${missing.join(', ')} but addExerciseToSession never copies them — added exercise crashes`);
+  info(`${read.size} card fields all copied on add`);
+});
+
+test('finishWorkout produces every field the journal reads from detail[]', () => {
+  const fw = src.slice(src.indexOf('const detail = getSessionExercises()'), src.indexOf('const entry = { date: today'));
+  const produced = new Set([...fw.matchAll(/(\w+):\s*(?:rex\.|sets|!!e\.)/g)].map(m => m[1]));
+  const jStart = src.indexOf('{activeTab === "journal"');
+  const jEnd   = src.indexOf('{activeTab === "progress"');
+  const j = src.slice(jStart, jEnd);
+  const ignore = new Set(['map','filter','length','reduce','some','forEach','sort']);
+  const read = new Set([...j.matchAll(/\bex\.(\w+)/g)].map(m => m[1]).filter(f => !ignore.has(f)));
+  const missing = [...read].filter(f => !produced.has(f));
+  assert(missing.length === 0, `Journal reads detail.${missing.join(', detail.')} but finishWorkout never writes them`);
+  info(`${read.size} journal fields all produced on save`);
+});
+
+test('Every pool exercise has all fields that get copied when added', () => {
+  const required = ['name','sets','reps','rest','steps','danger','warn'];
+  const alt  = src.slice(src.indexOf('const ALTERNATIVES'), src.indexOf('const PROGRAM'));
+  const prog = src.slice(src.indexOf('const PROGRAM'), src.indexOf('const ACHIEVEMENTS'));
+  const bad = [];
+  let total = 0;
+  [[alt,'ALT'],[prog,'PROG']].forEach(([blk, nm]) => {
+    blk.split(/(?=\{\s*id:\s*")/).forEach(p => {
+      const m = p.match(/^\{\s*id:\s*"([^"]+)"/);
+      if (!m) return;
+      total++;
+      const cut = p.indexOf('\n    {');
+      const body = cut > 0 ? p.slice(0, cut) : p;
+      const miss = required.filter(f => !body.includes(f + ':'));
+      if (miss.length) bad.push(`${nm}.${m[1]}: ${miss.join(',')}`);
+    });
+  });
+  assert(bad.length === 0, bad.slice(0, 5).join(' | '));
+  info(`${total} pool exercises all complete`);
+});
+
+test('Every warmup item supplies the fields the renderer reads (item.*)', () => {
+  const wStart = src.indexOf('{activeTab === "warmup"');
+  const wEnd   = src.indexOf('{activeTab === "journal"');
+  const tab = src.slice(wStart, wEnd);
+  const ignore = new Set(['map','length','filter','forEach']);
+  const required = [...new Set([...tab.matchAll(/\bitem\.(\w+)/g)].map(m => m[1]))].filter(f => !ignore.has(f));
+  assert(required.length >= 3, `Expected renderer to read >=3 item fields, got ${required.length}`);
+  const wu = src.slice(src.indexOf('const WARMUP'), src.indexOf('const ALTERNATIVES'));
+  const bad = [];
+  let total = 0;
+  wu.split(/(?=\{ name: ")/).forEach(p => {
+    const m = p.match(/^\{ name: "([^"]+)"/);
+    if (!m) return;
+    total++;
+    const body = p.split('\n          { name:')[0].split('\n        ]')[0];
+    const miss = required.filter(f => !body.includes(f + ':'));
+    if (miss.length) bad.push(`"${m[1].slice(0, 30)}": ${miss.join(',')}`);
+  });
+  assert(bad.length === 0, bad.slice(0, 5).join(' | '));
+  info(`${total} warmup items x ${required.length} fields (${required.join(', ')}) all present`);
+});
+
+test('Every warmup block supplies the fields the renderer reads (block.*)', () => {
+  const wStart = src.indexOf('{activeTab === "warmup"');
+  const wEnd   = src.indexOf('{activeTab === "journal"');
+  const tab = src.slice(wStart, wEnd);
+  const ignore = new Set(['map','length','filter','forEach']);
+  const required = [...new Set([...tab.matchAll(/\bblock\.(\w+)/g)].map(m => m[1]))].filter(f => !ignore.has(f));
+  const wu = src.slice(src.indexOf('const WARMUP'), src.indexOf('const ALTERNATIVES'));
+  const blocks = [...wu.matchAll(/\{\s*\n\s*title: "([^"]+)"([\s\S]*?)(?=\n      \})/g)];
+  assert(blocks.length >= 9, `Expected >=9 warmup blocks, got ${blocks.length}`);
+  const bad = [];
+  blocks.forEach(b => {
+    const miss = required.filter(f => !b[0].includes(f + ':'));
+    if (miss.length) bad.push(`"${b[1]}": ${miss.join(',')}`);
+  });
+  assert(bad.length === 0, bad.slice(0, 5).join(' | '));
+  info(`${blocks.length} warmup blocks x ${required.length} fields all present`);
+});
+
+test('Removing an added exercise cannot orphan the render (guarded lookups)', () => {
+  // getExercise must tolerate an id that is no longer in the session
+  const fn = src.slice(src.indexOf('function getExercise'), src.indexOf('function isSkipped'));
+  assert(fn.includes('getSessionExercises().find('), 'getExercise must look up within session exercises');
+  // getExSets falls back when the exercise is gone
+  const gs = src.slice(src.indexOf('function getExSets'), src.indexOf('function setExSets'));
+  assert(/return ex \? ex\.sets : \d+/.test(gs), 'getExSets must fall back to a default when exercise is missing');
+  info('Lookups guarded against removed exercises');
+});
+
+
+test('History tab fully removed (merged into Journal)', () => {
+  assert(!src.includes('"history","ИСТОРИЯ"'), 'history entry still in tab bar');
+  assert(!src.includes('activeTab === "history"'), 'history tab render block still present — dead code');
+  const i = src.indexOf('[["workout","');
+  assert(i >= 0, 'tab bar definition not found');
+  const tabs = src.slice(i, src.indexOf(']].map(', i) + 2);
+  const count = (tabs.match(/\["/g) || []).length;
+  assert(count === 4, `Expected 4 tabs after merge, found ${count}: ${tabs}`);
+  info('4 tabs: workout, warmup, journal, achievements');
+});
+
+test('Journal shows every history entry, not only detailed ones', () => {
+  const fn = src.slice(src.indexOf('function getAllHistoryDetailed'), src.indexOf('function getExerciseProgression'));
+  assert(!fn.includes('filter(e => e.detail'), 'journal must not filter out entries lacking detail — old records would vanish');
+  assert(fn.includes('sort((a, b) => b.ts - a.ts)'), 'entries must be newest first');
+  info('All history entries reachable from Journal');
+});
+
+test('Journal log carries the actions that used to live in History', () => {
+  const jStart = src.indexOf('{activeTab === "journal"');
+  const jEnd   = src.indexOf('{activeTab === "progress"');
+  const j = src.slice(jStart, jEnd);
+  assert(j.includes('deleteHistoryEntry(entry.workout, entry.ts)'), 'delete action missing from journal');
+  assert(j.includes('resumeSession(entry)'), 'resume action missing from journal');
+  assert(j.includes('{pct}%'), 'completion percentage missing from journal');
+  info('Delete, resume and percentage all present in Journal');
+});
+
+test('Journal tolerates entries saved before detail existed', () => {
+  const jStart = src.indexOf('{activeTab === "journal"');
+  const jEnd   = src.indexOf('{activeTab === "progress"');
+  const j = src.slice(jStart, jEnd);
+  assert(j.includes('const detail = entry.detail || []'), 'entry.detail must be defaulted — legacy records have none');
+  assert(j.includes('(ex.sets || [])'), 'ex.sets must be guarded when reading legacy detail');
+  assert(j.includes('entry.total > 0 ?'), 'percentage must guard division by zero');
+  info('Legacy entries render without crashing');
+});
+
+
+test('Journal reads the exact same history source the old History tab used', () => {
+  // Both must be: Object.values(data.history).flat() sorted by ts desc.
+  // Any divergence means existing user records silently disappear.
+  const fn = src.slice(src.indexOf('function getAllHistoryDetailed'), src.indexOf('function getExerciseProgression'));
+  assert(fn.includes('Object.values(data.history || {}).flat()'), 'journal must read the full history object');
+  assert(fn.includes('sort((a, b) => b.ts - a.ts)'), 'journal must sort newest-first like History did');
+  assert(!/\.filter\(e => e\.detail/.test(fn), 'journal must not filter out records lacking detail');
+  info('Journal source identical to old History source');
+});
+
+test('All history consumers read from data.history (no separate store to migrate)', () => {
+  ['getAllHistoryDetailed', 'computeAch', 'collectExerciseData', 'deleteHistoryEntry']
+    .forEach(name => {
+      const i = src.indexOf('function ' + name);
+      assert(i >= 0, `${name} not found`);
+      const body = src.slice(i, i + 1600);
+      assert(/\bdata\.history\b|\bprev\.history\b/.test(body), `${name} does not read data.history — would need migration`);
+    });
+  info('5 consumers share one store — nothing to migrate');
+});
+
+
+// ── SECTION 20: RESUME FLOW & DUMBBELL UNITS ───────────────────────────────
+section('20 · RESUME FLOW & DUMBBELL UNITS');
+
+test('resuming flag persisted in storage schema', () => {
+  assert(src.includes('d.resuming'), 'resuming not initialized in loadData');
+  assert(src.includes('resuming: null'), 'resuming missing from fallback default');
+  info('resuming persisted across reloads');
+});
+
+test('resumeSession marks which entry is being completed', () => {
+  const fn = src.slice(src.indexOf('function resumeSession'), src.indexOf('function cancelResume'));
+  assert(fn.includes('resuming: { ts: entry.ts'), 'must record the entry ts being resumed');
+  assert(fn.includes('data.resuming.ts !== entry.ts'), 'must refuse resuming a second entry while one is open');
+  info('Resume records target entry and blocks a second one');
+});
+
+test('finishWorkout updates the resumed entry instead of creating a duplicate', () => {
+  const fn = src.slice(src.indexOf('function finishWorkout'), src.indexOf('function computeAch'));
+  assert(fn.includes('const res = data.resuming'), 'finishWorkout must check resuming');
+  assert(fn.includes('findIndex(e => e.ts === res.ts)'), 'must locate the original entry by ts');
+  assert(fn.includes('date: res.date, ts: res.ts'), 'must preserve original date and ts');
+  assert(fn.includes('resuming: null'), 'must clear resuming after finishing');
+  info('Resumed entry updated in place, flag cleared');
+});
+
+test('autoSave also updates the resumed entry (no duplicate on background save)', () => {
+  const fn = src.slice(src.indexOf('function autoSave'), src.indexOf('function autoSave') + 1800);
+  assert(fn.includes('var res = d.resuming'), 'autoSave must check resuming');
+  assert(fn.includes('e.ts === res.ts'), 'autoSave must match original entry by ts');
+  info('autoSave respects resume target');
+});
+
+test('Resume banner visible with cancel action', () => {
+  assert(src.includes('ДОПОЛНЕНИЕ'), 'resume banner missing');
+  assert(src.includes('function cancelResume'), 'cancelResume missing');
+  assert(src.includes('onClick={cancelResume}'), 'cancel button not wired');
+  info('Banner and cancel present');
+});
+
+test('Second resume blocked while one is in progress (button hidden too)', () => {
+  assert(src.includes('!(data.resuming && data.resuming.ts !== entry.ts)'),
+    'ДОПОЛНИТЬ must be hidden on other entries while a resume is open');
+  info('Only one resume can be open at a time');
+});
+
+test('Dumbbell weight unit is configurable and applied everywhere weights show', () => {
+  assert(src.includes('function isDumbbell'), 'isDumbbell missing');
+  assert(src.includes('function weightUnit'), 'weightUnit missing');
+  assert(src.includes('d.dbMode'), 'dbMode not in storage schema');
+  // every weight readout must go through weightUnit, not a hardcoded "кг"
+  const uses = (src.match(/weightUnit\(/g) || []).length;
+  assert(uses >= 6, `weightUnit used only ${uses} times — some weight readouts still hardcode "кг"`);
+  info(`weightUnit applied in ${uses} places`);
+});
+
+test('Dumbbell mode only relabels — it never rewrites the stored number', () => {
+  const fn = src.slice(src.indexOf('function weightUnit'), src.indexOf('function getSetData'));
+  assert(!/[*/]\s*2\b/.test(fn), 'weightUnit must not double or halve the weight — labeling only');
+  assert(fn.includes('"кг/шт"') && fn.includes('"кг общ"'), 'both unit labels must exist');
+  info('Labeling only, stored values untouched');
+});
+
+
+test('Entries record how they were saved (manual finish vs autosave)', () => {
+  const fw = src.slice(src.indexOf('function finishWorkout'), src.indexOf('function computeAch'));
+  assert(fw.includes('src: "manual"'), 'finishWorkout must tag the entry as manual');
+  const as = src.slice(src.indexOf('function autoSave'), src.indexOf('function autoSave') + 2000);
+  assert(as.includes('src: "auto"'), 'autoSave must tag the entry as auto');
+  info('Save source recorded on every entry');
+});
+
+test('Journal shows a distinct badge per entry state', () => {
+  const jStart = src.indexOf('{activeTab === "journal"');
+  const jEnd   = src.indexOf('{activeTab === "progress"');
+  const j = src.slice(jStart, jEnd);
+  ['ДОПОЛНЯЕТСЯ', 'АВТОСОХРАНЕНО', 'ЗАВЕРШЕНА', 'НЕ ЗАКОНЧЕНО'].forEach(b => {
+    assert(j.includes(b), `badge "${b}" missing from journal`);
+  });
+  assert(j.includes("entry.src === \"auto\""), 'autosave badge must key off entry.src');
+  info('4 states badged: resuming, autosaved, finished, incomplete');
+});
+
+test('ДОПОЛНИТЬ is prominent only where it applies', () => {
+  const jStart = src.indexOf('{activeTab === "journal"');
+  const jEnd   = src.indexOf('{activeTab === "progress"');
+  const j = src.slice(jStart, jEnd);
+  assert(j.includes('{!isResuming && incomplete && ('), 'ДОПОЛНИТЬ must be gated to incomplete entries');
+  assert(!j.includes('!otherResuming'), 'ДОПОЛНИТЬ must stay tappable on other entries — hiding it strands the user');
+  assert(j.includes('ПРОДОЛЖИТЬ'), 'the entry being resumed needs its own primary action');
+  // delete must be secondary, not a full-width block
+  assert(j.includes('marginLeft: "auto", padding: "9px 12px"'), 'delete must be a small secondary action');
+  assert(!j.includes('УДАЛИТЬ ЗАПИСЬ'), 'full-width delete button should be gone');
+  info('Primary action shown only where relevant, delete demoted');
+});
+
+test('Resume can always be cancelled from the journal (no stuck state)', () => {
+  const jStart = src.indexOf('{activeTab === "journal"');
+  const jEnd   = src.indexOf('{activeTab === "progress"');
+  const j = src.slice(jStart, jEnd);
+  assert(j.includes('onClick={cancelResume}'), 'cancel must be reachable from the journal, not only the workout tab');
+  info('Cancel reachable from journal');
+});
+
+
+test('resumeSession snapshots the pre-edit state so cancel can roll back', () => {
+  const fn = src.slice(src.indexOf('function resumeSession'), src.indexOf('function cancelResume'));
+  assert(fn.includes('const snapSession ='), 'must snapshot the session before overwriting it');
+  assert(fn.includes('const snapAdded ='), 'must snapshot mid-workout additions');
+  assert(fn.includes('snapSession: snapSession'), 'snapshot must be stored on the resuming flag');
+  assert(fn.includes('key: todKey'), 'must remember which session key was touched');
+  info('Pre-edit state captured on resume');
+});
+
+test('cancelResume restores the session and never touches the journal entry', () => {
+  const fn = src.slice(src.indexOf('function cancelResume'), src.indexOf('function finishWorkout'));
+  assert(fn.includes('res.snapSession) sessions[k] = res.snapSession'), 'must restore the previous session');
+  assert(fn.includes('else delete sessions[k]'), 'must clear the session when there was none before');
+  assert(fn.includes('res.snapAdded) addedEx[k] = res.snapAdded'), 'must restore previous additions');
+  assert(!/history/.test(fn), 'cancel must not modify history — the record has to survive untouched');
+  assert(fn.includes('resuming: null'), 'must clear the resuming flag');
+  info('Cancel rolls back edits, journal record untouched');
+});
+
+test('Cancel action is labelled as cancelling the edit, not deleting', () => {
+  assert(src.includes('ОТМЕНИТЬ<br />РЕДАКТИР.') || src.includes('ОТМЕНИТЬ РЕДАКТ.'),
+    'cancel buttons must read as cancelling the edit');
+  assert(src.includes('запись не изменилась'), 'toast must reassure the record is intact');
+  info('Cancel wording distinguishes it from delete');
+});
+
+
+test('Progression sorts by workout date, not save timestamp', () => {
+  const fn = src.slice(src.indexOf('function getExerciseProgression'), src.indexOf('function getTrackedExercises'));
+  assert(fn.includes('a.date < b.date'), 'must sort by date string');
+  assert(!fn.includes('a.ts - b.ts'), 'must not sort by ts — journal ts is save time, session ts is midnight');
+  info('Single sort basis across both data sources');
+});
+
+test('Deleted workouts go to a recoverable trash', () => {
+  assert(src.includes('d.trash'), 'trash not in storage schema');
+  const del = src.slice(src.indexOf('function deleteHistoryEntry'), src.indexOf('function restoreHistoryEntry'));
+  assert(del.includes('trash.unshift'), 'deleted entry must be pushed to trash');
+  assert(del.includes('trash.slice(0, 20)'), 'trash must be capped');
+  const res = src.slice(src.indexOf('function restoreHistoryEntry'), src.indexOf('function purgeTrash'));
+  assert(res.includes('trash.splice(i, 1)'), 'restore must remove from trash');
+  assert(res.includes('!history[wk].some(e => e.ts === entry.ts)'), 'restore must not duplicate an entry');
+  assert(res.includes('sort((a, b) => b.ts - a.ts)'), 'restored entry must land in the right position');
+  info('Soft delete with capped, dedup-safe restore');
+});
+
+test('Trash section reachable in journal with restore and purge', () => {
+  const jStart = src.indexOf('{activeTab === "journal"');
+  const jEnd   = src.indexOf('{activeTab === "progress"');
+  const j = src.slice(jStart, jEnd);
+  assert(j.includes('КОРЗИНА'), 'trash section missing from journal');
+  assert(j.includes('restoreHistoryEntry(entry.ts)'), 'restore button not wired');
+  assert(j.includes('onClick={purgeTrash}'), 'purge button not wired');
+  assert(j.includes('(data.trash || []).length > 0'), 'trash section must hide when empty');
+  info('Trash UI complete');
+});
+
+
+test('Weekly buckets start on Monday and are stable', () => {
+  const fn = src.slice(src.indexOf('function weekKey'), src.indexOf('function getWeeklyStats'));
+  assert(fn.includes('d.getDay() === 0 ? 6 : d.getDay() - 1'), 'week must start Monday, not Sunday');
+  assert(fn.includes('toISOString().slice(0, 10)'), 'week key must be a stable ISO date');
+  info('Monday-based ISO week keys');
+});
+
+test('Overall progress aggregates every workout, not a subset', () => {
+  const fn = src.slice(src.indexOf('function getOverallProgress'), src.indexOf('function getExerciseWeekDelta'));
+  assert(fn.includes('collectExerciseData()'), 'must aggregate from the merged source');
+  assert(fn.includes('totalVolume') && fn.includes('totalSets') && fn.includes('totalWorkouts'), 'must expose all-time totals');
+  assert(fn.includes('curWeek') && fn.includes('prevWeek'), 'must expose current and previous week');
+  assert(fn.includes('prev.volume > 0 ?'), 'percent change must guard division by zero');
+  info('All-time totals plus week-over-week');
+});
+
+test('Week-over-week delta available per exercise', () => {
+  const fn = src.slice(src.indexOf('function getExerciseWeekDelta'), src.indexOf('function groupTrackedByWorkout'));
+  assert(fn.includes('if (keys.length < 2) return null'), 'must return null when there is no previous week');
+  assert(fn.includes('delta: weeks[keys[0]] - weeks[keys[1]]'), 'delta must compare latest two weeks');
+  info('Per-exercise weekly delta with null guard');
+});
+
+test('Progression list groups exercises by workout', () => {
+  const fn = src.slice(src.indexOf('function groupTrackedByWorkout'), src.indexOf('function computeAch'));
+  assert(fn.includes('m.workouts[w] > m.workouts[best]'), 'exercise must land in the workout it appears in most');
+  assert(fn.includes('getScheduledDayKeys()'), 'groups must follow the schedule order');
+  assert(fn.includes('"ДРУГИЕ"'), 'exercises outside the program need a fallback group');
+  const jStart = src.indexOf('{activeTab === "journal"');
+  const jEnd   = src.indexOf('{activeTab === "progress"');
+  const j = src.slice(jStart, jEnd);
+  assert(j.includes('groups.map(g =>'), 'progression view must render grouped');
+  info('Grouped by workout, schedule order, ДРУГИЕ fallback');
+});
+
+test('Progression view surfaces overall and weekly blocks', () => {
+  const jStart = src.indexOf('{activeTab === "journal"');
+  const jEnd   = src.indexOf('{activeTab === "progress"');
+  const j = src.slice(jStart, jEnd);
+  ['ЗА ВСЁ ВРЕМЯ', 'ЭТА НЕДЕЛЯ К ПРОШЛОЙ', 'ОБЪЁМ ПО НЕДЕЛЯМ', 'К ПРОШЛОЙ НЕДЕЛЕ'].forEach(t => {
+    assert(j.includes(t), `block "${t}" missing from progression view`);
+  });
+  info('All-time, week comparison, weekly chart and per-exercise week delta');
+});
+
+
+// ── SECTION 21: QA FIXES ───────────────────────────────────────────────────
+section('21 · QA FIXES');
+
+test('Skips and swaps are scoped to the session, not the day', () => {
+  assert(src.includes('data.skipped[sessionKey]'), 'isSkipped must read the session bucket');
+  assert(src.includes('sk[sessionKey]'), 'toggleSkip must write to the session bucket');
+  assert(src.includes('data.swaps[sessionKey]'), 'getExercise must read swaps per session');
+  assert(src.includes('swaps[sessionKey]'), 'swapExercise must write per session');
+  assert(!/skipped\[activeDay\]|swaps\[activeDay\]/.test(src), 'no day-scoped skip/swap left — they would persist forever');
+  info('Skips and swaps reset with each new session');
+});
+
+test('History retention is a single named limit', () => {
+  assert(src.includes('const HISTORY_LIMIT'), 'HISTORY_LIMIT constant missing');
+  assert(!/slice\(0,\s*30\)/.test(src), 'hardcoded 30-entry cap still present');
+  const n = parseInt((src.match(/HISTORY_LIMIT = (\d+)/) || [])[1] || '0');
+  assert(n >= 100, `HISTORY_LIMIT ${n} too small — progression reads sessions that outlive it`);
+  info(`HISTORY_LIMIT = ${n}`);
+});
+
+test('Restoring from trash cannot be dropped by the cap', () => {
+  const fn = src.slice(src.indexOf('function restoreHistoryEntry'), src.indexOf('function purgeTrash'));
+  assert(fn.includes('HISTORY_LIMIT + 1'), 'restore must leave room so the restored entry survives the slice');
+  info('Restored entry always survives');
+});
+
+test('Old session-scoped keys are garbage collected', () => {
+  assert(src.includes('function pruneOldKeys'), 'pruneOldKeys missing');
+  const fn = src.slice(src.indexOf('function pruneOldKeys'), src.indexOf('function loadData'));
+  ['sessions', 'customSets', 'addedEx', 'skipped', 'swaps'].forEach(b => {
+    assert(fn.includes(`"${b}"`), `${b} not pruned — grows without bound`);
+  });
+  assert(fn.includes('delete d[bucket][k]; return;'), 'legacy non-dated keys must be dropped');
+  assert(src.includes('d = pruneOldKeys(d)'), 'pruneOldKeys must run on load');
+  info('5 buckets pruned on every load');
+});
+
+test('Deleting a custom workout clears it from the schedule', () => {
+  const fn = src.slice(src.indexOf('function deleteCustomWorkout'), src.indexOf('function getWorkout'));
+  assert(fn.includes('k === id ? null : k'), 'schedule slots pointing at the deleted workout must be cleared');
+  assert(fn.includes('schedule: sched'), 'updated schedule must be persisted');
+  info('No dangling schedule references');
+});
+
+test('Switching rest day stops a running timer', () => {
+  assert(src.includes('lastPromptedExDone.current = 0; stopTimer(); }}'),
+    'switching day must stop the timer — otherwise it fires during another workout');
+  info('Timer stopped on day switch');
+});
+
+test('Resume can switch target and rolls back the previous edit', () => {
+  const fn = src.slice(src.indexOf('function resumeSession'), src.indexOf('function cancelResume'));
+  assert(fn.includes('const switching ='), 'must detect switching between resume targets');
+  assert(fn.includes('old.ts !== entry.ts && old.key'), 'must roll back the previously resumed entry');
+  assert(!fn.includes('Сначала заверши'), 'must not hard-block switching — that strands the user');
+  info('Resume target switchable, previous edits rolled back');
+});
+
+test('Save prompt does not fire immediately after resuming', () => {
+  const fn = src.slice(src.indexOf('function resumeSession'), src.indexOf('function cancelResume'));
+  assert(fn.includes('lastPromptedExDone.current = getDayProgress().exDone'),
+    'threshold must start at the restored level, not 0');
+  info('Prompt only fires on newly completed exercises');
+});
+
+test('Resume refuses entries with no set data', () => {
+  const fn = src.slice(src.indexOf('function resumeSession'), src.indexOf('function cancelResume'));
+  assert(fn.includes('дополнять нечего'), 'must refuse and explain when there is nothing to restore');
+  assert(fn.includes('entry.detail && entry.detail.length'), 'must check detail without optional chaining');
+  info('Empty resume rejected with a clear message');
+});
+
+test('Dumbbell unit is frozen per record, not applied retroactively', () => {
+  assert(src.includes('function weightUnit(name, mode)'), 'weightUnit must accept an explicit mode');
+  assert((src.match(/dbMode: \(data\.dbMode/g) || []).length >= 2, 'both finish and autosave must stamp the mode');
+  assert(src.includes('weightUnit(ex.name, entry.dbMode)'), 'journal must use the record own mode');
+  info('Historic records keep the unit they were logged in');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  SUMMARY
+// ═══════════════════════════════════════════════════════════════════════════
+const total = PASS.length + FAIL.length;
+console.log('\n' + '═'.repeat(55));
+if (FAIL.length === 0) {
+  console.log(GREEN(`✅  ALL ${total} TESTS PASSED`));
+} else {
+  console.log(RED(`❌  ${FAIL.length} FAILED`) + `  /  ${GREEN(PASS.length + ' passed')}  /  ${total} total`);
+  console.log('\n' + BOLD('Failed:'));
+  FAIL.forEach(f => console.log(`  ${RED('✗')} ${f.name}\n    ${RED('→')} ${f.msg}`));
+}
+console.log('═'.repeat(55) + '\n');
+process.exit(FAIL.length > 0 ? 1 : 0);

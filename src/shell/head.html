@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0c0c0f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Workout Routine">
+  <title>Workout Routine</title>
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230c0c0f'/><text y='.9em' font-size='80' x='10'>🏋️</text></svg>">
+  <link rel="manifest" href="data:application/json,%7B%22name%22%3A%22Workout%20Routine%22%2C%22short_name%22%3A%22Workout%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%230c0c0f%22%2C%22theme_color%22%3A%22%230c0c0f%22%2C%22orientation%22%3A%22portrait%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22data%3Aimage/png%3Bbase64%2CiVBORw0KGgoAAAANSUhEUgAAAEwAAABMCAIAAABI9cZ8AAAA50lEQVR4nO3awQnCMBhAYSs9VtzCSbqHs7lHF3AF7x48igv0FkuFKElUeP/7jhZ%2B%2BgilJtoNw35Dt/33DfyCkRRGUhhJYSSFkRRGUhhJYSSFkRRGUhhJ0WeuPY6HzNXd6dL6Zt4ru6UQK2kkRe6Z/NA0Pn9NGad7/cDVzPqxIVbSSAojKUJElr9C0jes8/X2%2BmGl5cz6sSFW0kgKIylCRJa/QtI2fLljaHVcsNqFpLFl75IQK2kkhZEUISIbHGS1Orz63swQK2kkRecf7SGMpDCSwkgKIymMpDCSwkgKIymMpDCSIkTkDHXnIpWOIm3fAAAAAElFTkSuQmCC%22%2C%22sizes%22%3A%2276x76%22%2C%22type%22%3A%22image/png%22%7D%2C%7B%22src%22%3A%22data%3Aimage/png%3Bbase64%2CiVBORw0KGgoAAAANSUhEUgAAAHgAAAB4CAIAAAC2BqGFAAABg0lEQVR4nO3dsW3CUBRAUUApQWyRSdgjs2UPFmAFegrKiAUYABdOgs9H4p7agsfVKzB8xHq73a%2ByvM3oAd5FoZFCI4VGCo0UGik0Umik0EihkUIjhUYKjRQaKTRSaKTQSKGRQiOFRgqNFBopNFJopNBIoZFCI4VGCo0UGik0Umik0EihkUIjhUYKjXzMuej29fmrB919n/80zAt5%2Bktuo5FCI4VGCo0UGpn1ruP/joeJX5wfjj/m2V9hkjYaKTRSaKTQSKGRQiOFRgqNFBopNFJoZJHPOh6/njhdrnMuA0ZN0kYjhUYKjRQaKTRSaKTQSKGRRW5YHs9HTX4lOuTk2MxJnn4L00YjhUYKjRQaKTRSaKTQSKGRQiOFRgqNoIPoQ86cTxo1SRuNFBopNFJopNDIur9CNdpopNBIoZFCI4VGCo0UGik0Umik0EihkUIjhUYKjRQaKTRSaKTQSKGRQiOFRgqNFBopNFJopNBIoZFCI4VGCo0UGik0Umik0EihkUIjdydbIu0MVmobAAAAAElFTkSuQmCC%22%2C%22sizes%22%3A%22120x120%22%2C%22type%22%3A%22image/png%22%7D%2C%7B%22src%22%3A%22data%3Aimage/png%3Bbase64%2CiVBORw0KGgoAAAANSUhEUgAAAJgAAACYCAIAAACXoLd2AAAB40lEQVR4nO3dwU3CYBiAYTEca9zCSdiD2dyDBVzBuweOxgVcgEZL9G/75nnONHzhzXegtOUwTc8P7N/j2gPwN4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDLiuPSAr/PL3W/29Pp%2B97E7NezjspERQkYIGSFkhJARQkYs/vrxHy6n239Zcbp8Dp7kR5sd1UZGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkx9GesuUvK3j6ui16/os2OaiMjhIwQMkLICCEjhIwQMkLICCEjhIwQMkLIiKEnzefupZ67oWKDt6ovHXXYyXQbGSFkhJARQkYIGSFkhJARQkYIGSFkhJARQkYIGSFkxCYeYbb6879%2Bb7Oj2sgIISOEjBAyQsgIISMO03T7sjD2xUZGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBnxDTGbIy1oSHE/AAAAAElFTkSuQmCC%22%2C%22sizes%22%3A%22152x152%22%2C%22type%22%3A%22image/png%22%7D%2C%7B%22src%22%3A%22data%3Aimage/png%3Bbase64%2CiVBORw0KGgoAAAANSUhEUgAAALQAAAC0CAIAAACyr5FlAAACI0lEQVR4nO3dsU3DQBiAUYIojbIFk2QPZmOPLMAK9BQpEQuwAJ%2BLk5Wz4b02cuKLPv1FHJ9Py3J%2BgN88zj4B9kscJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQnsYO%2B3592eTjn98%2BNnmfP2ziV21ykMRBEgdJHCRxkMRBEgdJHKTBH8Hu4Ho5r7x6uX7d7Uw2ccTlmBwkcZDEQRIHSRwkcZDEQRIHSRwkcZDEQRIHSRwkcZDEQRIHSRykyf8EW7nX7/3zNnbgPh1xOSYHSRwkcZDEQRIHSRwkcZDEQRIHSRwkcZDEQRIHSRykyZfsV7bVXd/t5HBbHw8vZ%2BLVfJODJA6SOEjiIImDJA6SOEjiIImDJA6SOEjiIImDJA6SOEjiIImDtN/HeO3zyVbDjrgck4MkDpI4SOIgiYMkDpI4SOIgnZZl7TY9/jOTgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQO0g/srCNlJNoCCAAAAABJRU5ErkJggg%3D%3D%22%2C%22sizes%22%3A%22180x180%22%2C%22type%22%3A%22image/png%22%2C%22purpose%22%3A%22any%20maskable%22%7D%5D%2C%22scope%22%3A%22/%22%7D">
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+    html{height:100%;background:#0c0c0f}
+    body{min-height:100%;background:#0c0c0f;max-width:100vw}
+    body{
+      overscroll-behavior-y:contain;
+      -webkit-user-select:none;user-select:none;
+      -webkit-touch-callout:none;
+      padding-top:env(safe-area-inset-top);
+      padding-bottom:env(safe-area-inset-bottom);
+      padding-left:env(safe-area-inset-left);
+      padding-right:env(safe-area-inset-right);
+    }
+    input,textarea{-webkit-user-select:text;user-select:text}
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}
+    input[type=number]{-moz-appearance:textfield}
+    input,button,select{font-size:16px}
+    button{touch-action:manipulation}
+    ::-webkit-scrollbar{display:none;width:0;height:0}
+    *{scrollbar-width:none;-ms-overflow-style:none}
+    #root{min-height:100vh;min-height:100dvh}
+    #loader{
+      position:fixed;inset:0;background:#0c0c0f;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;
+      z-index:9999;gap:16px;transition:opacity 0.5s;
+    }
+    #loader .ico{font-size:52px}
+    #loader .lbl{font-family:monospace;font-size:10px;letter-spacing:4px;color:#333}
+    #loader .ring{width:48px;height:48px}
+    #loader .err{
+      font-family:monospace;font-size:11px;color:#ff6b6b;
+      text-align:center;max-width:300px;line-height:1.7;
+      padding:16px;background:#1a0808;border:1px solid #3a1010;
+      border-radius:10px;display:none;margin:0 16px;
+    }
+    #ios-hint{
+      display:none;position:fixed;bottom:20px;left:16px;right:16px;
+      background:#1a1a22;border:1px solid #2a2a35;border-radius:14px;
+      padding:18px 16px 16px;z-index:1000;font-family:monospace;
+    }
+    #ios-hint.show{display:block}
+    #ios-hint p{font-size:13px;color:#888;line-height:1.8}
+    #ios-hint strong{color:#fff}
+    #ios-hint .cls{
+      position:absolute;top:10px;right:14px;background:none;
+      border:none;color:#555;font-size:20px;cursor:pointer;padding:4px;
+    }
+  </style>
+</head>
+<body>
+
+<div id="loader">
+  <div class="ico">🏋️</div>
+  <svg class="ring" viewBox="0 0 48 48">
+    <circle cx="24" cy="24" r="20" fill="none" stroke="#1a1a22" stroke-width="3"/>
+    <circle id="spin-arc" cx="24" cy="24" r="20" fill="none" stroke="#ff6b35"
+      stroke-width="3" stroke-linecap="round"
+      stroke-dasharray="30 96" transform="rotate(-90 24 24)">
+      <animateTransform attributeName="transform" type="rotate"
+        from="-90 24 24" to="270 24 24" dur="1s" repeatCount="indefinite"/>
+    </circle>
+  </svg>
+  <div class="lbl" id="lbl">ЗАГРУЗКА</div>
+  <div class="err" id="err"></div>
+</div>
+
+<div id="root"></div>
+
+<div id="ios-hint">
+  <button class="cls" onclick="document.getElementById('ios-hint').classList.remove('show')">✕</button>
+  <p>Чтобы установить на iPhone:<br>
+  Нажми <strong>⬆ Поделиться</strong> внизу Safari<br>
+  → <strong>«На экран «Домой»»</strong> → <strong>«Добавить»</strong></p>
+</div>
+
+<script>
+function showErr(msg) {
+  var e = document.getElementById('err');
+  e.textContent = msg;
+  e.style.display = 'block';
+  document.getElementById('lbl').textContent = 'ОШИБКА';
+  document.getElementById('spin-arc').style.display = 'none';
+}
+function hideLoader() {
+  var l = document.getElementById('loader');
+  l.style.opacity = '0';
+  setTimeout(function(){ l.style.display = 'none'; }, 500);
+}
+function setLabel(t) { document.getElementById('lbl').textContent = t; }
+
+function loadScript(url, cb) {
+  var s = document.createElement('script');
+  s.src = url;
+  s.onload = cb;
+  s.onerror = function() { showErr('Не удалось загрузить: ' + url.split('/').pop() + '\nПроверь соединение'); };
+  document.head.appendChild(s);
+}
+
+window.onerror = function(msg, src, line, col, err) {
+  showErr('Ошибка JS:\n' + msg + '\n(строка ' + line + ')');
+  return false;
+};
+
+setLabel('REACT...');
+loadScript('https://unpkg.com/react@18/umd/react.production.min.js', function() {
+  setLabel('REACT DOM...');
+  loadScript('https://unpkg.com/react-dom@18/umd/react-dom.production.min.js', function() {
+    setLabel('КОМПИЛЯЦИЯ...');
+    loadScript('https://unpkg.com/@babel/standalone@7.23.10/babel.min.js', function() {
+      try {
+        setLabel('ЗАПУСК...');
+        var code = document.getElementById('app-src').textContent;
+        var compiled = Babel.transform(code, {
+          presets: [['react', {}]],
+          plugins: [],
+          filename: 'app.jsx'
+        }).code;
+        var run = new Function('React', 'ReactDOM', compiled);
+        run(React, ReactDOM);
+        hideLoader();
+
+        // iOS install hint
+        var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        var isSafari = /Safari/.test(navigator.userAgent) && !/CriOS|FxiOS/.test(navigator.userAgent);
+        if (isIOS && isSafari && !window.navigator.standalone) {
+          setTimeout(function(){ document.getElementById('ios-hint').classList.add('show'); }, 2000);
+        }
+
+        // Service worker for offline
+        if ('serviceWorker' in navigator) {
+          try {
+            var sw = 'const C="sila-v5";' +
+              'self.addEventListener("install",e=>{self.skipWaiting()});' +
+              'self.addEventListener("activate",e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==C).map(k=>caches.delete(k)))))});' +
+              'self.addEventListener("fetch",e=>{e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(res=>{const cl=res.clone();caches.open(C).then(c=>c.put(e.request,cl));return res}).catch(()=>caches.match(e.request))))});';
+            var blob = new Blob([sw], {type:'application/javascript'});
+            navigator.serviceWorker.register(URL.createObjectURL(blob));
+          } catch(e2) {}
+        }
+      } catch(e) {
+        showErr('Ошибка компиляции:\n' + e.message);
+        console.error(e);
+      }
+    });
+  });
+});
+</script>
+
+<!-- App source (compiled at runtime by Babel) -->
+<script type="text/plain" id="app-src">
