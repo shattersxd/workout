@@ -1202,7 +1202,12 @@ function loadData() {
   catch { return { sessions: {}, history: {}, swaps: {}, skipped: {}, customWorkouts: {}, customSets: {}, addedEx: {}, resuming: null, dbMode: "single", trash: [], schedule: ["push",null,"pull",null,"legs",null,null] }; }
 }
 function saveData(d) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); } catch {} }
-function todayKey() { return new Date().toISOString().slice(0, 10); }
+// Локальная дата, не UTC: toISOString() после полуночи (в Москве до 03:00) даёт вчерашнее число
+function todayKey() {
+  const d = new Date();
+  const p = n => (n < 10 ? "0" : "") + n;
+  return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+}
 
 export default function App() {
   const [data, setData] = useState(loadData);
@@ -2103,8 +2108,10 @@ export default function App() {
 
   function weekKey(dateStr) {
     // Номер недели с понедельника, стабильный ключ для группировки
-    const d = new Date(dateStr);
-    const dow = d.getDay() === 0 ? 6 : d.getDay() - 1;
+    // Дату разбираем вручную и считаем в UTC, чтобы часовой пояс не сдвигал день недели
+    const ymd = dateStr.split("-");
+    const d = new Date(Date.UTC(+ymd[0], +ymd[1] - 1, +ymd[2]));
+    const dow = d.getUTCDay() === 0 ? 6 : d.getUTCDay() - 1;
     const monday = new Date(d.getTime() - dow * 86400000);
     return monday.toISOString().slice(0, 10);
   }
@@ -2231,28 +2238,46 @@ export default function App() {
   }
 
   function showToast(msg) { setToast(msg); setTimeout(() => setToast(null), 2500); }
+  // Прошлые подходы упражнения в этом дне, новые -> старые: [{date, ws: ["60", "62.5"]}].
+  // Два источника: журнал (detail) и сырые сессии. finishWorkout удаляет сессию после
+  // сохранения, поэтому у завершённых тренировок веса остаются только в журнале.
+  // Текущую тренировку (сегодняшнюю или дополняемую запись) пропускаем.
+  function getPastExSets(exId) {
+    const res = data.resuming;
+    const today = todayKey();
+    const byDate = {};
+    ((data.history || {})[activeDay] || []).forEach(entry => {
+      if (entry.date === today || (res && entry.ts === res.ts)) return;
+      const d = (entry.detail || []).find(x => x.id === exId);
+      if (!d) return;
+      const ws = (d.sets || []).filter(s => s.done && s.w).map(s => String(s.w));
+      if (ws.length && !byDate[entry.date]) byDate[entry.date] = ws;
+    });
+    Object.keys(data.sessions || {}).forEach(k => {
+      // ключ сессии: YYYY-MM-DD_день, день сам может содержать "_"
+      if (k === sessionKey || k.charAt(10) !== "_" || k.slice(11) !== activeDay) return;
+      const date = k.slice(0, 10);
+      if (byDate[date] || (res && date === res.date)) return;
+      const ex = data.sessions[k] && data.sessions[k][exId];
+      const ws = Object.values(ex || {}).map(s => s && s.weight).filter(Boolean).map(String);
+      if (ws.length) byDate[date] = ws;
+    });
+    return Object.keys(byDate).sort().reverse().map(date => ({ date: date, ws: byDate[date] }));
+  }
+
   function getLastWeight(exId) {
-    const dayHistory = Object.keys(data.sessions).filter(k => k.includes(`_${activeDay}`) && k !== sessionKey).sort().reverse();
-    for (const k of dayHistory) {
-      const ex = (data.sessions[k] && data.sessions[k][exId]);
-      if (ex) { const ws = Object.values(ex).map(s => s.weight).filter(Boolean); if (ws.length) return ws[0]; }
-    }
-    return null;
+    const past = getPastExSets(exId);
+    return past.length ? past[0].ws[0] : null;
   }
 
   // Get last N sessions weights for an exercise: [{date, sets: [weights]}]
   function getExHistory(exId, n = 4) {
-    const keys = Object.keys(data.sessions)
-      .filter(k => k.includes("_" + activeDay) && k !== sessionKey)
-      .sort().reverse().slice(0, n);
-    return keys.map(k => {
-      const dateStr = k.split("_")[0];
-      const ex = data.sessions[k] && data.sessions[k][exId];
-      const weights = ex ? Object.values(ex).map(s => parseFloat(s.weight) || 0) : [];
-      const maxW = weights.length ? Math.max(...weights) : null;
-      const avgW = weights.length ? Math.round(weights.reduce((a,b)=>a+b,0) / weights.length * 10) / 10 : null;
-      return { date: dateStr, weights, maxW, avgW };
-    }).filter(r => r.maxW !== null).reverse(); // oldest first for chart
+    return getPastExSets(exId).slice(0, n).map(p => {
+      const weights = p.ws.map(x => parseFloat(x) || 0);
+      const maxW = Math.max(...weights);
+      const avgW = Math.round(weights.reduce((a,b)=>a+b,0) / weights.length * 10) / 10;
+      return { date: p.date, weights, maxW, avgW };
+    }).reverse(); // oldest first for chart
   }
 
   const prog = getDayProgress();

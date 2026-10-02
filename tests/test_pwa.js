@@ -521,8 +521,11 @@ test('Progress tab active condition present', () => {
 });
 test('getLastWeight uses correct session key filtering', () => {
   assert(src.includes('function getLastWeight'), 'getLastWeight missing');
-  const fn = src.slice(src.indexOf('function getLastWeight'), src.indexOf('function getLastWeight') + 400);
-  assert(fn.includes('sessionKey'), 'getLastWeight does not exclude current session');
+  assert(src.includes('function getPastExSets'), 'getPastExSets missing - hints have no data source');
+  const fn = src.slice(src.indexOf('function getPastExSets'), src.indexOf('function getLastWeight'));
+  assert(fn.includes('sessionKey'), 'getPastExSets does not exclude current session');
+  const lw = src.slice(src.indexOf('function getLastWeight'), src.indexOf('function getExHistory'));
+  assert(lw.includes('getPastExSets('), 'getLastWeight must read through getPastExSets');
 });
 test('finishWorkout saves to per-day history array', () => {
   assert(src.includes('function finishWorkout'), 'finishWorkout missing');
@@ -2211,7 +2214,7 @@ test('Trash section reachable in journal with restore and purge', () => {
 
 test('Weekly buckets start on Monday and are stable', () => {
   const fn = src.slice(src.indexOf('function weekKey'), src.indexOf('function getWeeklyStats'));
-  assert(fn.includes('d.getDay() === 0 ? 6 : d.getDay() - 1'), 'week must start Monday, not Sunday');
+  assert(fn.includes('d.getUTCDay() === 0 ? 6 : d.getUTCDay() - 1'), 'week must start Monday, not Sunday');
   assert(fn.includes('toISOString().slice(0, 10)'), 'week key must be a stable ISO date');
   info('Monday-based ISO week keys');
 });
@@ -2332,6 +2335,91 @@ test('Dumbbell unit is frozen per record, not applied retroactively', () => {
   assert((src.match(/dbMode: \(data\.dbMode/g) || []).length >= 2, 'both finish and autosave must stamp the mode');
   assert(src.includes('weightUnit(ex.name, entry.dbMode)'), 'journal must use the record own mode');
   info('Historic records keep the unit they were logged in');
+});
+
+// Исполняет настоящий getPastExSets/getLastWeight/getExHistory из исходника
+function loadPastSetsFns(data, activeDay, sessionKey, today) {
+  const from = src.indexOf('function getPastExSets');
+  const body = src.slice(from, src.indexOf('const prog = getDayProgress()', from));
+  return new Function('data', 'activeDay', 'sessionKey', 'todayKey',
+    body + '; return { getPastExSets, getLastWeight, getExHistory };')(data, activeDay, sessionKey, () => today);
+}
+
+test('Weight hints and mini-chart read finished workouts from the journal', () => {
+  // finishWorkout удаляет сессию, поэтому после завершения веса есть только в history.detail
+  const data = {
+    sessions: {},
+    history: { push: [
+      { date: '2026-09-25', ts: 2, workout: 'push', detail: [{ id: 'bench', sets: [{ w: '60', done: true }, { w: '62.5', done: true }, { w: '70', done: false }] }] },
+      { date: '2026-09-18', ts: 1, workout: 'push', detail: [{ id: 'bench', sets: [{ w: '55', done: true }] }] },
+    ] },
+    resuming: null,
+  };
+  const f = loadPastSetsFns(data, 'push', '2026-10-02_push', '2026-10-02');
+  assert(f.getLastWeight('bench') === '60', 'last weight must come from the journal, got ' + f.getLastWeight('bench'));
+  const h = f.getExHistory('bench', 4);
+  assert(h.length === 2, 'expected 2 sessions, got ' + h.length);
+  assert(h[0].date === '2026-09-18' && h[1].date === '2026-09-25', 'must be oldest first');
+  assert(h[1].maxW === 62.5, 'max must ignore the not-done set, got ' + h[1].maxW);
+  assert(f.getLastWeight('squat') === null, 'unknown exercise has no hint');
+  info('Journal is the primary source for hints');
+});
+
+test('Weight hints fall back to raw sessions and never mix in other days or today', () => {
+  const data = {
+    sessions: {
+      '2026-09-20_push': { bench: { 0: { weight: '50', done: true } } },
+      '2026-09-21_pull': { bench: { 0: { weight: '99', done: true } } },
+      '2026-09-22_custom_x': { bench: { 0: { weight: '88', done: true } } },
+      '2026-10-02_push': { bench: { 0: { weight: '77', done: false } } },
+    },
+    history: {},
+    resuming: null,
+  };
+  const f = loadPastSetsFns(data, 'push', '2026-10-02_push', '2026-10-02');
+  assert(f.getLastWeight('bench') === '50', 'must use the push session only, got ' + f.getLastWeight('bench'));
+  const c = loadPastSetsFns(data, 'custom_x', '2026-10-02_custom_x', '2026-10-02');
+  assert(c.getLastWeight('bench') === '88', 'workout keys with underscores must match exactly, got ' + c.getLastWeight('bench'));
+  info('Raw sessions still work as fallback, matched by exact day key');
+});
+
+test('Weight hints skip today and the entry being resumed; journal wins over a stale session', () => {
+  const data = {
+    sessions: { '2026-09-25_push': { bench: { 0: { weight: '1', done: true } } } },
+    history: { push: [
+      { date: '2026-10-02', ts: 9, workout: 'push', detail: [{ id: 'bench', sets: [{ w: '80', done: true }] }] },
+      { date: '2026-09-25', ts: 5, workout: 'push', detail: [{ id: 'bench', sets: [{ w: '60', done: true }] }] },
+      { date: '2026-09-18', ts: 4, workout: 'push', detail: [{ id: 'bench', sets: [{ w: '55', done: true }] }] },
+    ] },
+    resuming: null,
+  };
+  let f = loadPastSetsFns(data, 'push', '2026-10-02_push', '2026-10-02');
+  assert(f.getLastWeight('bench') === '60', 'today entry must be skipped and journal must beat the session, got ' + f.getLastWeight('bench'));
+  data.resuming = { ts: 5, date: '2026-09-25', workout: 'push' };
+  f = loadPastSetsFns(data, 'push', '2026-10-02_push', '2026-10-02');
+  assert(f.getLastWeight('bench') === '55', 'the entry being resumed must not be its own hint, got ' + f.getLastWeight('bench'));
+  info('No self-comparison while editing or on the same day');
+});
+
+test('todayKey is the local date, not UTC', () => {
+  const fn = src.slice(src.indexOf('function todayKey'), src.indexOf('export default function App'));
+  assert(!fn.includes('toISOString'), 'todayKey must not use toISOString - it is UTC and gives yesterday after midnight');
+  const todayKey = new Function(fn + '; return todayKey;')();
+  const d = new Date();
+  const p = n => (n < 10 ? '0' : '') + n;
+  const expected = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  assert(todayKey() === expected, 'got ' + todayKey() + ', expected ' + expected);
+  info('Local date, midnight-safe');
+});
+
+test('weekKey groups by Monday regardless of timezone', () => {
+  const fn = src.slice(src.indexOf('function weekKey'), src.indexOf('function getWeeklyStats'));
+  assert(fn.includes('Date.UTC'), 'weekKey must parse the date as UTC parts');
+  const weekKey = new Function(fn + '; return weekKey;')();
+  assert(weekKey('2026-10-04') === '2026-09-28', 'Sunday belongs to the week of the previous Monday, got ' + weekKey('2026-10-04'));
+  assert(weekKey('2026-09-28') === '2026-09-28', 'Monday is its own week key, got ' + weekKey('2026-09-28'));
+  assert(weekKey('2026-10-02') === '2026-09-28', 'Friday maps to Monday, got ' + weekKey('2026-10-02'));
+  info('Week keys are timezone-independent');
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
