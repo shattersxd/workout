@@ -2453,7 +2453,7 @@ test('Marking an empty set takes the suggestion; with no suggestion it still ask
 function loadBackupFns() {
   const from = src.indexOf('const BACKUP_APP');
   const body = src.slice(from, src.indexOf('export default function App'));
-  return new Function('HISTORY_LIMIT', body + '; return { buildBackup, parseBackup, mergeBackup };')(200);
+  return new Function('HISTORY_LIMIT', body + '; return { buildBackup, parseBackup, mergeBackup, backupDue, backupAgeDays };')(200);
 }
 const emptyData = () => ({ sessions: {}, history: {}, swaps: {}, skipped: {}, customWorkouts: {}, customSets: {}, addedEx: {}, resuming: null, dbMode: 'single', trash: [], schedule: ['push', null, 'pull', null, 'legs', null, null] });
 
@@ -2522,6 +2522,37 @@ test('Backup UI: export via share sheet with download fallback, import via file 
   assert(src.includes('importRef.current.click()'), 'import button must open the file picker');
   assert(src.includes('pruneOldKeys(mergeBackup(prev, res.data).data)'), 'imported keys must pass through the same pruning as load');
   info('Share sheet first, download fallback, file picker import');
+});
+
+test('Backup reminder: shown only when there is history to lose and the copy is stale', () => {
+  const { backupDue, backupAgeDays } = loadBackupFns();
+  const hist = n => ({ push: Array.from({ length: n }, (_, i) => ({ ts: i, date: '2026-09-01' })) });
+  const today = '2026-10-02';
+  assert(backupDue({ history: hist(2) }, today) === false, 'a new user with 2 workouts must not be nagged');
+  assert(backupDue({ history: {} }, today) === false, 'empty journal: nothing to back up');
+  assert(backupDue({ history: hist(3) }, today) === true, 'never backed up, 3 workouts -> remind');
+  assert(backupDue({ history: hist(5), lastBackup: '2026-09-25' }, today) === false, '7 days old copy is fresh');
+  assert(backupDue({ history: hist(5), lastBackup: '2026-09-19' }, today) === false, '13 days is still fresh, the boundary is 14');
+  assert(backupDue({ history: hist(5), lastBackup: '2026-09-18' }, today) === true, '14 days -> remind');
+  assert(backupAgeDays({ lastBackup: '2026-09-18' }, today) === 14, 'age in days, got ' + backupAgeDays({ lastBackup: '2026-09-18' }, today));
+  assert(backupAgeDays({}, today) === null, 'no copy yet -> null');
+  // "Позже" откладывает на 3 дня
+  assert(backupDue({ history: hist(5), backupSnooze: '2026-10-02' }, today) === false, 'snoozed today');
+  assert(backupDue({ history: hist(5), backupSnooze: '2026-09-30' }, today) === false, 'snoozed 2 days ago');
+  assert(backupDue({ history: hist(5), backupSnooze: '2026-09-29' }, today) === true, 'snooze over after 3 days');
+  // граница месяца и года считается календарными днями
+  assert(backupAgeDays({ lastBackup: '2025-12-31' }, '2026-01-02') === 2, 'year boundary');
+  info('Reminder rules: threshold, 14-day staleness, 3-day snooze');
+});
+
+test('Backup reminder banner is hidden mid-workout and offers save + snooze', () => {
+  assert(src.includes('prog.done === 0 && backupDue(data, todayKey())'), 'banner must not show once a set is done');
+  const i = src.indexOf('backupDue(data, todayKey())');
+  const block = src.slice(i, i + 2600);
+  assert(block.includes('onClick={exportBackup}'), 'banner must save in one tap');
+  assert(block.includes('backupSnooze: todayKey()'), 'banner must be snoozable');
+  assert((block.match(/minHeight: 44/g) || []).length >= 2, 'both banner buttons need a 44pt tap target');
+  info('Banner: save, snooze, quiet during a workout');
 });
 
 test('todayKey is the local date, not UTC', () => {

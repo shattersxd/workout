@@ -1274,6 +1274,30 @@ function mergeBackup(cur, inc) {
   return { data: out, added: added };
 }
 
+// Напоминание о копии: на главном экране, пока не начата тренировка.
+// Копия старше 14 дней (или ни разу не делалась) и в журнале уже есть что терять.
+const BACKUP_EVERY_DAYS = 14;
+const BACKUP_SNOOZE_DAYS = 3;
+const BACKUP_MIN_ENTRIES = 3;
+
+function dayNum(key) {
+  const p = key.split("-");
+  return Math.floor(Date.UTC(+p[0], +p[1] - 1, +p[2]) / 86400000);
+}
+
+// Сколько дней прошло с последней копии, null - ни разу не делали
+function backupAgeDays(d, today) {
+  return d.lastBackup ? dayNum(today) - dayNum(d.lastBackup) : null;
+}
+
+function backupDue(d, today) {
+  const total = Object.keys(d.history || {}).reduce(function (n, k) { return n + (d.history[k] || []).length; }, 0);
+  if (total < BACKUP_MIN_ENTRIES) return false;
+  if (d.backupSnooze && dayNum(today) - dayNum(d.backupSnooze) < BACKUP_SNOOZE_DAYS) return false;
+  const age = backupAgeDays(d, today);
+  return age === null || age >= BACKUP_EVERY_DAYS;
+}
+
 export default function App() {
   const [data, setData] = useState(loadData);
   const [activeDay, setActiveDay] = useState(() => {
@@ -2504,6 +2528,26 @@ export default function App() {
                 <div style={{ height: "100%", width: `${prog.pct}%`, background: w.color, borderRadius: 3, transition: "width 0.5s", boxShadow: prog.pct > 0 ? `0 0 8px ${w.color}60` : "none" }} />
               </div>
             </div>
+
+            {/* Напоминание о резервной копии - не мешаем, когда тренировка уже идёт */}
+            {prog.done === 0 && backupDue(data, todayKey()) && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#1a1206", border: "1px solid #f7a84440", borderRadius: 12, padding: "12px 12px 12px 14px", marginBottom: 16 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 9, letterSpacing: 2, color: "#f7a844", marginBottom: 4 }}>РЕЗЕРВНАЯ КОПИЯ</div>
+                  <div style={{ fontSize: 11, color: "#ccc", lineHeight: 1.5 }}>
+                    {data.lastBackup ? "Копию не делали " + backupAgeDays(data, todayKey()) + " дн." : "Копии истории ещё нет"}
+                  </div>
+                </div>
+                <button onClick={exportBackup}
+                  style={{ padding: "10px 12px", minHeight: 44, borderRadius: 8, border: "1px solid #f7a844", background: "#f7a84418", color: "#f7a844", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+                  СОХРАНИТЬ
+                </button>
+                <button onClick={() => setData(prev => ({ ...prev, backupSnooze: todayKey() }))}
+                  style={{ padding: "10px 10px", minHeight: 44, borderRadius: 8, border: "1px solid #3a2a10", background: "#0c0c0f", color: "#a89060", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+                  ПОЗЖЕ
+                </button>
+              </div>
+            )}
 
             {/* Edit mode toggle */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
