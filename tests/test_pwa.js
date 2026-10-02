@@ -2449,8 +2449,83 @@ test('Marking an empty set takes the suggestion; with no suggestion it still ask
   info('Suggestion shown grey, taken on mark, guard intact');
 });
 
+// Исполняет настоящие parseBackup/mergeBackup из исходника
+function loadBackupFns() {
+  const from = src.indexOf('const BACKUP_APP');
+  const body = src.slice(from, src.indexOf('export default function App'));
+  return new Function('HISTORY_LIMIT', body + '; return { buildBackup, parseBackup, mergeBackup };')(200);
+}
+const emptyData = () => ({ sessions: {}, history: {}, swaps: {}, skipped: {}, customWorkouts: {}, customSets: {}, addedEx: {}, resuming: null, dbMode: 'single', trash: [], schedule: ['push', null, 'pull', null, 'legs', null, null] });
+
+test('Backup: export then import into an empty device restores everything', () => {
+  const { buildBackup, parseBackup, mergeBackup } = loadBackupFns();
+  const src1 = emptyData();
+  src1.history.push = [{ date: '2026-09-25', ts: 20, workout: 'push', detail: [{ id: 'bench', sets: [{ w: '60', done: true }] }] }, { date: '2026-09-18', ts: 10, workout: 'push' }];
+  src1.sessions['2026-09-25_push'] = { bench: { 0: { weight: '60', done: true } } };
+  src1.customWorkouts.c1 = { name: 'X' };
+  src1.schedule = ['push', 'pull', null, null, null, null, null];
+  src1.dbMode = 'total';
+  const parsed = parseBackup(buildBackup(src1));
+  assert(!parsed.error, 'own export must parse: ' + parsed.error);
+  const r = mergeBackup(emptyData(), parsed.data);
+  assert(r.added === 2, 'expected 2 added, got ' + r.added);
+  assert(r.data.history.push.length === 2 && r.data.history.push[0].ts === 20, 'history restored, newest first');
+  assert(r.data.sessions['2026-09-25_push'].bench[0].weight === '60', 'sessions restored');
+  assert(r.data.customWorkouts.c1.name === 'X', 'custom workouts restored');
+  assert(r.data.schedule[1] === 'pull' && r.data.dbMode === 'total', 'settings restored on an empty device');
+  info('Round trip: history, sessions, custom days, settings');
+});
+
+test('Backup: import only adds - existing data and settings are never overwritten', () => {
+  const { buildBackup, parseBackup, mergeBackup } = loadBackupFns();
+  const cur = emptyData();
+  cur.history.push = [{ date: '2026-10-01', ts: 30, workout: 'push', name: 'LOCAL' }, { date: '2026-09-25', ts: 20, workout: 'push', name: 'LOCAL-EDITED' }];
+  cur.schedule = ['legs', null, null, null, null, null, null];
+  cur.dbMode = 'total';
+  cur.sessions['k'] = { a: 1 };
+  const old = emptyData();
+  old.history.push = [{ date: '2026-09-25', ts: 20, workout: 'push', name: 'OLD' }, { date: '2026-09-18', ts: 10, workout: 'push', name: 'OLDER' }];
+  old.history.pull = [{ date: '2026-09-20', ts: 15, workout: 'pull' }];
+  old.sessions['k'] = { a: 999 };
+  old.schedule = ['push', 'push', 'push', 'push', 'push', 'push', 'push'];
+  old.dbMode = 'single';
+  const r = mergeBackup(cur, parseBackup(buildBackup(old)).data);
+  assert(r.added === 2, 'only entries with unseen ts count, got ' + r.added);
+  assert(r.data.history.push.map(e => e.ts).join() === '30,20,10', 'sorted newest first, no duplicates: ' + r.data.history.push.map(e => e.ts).join());
+  assert(r.data.history.push[1].name === 'LOCAL-EDITED', 'local entry wins on equal ts');
+  assert(r.data.history.pull.length === 1, 'new workout key added');
+  assert(r.data.sessions.k.a === 1, 'local session wins');
+  assert(r.data.schedule[0] === 'legs' && r.data.dbMode === 'total', 'settings of a device with history are kept');
+  assert(cur.history.push.length === 2, 'merge must not mutate its input');
+  info('Merge is additive and non-destructive');
+});
+
+test('Backup: garbage and foreign files are rejected with a message', () => {
+  const { parseBackup } = loadBackupFns();
+  ['', 'not json', '[]', 'null', '123', '{"a":1}', '{"history":[]}', '{"app":"other","data":{"x":1}}'].forEach(t => {
+    const r = parseBackup(t);
+    assert(r.error && !r.data, 'must reject ' + JSON.stringify(t));
+  });
+  // битые записи журнала отбрасываются, остальное загружается
+  const r = parseBackup(JSON.stringify({ history: { push: [{ ts: 1, date: '2026-01-01' }, { ts: 'x' }, null, 5] }, sessions: [] }));
+  assert(r.data && r.data.history.push.length === 1, 'only well-formed entries survive');
+  assert(JSON.stringify(r.data.sessions) === '{}', 'wrong-typed buckets become empty objects');
+  info('Bad input rejected, partial input sanitised');
+});
+
+test('Backup UI: export via share sheet with download fallback, import via file picker', () => {
+  const fn = src.slice(src.indexOf('async function exportBackup'), src.indexOf('function importBackup'));
+  assert(fn.includes('navigator.canShare') && fn.includes('navigator.share'), 'must prefer the iOS share sheet - blob downloads are unreliable in a standalone PWA');
+  assert(fn.includes('AbortError'), 'closing the share sheet is not an error');
+  assert(fn.includes('a.download = name'), 'download fallback missing');
+  assert(src.includes('type="file" accept="application/json,.json"'), 'file input missing');
+  assert(src.includes('importRef.current.click()'), 'import button must open the file picker');
+  assert(src.includes('pruneOldKeys(mergeBackup(prev, res.data).data)'), 'imported keys must pass through the same pruning as load');
+  info('Share sheet first, download fallback, file picker import');
+});
+
 test('todayKey is the local date, not UTC', () => {
-  const fn = src.slice(src.indexOf('function todayKey'), src.indexOf('export default function App'));
+  const fn = src.slice(src.indexOf('function todayKey'), src.indexOf('// ---- Резервная копия'));
   assert(!fn.includes('toISOString'), 'todayKey must not use toISOString - it is UTC and gives yesterday after midnight');
   const todayKey = new Function(fn + '; return todayKey;')();
   const d = new Date();

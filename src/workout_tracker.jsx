@@ -1209,6 +1209,71 @@ function todayKey() {
   return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
 }
 
+// ---- Резервная копия: весь data одним JSON-файлом ----
+// Формат: { app, version, exportedAt, data }. Загрузка только ДОБАВЛЯЕТ недостающее
+// (журнал по ts, сессии и пр. по ключу), локальные данные не перезаписываются.
+const BACKUP_APP = "workout-tracker";
+const BACKUP_BUCKETS = ["sessions", "customSets", "addedEx", "skipped", "swaps", "customWorkouts"];
+
+function buildBackup(d) {
+  return JSON.stringify({ app: BACKUP_APP, version: 1, exportedAt: new Date().toISOString(), data: d });
+}
+
+// Возвращает { data } с очищенной копией или { error } с текстом для пользователя
+function parseBackup(text) {
+  let o;
+  try { o = JSON.parse(text); } catch (e) { return { error: "Это не файл копии: не удалось прочитать" }; }
+  // принимаем и обёртку { app, data }, и "голый" data
+  const d = o && o.app === BACKUP_APP && o.data ? o.data : o;
+  if (!d || typeof d !== "object" || !d.history || typeof d.history !== "object" || Array.isArray(d.history)) {
+    return { error: "Это не файл копии Workout Routine" };
+  }
+  const hist = {};
+  Object.keys(d.history).forEach(function (day) {
+    if (!Array.isArray(d.history[day])) return;
+    hist[day] = d.history[day].filter(function (e) {
+      return e && typeof e === "object" && typeof e.ts === "number" && typeof e.date === "string";
+    });
+  });
+  const out = {
+    history: hist,
+    schedule: Array.isArray(d.schedule) && d.schedule.length === 7 ? d.schedule : null,
+    dbMode: d.dbMode === "total" ? "total" : "single"
+  };
+  BACKUP_BUCKETS.forEach(function (b) {
+    out[b] = d[b] && typeof d[b] === "object" && !Array.isArray(d[b]) ? d[b] : {};
+  });
+  return { data: out };
+}
+
+// Добавляет в cur то, чего там нет. Возвращает { data, added } - added это число новых тренировок
+function mergeBackup(cur, inc) {
+  const out = JSON.parse(JSON.stringify(cur));
+  const hadHistory = Object.keys(cur.history || {}).some(function (k) { return (cur.history[k] || []).length > 0; });
+  let added = 0;
+  if (!out.history) out.history = {};
+  Object.keys(inc.history).forEach(function (day) {
+    const have = out.history[day] || [];
+    const seen = {};
+    have.forEach(function (e) { seen[e.ts] = true; });
+    inc.history[day].forEach(function (e) {
+      if (!seen[e.ts]) { seen[e.ts] = true; have.push(e); added++; }
+    });
+    have.sort(function (a, b) { return b.ts - a.ts; });
+    if (have.length) out.history[day] = have.slice(0, HISTORY_LIMIT);
+  });
+  BACKUP_BUCKETS.forEach(function (b) {
+    if (!out[b]) out[b] = {};
+    Object.keys(inc[b]).forEach(function (k) { if (out[b][k] === undefined) out[b][k] = inc[b][k]; });
+  });
+  // Настройки берём из файла только на пустом устройстве: иначе перетрём свежие
+  if (!hadHistory) {
+    if (inc.schedule) out.schedule = inc.schedule;
+    out.dbMode = inc.dbMode;
+  }
+  return { data: out, added: added };
+}
+
 export default function App() {
   const [data, setData] = useState(loadData);
   const [activeDay, setActiveDay] = useState(() => {
@@ -1247,6 +1312,7 @@ export default function App() {
   const timerRef = useRef(null);
   const notifTimerRef = useRef(null);
   const endsAtRef = useRef(null); // mirror of timer.endsAt for setInterval closure
+  const importRef = useRef(null); // скрытый input[type=file] для загрузки копии
 
   useEffect(() => { saveData(data); }, [data]);
 
@@ -2036,6 +2102,52 @@ export default function App() {
     lastPromptedExDone.current = 0; setSavePrompt(false); showToast(isUpdate ? "Тренировка обновлена!" : "Тренировка сохранена!");
   }
 
+
+  // Сохранить копию: системное окно "Поделиться" (оттуда "Сохранить в Файлы"),
+  // если не поддерживается - обычная загрузка файла
+  async function exportBackup() {
+    const text = buildBackup(data);
+    const name = "workout-backup-" + todayKey() + ".json";
+    try {
+      const file = new File([text], name, { type: "application/json" });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: name });
+        setData(prev => ({ ...prev, lastBackup: todayKey() }));
+        showToast("Копия сохранена");
+        return;
+      }
+    } catch (e) {
+      if (e && e.name === "AbortError") return; // закрыл окно "Поделиться"
+    }
+    try {
+      const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      setData(prev => ({ ...prev, lastBackup: todayKey() }));
+      showToast("Копия скачана");
+    } catch (e2) {
+      showToast("Не удалось сохранить копию");
+    }
+  }
+
+  function importBackup(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onerror = () => showToast("Не удалось прочитать файл");
+    reader.onload = () => {
+      const res = parseBackup(String(reader.result || ""));
+      if (res.error) { showToast(res.error); return; }
+      const added = mergeBackup(data, res.data).added;
+      setData(prev => pruneOldKeys(mergeBackup(prev, res.data).data));
+      showToast(added > 0 ? "Загружено тренировок: " + added : "Новых тренировок в файле нет");
+    };
+    reader.readAsText(file);
+  }
 
   function getAllHistoryDetailed() {
     return Object.values(data.history || {}).flat().sort((a, b) => b.ts - a.ts);
@@ -3326,6 +3438,28 @@ export default function App() {
                     );
                   })}
                 </div>
+              </div>
+
+              <div style={{ fontSize: 9, letterSpacing: 2, color: "#666", marginBottom: 10 }}>РЕЗЕРВНАЯ КОПИЯ</div>
+              <div style={{ background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "14px 14px", marginBottom: 24 }}>
+                <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6, marginBottom: 10 }}>
+                  Все данные хранятся только на этом телефоне. Сохрани копию в Файлы  -  история переживёт сброс Safari и переустановку. Загрузка копии добавляет недостающие тренировки и ничего не стирает.
+                </div>
+                <div style={{ fontSize: 10, color: "#666", marginBottom: 12 }}>
+                  Последняя копия: {data.lastBackup ? new Date(data.lastBackup + "T12:00:00").toLocaleDateString("ru", { day: "numeric", month: "long" }) : "ещё не сохранялась"}
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={exportBackup}
+                    style={{ flex: 1, padding: "12px 8px", borderRadius: 9, border: "1px solid #f7a84460", background: "#f7a84412", color: "#f7a844", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", minHeight: 48 }}>
+                    СОХРАНИТЬ
+                  </button>
+                  <button onClick={() => importRef.current && importRef.current.click()}
+                    style={{ flex: 1, padding: "12px 8px", borderRadius: 9, border: "1px solid #2a2a2a", background: "#0c0c0f", color: "#999", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 48 }}>
+                    ЗАГРУЗИТЬ
+                  </button>
+                </div>
+                <input ref={importRef} type="file" accept="application/json,.json" style={{ display: "none" }}
+                  onChange={e => { importBackup(e.target.files && e.target.files[0]); e.target.value = ""; }} />
               </div>
 
               <div style={{ fontSize: 9, letterSpacing: 2, color: "#666", marginBottom: 10 }}>РАСПИСАНИЕ НЕДЕЛИ</div>
