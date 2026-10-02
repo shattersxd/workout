@@ -1298,6 +1298,29 @@ function backupDue(d, today) {
   return age === null || age >= BACKUP_EVERY_DAYS;
 }
 
+// ---- Фильтр журнала: по дню и по названию упражнения ----
+// Регистр и ё/е не важны: "жим лежа" находит "Жим штанги лёжа"
+function normText(s) {
+  return String(s || "").trim().toLowerCase().replace(/ё/g, "е");
+}
+
+// Слова запроса ищутся по отдельности, порядок не важен: "жим лежа" находит "Жим штанги лёжа"
+function exMatches(d, needle) {
+  if (!d || !d.name) return false;
+  const name = normText(d.name);
+  return needle.split(" ").filter(Boolean).every(function (t) { return name.indexOf(t) >= 0; });
+}
+
+// day - ключ тренировки (null - все), q - подстрока (пусто - все)
+function filterJournal(entries, day, q) {
+  const needle = normText(q);
+  return entries.filter(function (e) {
+    if (day && e.workout !== day) return false;
+    if (!needle) return true;
+    return (e.detail || []).some(function (d) { return exMatches(d, needle); });
+  });
+}
+
 export default function App() {
   const [data, setData] = useState(loadData);
   const [activeDay, setActiveDay] = useState(() => {
@@ -1317,6 +1340,8 @@ export default function App() {
   const [addExModal, setAddExModal] = useState(false);
   const [journalMode, setJournalMode] = useState("log");
   const [journalEx, setJournalEx] = useState(null);
+  const [journalDay, setJournalDay] = useState(null);   // фильтр журнала по тренировке
+  const [journalQ, setJournalQ] = useState("");         // поиск по упражнению
   const [openEntry, setOpenEntry] = useState(null);
   const [trashOpen, setTrashOpen] = useState(false);
   const [addExSearch, setAddExSearch] = useState("");
@@ -2827,6 +2852,14 @@ export default function App() {
         {activeTab === "journal" && (() => {
           const entries = getAllHistoryDetailed();
           const tracked = getTrackedExercises();
+          // Фильтры: дни, которые есть в журнале (новые первыми), и поиск по упражнению
+          const dayOpts = [];
+          entries.forEach(e => {
+            if (!dayOpts.some(o => o.key === e.workout)) dayOpts.push({ key: e.workout, name: e.name, color: getPlanColor(e.workout) });
+          });
+          const dayFilter = dayOpts.some(o => o.key === journalDay) ? journalDay : null;
+          const needle = normText(journalQ);
+          const shown = filterJournal(entries, dayFilter, journalQ);
 
           return (
             <div style={{ paddingTop: 20 }}>
@@ -2839,13 +2872,51 @@ export default function App() {
                 ))}
               </div>
 
+              {journalMode === "log" && entries.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  {dayOpts.length > 1 && (
+                    <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 10 }}>
+                      {[{ key: null, name: "ВСЕ", color: w.color }].concat(dayOpts).map(o => {
+                        const on = dayFilter === o.key;
+                        return (
+                          <button key={o.key || "all"} onClick={() => setJournalDay(o.key)}
+                            style={{ flexShrink: 0, minHeight: 44, padding: "0 14px", borderRadius: 10, border: `1px solid ${on ? o.color : "#1a1a22"}`, background: on ? `${o.color}18` : "#0c0c0f", color: on ? "#fff" : "#777", fontSize: 10, letterSpacing: 1, fontWeight: on ? 700 : 400, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+                            {o.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div style={{ position: "relative" }}>
+                    <input value={journalQ} onChange={e => setJournalQ(e.target.value)}
+                      placeholder="Поиск по упражнению..."
+                      style={{ width: "100%", boxSizing: "border-box", minHeight: 44, background: "#0c0c0f", border: "1px solid #1a1a22", borderRadius: 10, padding: "12px 44px 12px 14px", color: "#fff", fontSize: 16, fontFamily: "inherit", outline: "none" }} />
+                    {journalQ && (
+                      <button onClick={() => setJournalQ("")}
+                        style={{ position: "absolute", right: 0, top: 0, width: 44, height: 44, background: "none", border: "none", color: "#777", fontSize: 16, cursor: "pointer", fontFamily: "inherit" }}>x</button>
+                    )}
+                  </div>
+                  {(dayFilter || needle) && (
+                    <div style={{ fontSize: 10, color: "#666", marginTop: 8 }}>Найдено: {shown.length} из {entries.length}</div>
+                  )}
+                </div>
+              )}
+
               {journalMode === "log" && (
                 entries.length === 0 ? (
                   <div style={{ textAlign: "center", padding: "60px 20px", color: "#555", fontSize: 13, lineHeight: 1.7 }}>
                     Журнал пуст.<br />Заверши тренировку — появятся детали:<br />какие упражнения, сколько подходов и с каким весом.
                   </div>
+                ) : shown.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "40px 20px", color: "#555", fontSize: 13, lineHeight: 1.7 }}>
+                    Ничего не найдено.<br />
+                    <button onClick={() => { setJournalDay(null); setJournalQ(""); }}
+                      style={{ marginTop: 14, minHeight: 44, padding: "0 18px", borderRadius: 10, border: "1px solid #2a2a2a", background: "#0c0c0f", color: "#999", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" }}>
+                      СБРОСИТЬ ФИЛЬТР
+                    </button>
+                  </div>
                 ) : (
-                  entries.map((entry, i) => {
+                  shown.map((entry, i) => {
                     const day = PROGRAM[entry.workout] || { color: "#666", name: entry.name, label: "" };
                     const isOpen = openEntry === entry.ts;
                     const detail = entry.detail || [];
@@ -2880,6 +2951,15 @@ export default function App() {
                             <div style={{ fontSize: 10, color: "#666", marginTop: 5 }}>
                               {detail.length > 0 ? detail.length + " упр  |  " : ""}{entry.done}/{entry.total} подходов{totalVol > 0 ? "  |  " + Math.round(totalVol) + " кг" : ""}
                             </div>
+                            {needle && detail.filter(d => exMatches(d, needle)).map((d, di) => {
+                              const ws = (d.sets || []).filter(s => s.done && s.w).map(s => parseFloat(s.w) || 0);
+                              const mx = ws.length ? Math.max.apply(null, ws) : 0;
+                              return (
+                                <div key={di} style={{ fontSize: 11, color: day.color, marginTop: 5, fontWeight: 600 }}>
+                                  {d.name}{mx > 0 ? ":  " + mx + " " + weightUnit(d.name, entry.dbMode) : ""}
+                                </div>
+                              );
+                            })}
                           </div>
                           {detail.length > 0 && (
                             <div style={{ fontSize: 15, color: isOpen ? day.color : "#666", transform: isOpen ? "rotate(90deg)" : "none", transition: "all 0.2s", flexShrink: 0, padding: "6px 4px" }}>{">"}</div>

@@ -2524,6 +2524,44 @@ test('Backup UI: export via share sheet with download fallback, import via file 
   info('Share sheet first, download fallback, file picker import');
 });
 
+test('Journal filter: by workout day and by exercise name, case and yo-insensitive', () => {
+  const from = src.indexOf('function normText');
+  const body = src.slice(from, src.indexOf('export default function App', from));
+  const { normText, exMatches, filterJournal } = new Function(body + '; return { normText, exMatches, filterJournal };')();
+  const entries = [
+    { ts: 3, workout: 'push', name: 'ЖИМОВОЙ', detail: [{ id: 'bench', name: 'Жим штанги лёжа' }, { id: 'dips', name: 'Отжимания на брусьях' }] },
+    { ts: 2, workout: 'pull', name: 'ТЯГОВОЙ', detail: [{ id: 'row', name: 'Тяга штанги в наклоне' }] },
+    { ts: 1, workout: 'push', name: 'ЖИМОВОЙ' },   // старая запись без detail
+  ];
+  assert(filterJournal(entries, null, '').length === 3, 'no filter -> everything');
+  assert(filterJournal(entries, null, '   ').length === 3, 'blank query is no filter');
+  assert(filterJournal(entries, 'push', '').map(e => e.ts).join() === '3,1', 'day filter keeps order');
+  assert(filterJournal(entries, null, 'жим лежа').map(e => e.ts).join() === '3', 'ё/е and case must not matter');
+  assert(filterJournal(entries, null, 'лежа жим').map(e => e.ts).join() === '3', 'word order must not matter');
+  assert(filterJournal(entries, null, 'жим тяга').length === 0, 'every word must match the same exercise');
+  assert(filterJournal(entries, null, 'ШТАНГИ').map(e => e.ts).join() === '3,2', 'substring across workouts');
+  assert(filterJournal(entries, 'pull', 'штанги').map(e => e.ts).join() === '2', 'day and query combine');
+  assert(filterJournal(entries, 'push', 'тяга').length === 0, 'no match -> empty');
+  assert(filterJournal(entries, null, 'жим').every(e => e.detail), 'entries without detail never match a query');
+  assert(normText(null) === '' && normText(undefined) === '', 'normText tolerates missing names');
+  assert(exMatches({ name: 'Жим' }, 'жим') && !exMatches(null, 'жим') && !exMatches({}, 'жим'), 'exMatches tolerates bad rows');
+  info('Day + exercise filter incl. old entries without detail');
+});
+
+test('Journal filter UI: day chips, search box, found counter, reset, per-entry match line', () => {
+  assert(src.includes('filterJournal(entries, dayFilter, journalQ)'), 'journal must render the filtered list');
+  assert(src.includes('shown.map((entry, i)'), 'entries list must iterate the filtered array');
+  assert(src.includes('Поиск по упражнению...'), 'search box missing');
+  assert(src.includes('СБРОСИТЬ ФИЛЬТР'), 'empty result needs a reset');
+  assert(src.includes('Найдено: {shown.length} из {entries.length}'), 'counter missing');
+  assert(src.includes('dayOpts.some(o => o.key === journalDay) ? journalDay : null'),
+    'a filter pointing at a day that no longer exists must fall back to all');
+  assert(src.includes('detail.filter(d => exMatches(d, needle))'), 'matched exercises must be listed under the entry');
+  const i = src.indexOf('Поиск по упражнению...');
+  assert(/minHeight: 44/.test(src.slice(i - 200, i + 700)), 'search input needs a 44pt target');
+  info('Chips, search, counter, reset, match lines');
+});
+
 test('Backup reminder: shown only when there is history to lose and the copy is stale', () => {
   const { backupDue, backupAgeDays } = loadBackupFns();
   const hist = n => ({ push: Array.from({ length: n }, (_, i) => ({ ts: i, date: '2026-09-01' })) });
