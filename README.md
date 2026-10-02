@@ -28,7 +28,7 @@
 
 ```bash
 python3 scripts/build.py      # src/ -> index.html
-node tests/test_pwa.js        # 245 тестов, должно быть 245/245
+node tests/test_pwa.js        # 248 тестов, должно быть 248/248
 ```
 
 Или одной командой:

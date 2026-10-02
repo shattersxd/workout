@@ -1321,6 +1321,13 @@ function filterJournal(entries, day, q) {
   });
 }
 
+// Объём (сумма весов) для сводок: пока меньше тонны - в кг, дальше в тоннах с одним знаком
+function formatVolume(kg) {
+  const v = Math.round(kg);
+  if (v < 1000) return { value: String(v), unit: "КГ" };
+  return { value: (Math.round(v / 100) / 10).toFixed(1).replace(".", ","), unit: "ТОНН" };
+}
+
 export default function App() {
   const [data, setData] = useState(loadData);
   const [activeDay, setActiveDay] = useState(() => {
@@ -1958,6 +1965,9 @@ export default function App() {
       if (!s[sessionKey]) s[sessionKey] = {};
       if (!s[sessionKey][exId]) s[sessionKey][exId] = {};
       if (!s[sessionKey][exId][setIdx]) s[sessionKey][exId][setIdx] = { weight: "", done: false };
+      // Вес отмеченного подхода менять нельзя, пока не снята отметка: иначе можно получить
+      // отмеченный подход без веса, который журнал считает, а прогрессия и объём - нет
+      if (field === "weight" && s[sessionKey][exId][setIdx].done) return prev;
       s[sessionKey][exId][setIdx][field] = value;
       return { ...prev, sessions: s };
     });
@@ -2746,6 +2756,8 @@ export default function App() {
                           <div style={{ fontSize: 12, color: "#666", width: 18, textAlign: "center", flexShrink: 0, fontWeight: 600 }}>{i + 1}</div>
                           <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, background: "#0c0c0f", borderRadius: 10, padding: "10px 14px", border: `1px solid ${sd.done ? w.color + "50" : "#1e1e28"}`, transition: "border-color 0.2s" }}>
                             <input type="number" className="wt" placeholder={getSuggestedWeight(ex.id, i) || " - "} value={sd.weight}
+                              readOnly={sd.done}
+                              onClick={() => { if (sd.done) showToast("Сними отметку, чтобы изменить вес"); }}
                               onChange={e => updateSet(ex.id, i, "weight", e.target.value)}
                               style={{ width: 60, background: "none", border: "none", outline: "none", color: "#fff", fontSize: 16, fontFamily: "inherit", fontWeight: 700 }} />
                             <span style={{ fontSize: 12, color: isDumbbell(ex.name) ? "#8a7550" : "#666", whiteSpace: "nowrap" }}>{weightUnit(ex.name)}</span>
@@ -3214,11 +3226,12 @@ export default function App() {
                     const ov = getOverallProgress();
                     const groups = groupTrackedByWorkout();
                     const maxWeekVol = Math.max.apply(null, ov.weeks.slice(0, 8).map(w => w.volume).concat([1]));
+                    const totalVol = formatVolume(ov.totalVolume);
                     return (
                     <>
                       <div style={{ fontSize: 10, letterSpacing: 2, color: "#666", marginBottom: 10 }}>ЗА ВСЁ ВРЕМЯ</div>
                       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-                        {[["ТРЕН", ov.totalWorkouts], ["ПОДХОДОВ", ov.totalSets], ["ТОНН", Math.round(ov.totalVolume / 1000)]].map(s => (
+                        {[["ТРЕН", ov.totalWorkouts], ["ПОДХОДОВ", ov.totalSets], [totalVol.unit, totalVol.value]].map(s => (
                           <div key={s[0]} style={{ flex: 1, background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "12px 6px", textAlign: "center" }}>
                             <div style={{ fontSize: 17, fontWeight: 700, color: "#ddd", marginBottom: 3 }}>{s[1]}</div>
                             <div style={{ fontSize: 8, color: "#666", letterSpacing: 2 }}>{s[0]}</div>

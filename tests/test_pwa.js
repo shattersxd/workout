@@ -2622,6 +2622,57 @@ test('Journal filter UI: day chips, search box, found counter, reset, per-entry 
   info('Chips, search, counter, reset, match lines');
 });
 
+test('A done set cannot be edited: weight is locked until the mark is removed', () => {
+  // настоящий updateSet на заглушке состояния
+  const from = src.indexOf('function updateSet(');
+  const fn = src.slice(from, src.indexOf('function toggleDone', from));
+  let state = { sessions: {} };
+  const setData = f => { state = f(state); };
+  const updateSet = new Function('setData', 'sessionKey', fn + '; return updateSet;')(setData, 'k');
+  const cur = () => state.sessions.k.bench[0];
+  updateSet('bench', 0, 'weight', '60');
+  updateSet('bench', 0, 'done', true);
+  updateSet('bench', 0, 'weight', '70');
+  assert(cur().weight === '60' && cur().done === true, 'weight of a done set must not change, got ' + JSON.stringify(cur()));
+  updateSet('bench', 0, 'weight', '');
+  assert(cur().weight === '60' && cur().done === true, 'weight of a done set must not be cleared, got ' + JSON.stringify(cur()));
+  updateSet('bench', 0, 'done', false);
+  updateSet('bench', 0, 'weight', '65');
+  assert(cur().weight === '65' && cur().done === false, 'after un-marking the weight is editable again, got ' + JSON.stringify(cur()));
+  updateSet('bench', 0, 'done', true);
+  assert(cur().weight === '65' && cur().done === true, 'marking again keeps the new weight, got ' + JSON.stringify(cur()));
+  // другие подходы не затронуты
+  updateSet('bench', 1, 'weight', '50');
+  assert(state.sessions.k.bench[1].weight === '50', 'an unmarked set stays editable');
+  info('State rejects weight edits on a done set; un-mark, edit, mark works');
+});
+
+test('Weight input is read-only on a done set and explains why', () => {
+  const i = src.indexOf('className="wt"');
+  const block = src.slice(i, i + 500);
+  assert(block.includes('readOnly={sd.done}'), 'the input must be read-only while the set is done');
+  assert(block.includes('Сними отметку, чтобы изменить вес'), 'tapping a locked field must say what to do');
+  info('Locked field with an explanation toast');
+});
+
+test('formatVolume: kg until a tonne, then tonnes with one decimal', () => {
+  const from = src.indexOf('function formatVolume');
+  const fn = src.slice(from, src.indexOf('export default function App', from));
+  const formatVolume = new Function(fn + '; return formatVolume;')();
+  const f = kg => { const r = formatVolume(kg); return r.value + ' ' + r.unit; };
+  assert(f(0) === '0 КГ', '0 -> ' + f(0));
+  assert(f(417.5) === '418 КГ', 'less than a tonne stays in kg, got ' + f(417.5));
+  assert(f(999.4) === '999 КГ', 'just under a tonne stays in kg, got ' + f(999.4));
+  assert(f(1000) === '1,0 ТОНН', 'exactly one tonne, got ' + f(1000));
+  assert(f(1449) === '1,4 ТОНН', 'one decimal, rounded, got ' + f(1449));
+  assert(f(1450) === '1,5 ТОНН', 'rounds half up, got ' + f(1450));
+  assert(f(25340) === '25,3 ТОНН', 'big totals, got ' + f(25340));
+  assert(src.includes('const totalVol = formatVolume(ov.totalVolume)') && src.includes('[totalVol.unit, totalVol.value]'),
+    'the all-time tile must use formatVolume');
+  assert(!src.includes('["ТОНН", Math.round(ov.totalVolume / 1000)]'), 'the old always-tonnes tile is still there');
+  info('418 КГ -> 1,0 ТОНН at 1000');
+});
+
 test('Backup reminder: shown only when there is history to lose and the copy is stale', () => {
   const { backupDue, backupAgeDays } = loadBackupFns();
   const hist = n => ({ push: Array.from({ length: n }, (_, i) => ({ ts: i, date: '2026-09-01' })) });
