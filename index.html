@@ -29,6 +29,7 @@
     input[type=number]{-moz-appearance:textfield}
     input,button,select{font-size:16px}
     button{touch-action:manipulation}
+    .wt::placeholder{color:#6f6f80;opacity:1}
     ::-webkit-scrollbar{display:none;width:0;height:0}
     *{scrollbar-width:none;-ms-overflow-style:none}
     #root{min-height:100vh;min-height:100dvh}
@@ -1986,8 +1987,13 @@ function App() {
   function toggleDone(exId, setIdx, restStr) {
     const cur = getSetData(exId, setIdx);
     if (!cur.done && (!cur.weight || cur.weight === "")) {
-      showToast("Впиши вес перед отметкой");
-      return;
+      // Поле пустое: берём серую подсказку. Нет подсказки (первая тренировка) - просим вписать.
+      const sug = getSuggestedWeight(exId, setIdx);
+      if (!sug) {
+        showToast("Впиши вес перед отметкой");
+        return;
+      }
+      updateSet(exId, setIdx, "weight", sug);
     }
     const newDone = !cur.done;
     updateSet(exId, setIdx, "done", newDone);
@@ -2434,6 +2440,24 @@ function App() {
     return past.length ? past[0].ws[0] : null;
   }
 
+  // Подсказка веса для пустого подхода: вес ближайшего заполненного подхода выше
+  // (сегодня), иначе подход с тем же номером в прошлой тренировке, иначе последний
+  // известный вес. Показывается в поле серым, а отметка подхода без ввода берёт её.
+  function getSuggestedWeight(exId, setIdx) {
+    const past = getPastExSets(exId);
+    const ws = past.length ? past[0].ws : [];
+    const same = ws[setIdx] !== undefined ? ws[setIdx] : (ws.length ? ws[ws.length - 1] : "");
+    for (let j = setIdx - 1; j >= 0; j--) {
+      const prev = getSetData(exId, j).weight;
+      if (!prev) continue;
+      // Идём по тому же плану, что в прошлый раз (вес подхода j совпал) - тогда сохраняем
+      // разгон 60 -> 62.5 -> 65. Отошли от плана - копируем введённый вес.
+      if (same && ws[j] !== undefined && parseFloat(ws[j]) === parseFloat(prev)) return same;
+      return String(prev);
+    }
+    return same;
+  }
+
   // Get last N sessions weights for an exercise: [{date, sets: [weights]}]
   function getExHistory(exId, n = 4) {
     return getPastExSets(exId).slice(0, n).map(p => {
@@ -2638,7 +2662,7 @@ function App() {
                         <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <div style={{ fontSize: 12, color: "#666", width: 18, textAlign: "center", flexShrink: 0, fontWeight: 600 }}>{i + 1}</div>
                           <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, background: "#0c0c0f", borderRadius: 10, padding: "10px 14px", border: `1px solid ${sd.done ? w.color + "50" : "#1e1e28"}`, transition: "border-color 0.2s" }}>
-                            <input type="number" placeholder=" - " value={sd.weight}
+                            <input type="number" className="wt" placeholder={getSuggestedWeight(ex.id, i) || " - "} value={sd.weight}
                               onChange={e => updateSet(ex.id, i, "weight", e.target.value)}
                               style={{ width: 60, background: "none", border: "none", outline: "none", color: "#fff", fontSize: 16, fontFamily: "inherit", fontWeight: 700 }} />
                             <span style={{ fontSize: 12, color: isDumbbell(ex.name) ? "#8a7550" : "#666", whiteSpace: "nowrap" }}>{weightUnit(ex.name)}</span>

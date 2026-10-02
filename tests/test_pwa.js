@@ -2338,11 +2338,12 @@ test('Dumbbell unit is frozen per record, not applied retroactively', () => {
 });
 
 // Исполняет настоящий getPastExSets/getLastWeight/getExHistory из исходника
-function loadPastSetsFns(data, activeDay, sessionKey, today) {
+function loadPastSetsFns(data, activeDay, sessionKey, today, session) {
   const from = src.indexOf('function getPastExSets');
   const body = src.slice(from, src.indexOf('const prog = getDayProgress()', from));
-  return new Function('data', 'activeDay', 'sessionKey', 'todayKey',
-    body + '; return { getPastExSets, getLastWeight, getExHistory };')(data, activeDay, sessionKey, () => today);
+  const getSetData = (exId, i) => ((session || {})[exId] && session[exId][i]) || { weight: '', done: false };
+  return new Function('data', 'activeDay', 'sessionKey', 'todayKey', 'getSetData',
+    body + '; return { getPastExSets, getLastWeight, getExHistory, getSuggestedWeight };')(data, activeDay, sessionKey, () => today, getSetData);
 }
 
 test('Weight hints and mini-chart read finished workouts from the journal', () => {
@@ -2399,6 +2400,53 @@ test('Weight hints skip today and the entry being resumed; journal wins over a s
   f = loadPastSetsFns(data, 'push', '2026-10-02_push', '2026-10-02');
   assert(f.getLastWeight('bench') === '55', 'the entry being resumed must not be its own hint, got ' + f.getLastWeight('bench'));
   info('No self-comparison while editing or on the same day');
+});
+
+test('Suggested weight: previous set today, else same set last time, else last known', () => {
+  const data = {
+    sessions: {},
+    history: { push: [
+      { date: '2026-09-25', ts: 2, workout: 'push', detail: [{ id: 'bench', sets: [{ w: '60', done: true }, { w: '62.5', done: true }, { w: '65', done: true }] }] },
+    ] },
+    resuming: null,
+  };
+  const k = '2026-10-02_push';
+  // ничего не введено: подход с тем же номером в прошлый раз
+  let f = loadPastSetsFns(data, 'push', k, '2026-10-02', {});
+  assert(f.getSuggestedWeight('bench', 0) === '60', 'set 1 -> 60, got ' + f.getSuggestedWeight('bench', 0));
+  assert(f.getSuggestedWeight('bench', 2) === '65', 'set 3 -> 65, got ' + f.getSuggestedWeight('bench', 2));
+  // подходов сегодня больше, чем было: берём последний известный вес
+  assert(f.getSuggestedWeight('bench', 5) === '65', 'extra set -> last known, got ' + f.getSuggestedWeight('bench', 5));
+  // сегодня уже введён вес в подходе 1: он важнее прошлой тренировки
+  f = loadPastSetsFns(data, 'push', k, '2026-10-02', { bench: { 0: { weight: '67.5', done: true } } });
+  assert(f.getSuggestedWeight('bench', 1) === '67.5', 'set 2 follows set 1 of today, got ' + f.getSuggestedWeight('bench', 1));
+  assert(f.getSuggestedWeight('bench', 0) === '60', 'first set looks only at the previous workout, got ' + f.getSuggestedWeight('bench', 0));
+  // подход 1 сегодня совпал с прошлым разом: продолжаем прошлый разгон, а не копируем 60
+  f = loadPastSetsFns(data, 'push', k, '2026-10-02', { bench: { 0: { weight: '60', done: true } } });
+  assert(f.getSuggestedWeight('bench', 1) === '62.5', 'on-plan set keeps the ramp, got ' + f.getSuggestedWeight('bench', 1));
+  // отошли от плана на предыдущем подходе: копируем введённый вес
+  f = loadPastSetsFns(data, 'push', k, '2026-10-02', { bench: { 0: { weight: '60', done: true }, 1: { weight: '70', done: true } } });
+  assert(f.getSuggestedWeight('bench', 2) === '70', 'off-plan set copies what was typed, got ' + f.getSuggestedWeight('bench', 2));
+  // подход 2 пропущен, введён подход 3: подход 4 берёт ближайший выше
+  f = loadPastSetsFns(data, 'push', k, '2026-10-02', { bench: { 2: { weight: '70', done: false } } });
+  assert(f.getSuggestedWeight('bench', 3) === '70', 'nearest filled set above, got ' + f.getSuggestedWeight('bench', 3));
+  // упражнения, которого раньше не было: подсказки нет (тогда отметка просит вписать вес)
+  assert(f.getSuggestedWeight('squat', 0) === '', 'no history -> empty suggestion');
+  info('Suggestion priority: today > same set last time > last known');
+});
+
+test('Marking an empty set takes the suggestion; with no suggestion it still asks for a weight', () => {
+  const fn = src.slice(src.indexOf('function toggleDone'), src.indexOf('function getExProgress'));
+  const guard = fn.indexOf('!cur.weight || cur.weight === ""');
+  assert(guard >= 0, 'weight guard must stay');
+  const afterGuard = fn.slice(guard);
+  assert(afterGuard.includes('getSuggestedWeight(exId, setIdx)'), 'empty set must fall back to the suggestion');
+  assert(/if \(!sug\) \{\s*showToast\("Впиши вес перед отметкой"\);\s*return;/.test(afterGuard),
+    'without a suggestion the set must still be refused with the toast');
+  assert(afterGuard.includes('updateSet(exId, setIdx, "weight", sug)'), 'suggestion must be written as the real weight');
+  assert(src.includes('placeholder={getSuggestedWeight(ex.id, i) || " - "}'), 'suggestion must show in the weight field');
+  assert(html.includes('.wt::placeholder'), 'suggestion needs its own placeholder colour');
+  info('Suggestion shown grey, taken on mark, guard intact');
 });
 
 test('todayKey is the local date, not UTC', () => {
