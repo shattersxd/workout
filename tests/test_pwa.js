@@ -2342,8 +2342,11 @@ function loadPastSetsFns(data, activeDay, sessionKey, today, session) {
   const from = src.indexOf('function getPastExSets');
   const body = src.slice(from, src.indexOf('const prog = getDayProgress()', from));
   const getSetData = (exId, i) => ((session || {})[exId] && session[exId][i]) || { weight: '', done: false };
+  // настоящий isDumbbell из исходника - от него зависит шаг прогрессии
+  const dbFrom = src.indexOf('function isDumbbell');
+  const dbSrc = src.slice(dbFrom, src.indexOf('function weightUnit', dbFrom));
   return new Function('data', 'activeDay', 'sessionKey', 'todayKey', 'getSetData',
-    body + '; return { getPastExSets, getLastWeight, getExHistory, getSuggestedWeight };')(data, activeDay, sessionKey, () => today, getSetData);
+    dbSrc + body + '; return { getPastExSets, getLastWeight, getExHistory, getSuggestedWeight, getProgressionHint };')(data, activeDay, sessionKey, () => today, getSetData);
 }
 
 test('Weight hints and mini-chart read finished workouts from the journal', () => {
@@ -2433,6 +2436,58 @@ test('Suggested weight: previous set today, else same set last time, else last k
   // упражнения, которого раньше не было: подсказки нет (тогда отметка просит вписать вес)
   assert(f.getSuggestedWeight('squat', 0) === '', 'no history -> empty suggestion');
   info('Suggestion priority: today > same set last time > last known');
+});
+
+test('Progression hint: only after a fully completed exercise, step by equipment', () => {
+  const mk = (sets, extra) => ({
+    sessions: {}, resuming: null, dbMode: 'single',
+    history: { push: [{ date: '2026-09-25', ts: 2, workout: 'push', detail: [{ id: 'bench', name: 'Жим штанги лёжа', sets }, { id: 'db', name: 'Жим гантелей', sets }] }] },
+    ...(extra || {}),
+  });
+  const full = [{ w: '60', done: true }, { w: '62.5', done: true }, { w: '65', done: true }];
+  const hint = (d, id, name) => loadPastSetsFns(d, 'push', '2026-10-02_push', '2026-10-02', {}).getProgressionHint(id, name);
+  let h = hint(mk(full), 'bench', 'Жим штанги лёжа');
+  assert(h && h.from === 65 && h.to === 67.5 && h.step === 2.5, 'barbell: top weight + 2.5, got ' + JSON.stringify(h));
+  h = hint(mk(full), 'db', 'Жим гантелей');
+  assert(h && h.to === 67 && h.step === 2, 'dumbbell: +2 per hand, got ' + JSON.stringify(h));
+  h = hint(mk(full, { dbMode: 'total' }), 'db', 'Жим гантелей');
+  assert(h && h.to === 69 && h.step === 4, 'dumbbell pair total: +4, got ' + JSON.stringify(h));
+  // не все подходы закрыты - не подталкиваем
+  assert(hint(mk([{ w: '60', done: true }, { w: '62.5', done: false }]), 'bench', 'Жим штанги лёжа') === null, 'unfinished exercise: no hint');
+  assert(hint(mk([{ w: '60', done: true }, { w: '', done: false }]), 'bench', 'Жим штанги лёжа') === null, 'set without weight: no hint');
+  assert(hint(mk(full), 'squat', 'Присед') === null, 'no history: no hint');
+  // дробные веса не плывут
+  h = hint(mk([{ w: '12.5', done: true }]), 'bench', 'Жим штанги лёжа');
+  assert(h && h.to === 15, 'no float drift, got ' + JSON.stringify(h));
+  // сырые сессии подсказку не дают: там неизвестно, сколько подходов планировалось
+  const raw = { sessions: { '2026-09-25_push': { bench: { 0: { weight: '60', done: true } } } }, history: {}, resuming: null, dbMode: 'single' };
+  assert(hint(raw, 'bench', 'Жим штанги лёжа') === null, 'raw sessions are not enough evidence');
+  info('Hint only after a complete exercise; barbell 2.5, dumbbell 2 or 4');
+});
+
+test('Progression hint UI: shown only on an untouched exercise, one tap fills empty sets', () => {
+  assert(src.includes('const progHint = untouched ? getProgressionHint(ex.id, ex.name) : null'), 'hint must hide once anything is entered');
+  assert(src.includes('applyProgression(ex.id, getExSets(baseEx.id), progHint.to)'), 'ВЗЯТЬ must apply the hinted weight');
+  const fn = src.slice(src.indexOf('function applyProgression'), src.indexOf('function getLastWeight'));
+  assert(fn.includes('!sd.done && !sd.weight'), 'must never overwrite a weight the user typed or a done set');
+  assert(src.includes('ВЗЯТЬ'), 'button label missing');
+  const i = src.indexOf('ВЗЯТЬ');
+  assert(/minHeight: 44/.test(src.slice(i - 500, i)), 'ВЗЯТЬ needs a 44pt target');
+  info('Hint is self-hiding and non-destructive');
+});
+
+test('Screen wake lock: on workout and warmup tabs, re-acquired after backgrounding, switchable', () => {
+  const from = src.indexOf('const keepAwake');
+  const fn = src.slice(from, src.indexOf('// Тик таймера', from));
+  assert(fn.includes('navigator.wakeLock.request("screen")'), 'wake lock request missing');
+  assert(fn.includes('activeTab !== "workout" && activeTab !== "warmup"'), 'lock only while a workout or warmup is open');
+  assert(fn.includes('visibilitychange') && fn.includes('removeEventListener("visibilitychange"'), 'must re-acquire on return and clean up the listener');
+  assert(/try \{[\s\S]*wakeLock\.request[\s\S]*\} catch/.test(fn), 'request must be inside try/catch - unsupported or refused must not crash');
+  assert(fn.includes('wakeRef.current.release()'), 'cleanup must release the lock');
+  assert(fn.includes('cancelled'), 'a request that resolves after unmount must be released');
+  assert(src.includes('data.keepAwake !== false'), 'default must be on');
+  assert(src.includes('keepAwake: m[0]'), 'setting must be switchable in the plan screen');
+  info('Wake lock acquired, re-acquired, released, switchable');
 });
 
 test('Marking an empty set takes the suggestion; with no suggestion it still asks for a weight', () => {

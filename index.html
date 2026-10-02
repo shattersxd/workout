@@ -1530,6 +1530,34 @@ function App() {
 
   useEffect(() => { saveData(data); }, [data]);
 
+  // Экран не гаснет, пока открыта тренировка или разминка (Screen Wake Lock, iOS 16.4+).
+  // Система снимает замок при сворачивании приложения - берём его заново, когда вернулись.
+  // Нет поддержки или отказ - молча живём как раньше. Выключается в "Мой план".
+  const keepAwake = data.keepAwake !== false;
+  const wakeRef = useRef(null);
+  useEffect(() => {
+    if (!keepAwake || (activeTab !== "workout" && activeTab !== "warmup")) return;
+    let cancelled = false;
+    async function lock() {
+      try {
+        if (!navigator.wakeLock || wakeRef.current || document.visibilityState !== "visible") return;
+        const s = await navigator.wakeLock.request("screen");
+        if (cancelled) { s.release(); return; }
+        wakeRef.current = s;
+        s.addEventListener("release", () => { if (wakeRef.current === s) wakeRef.current = null; });
+      } catch (e) {}
+    }
+    function onVisible() { if (document.visibilityState === "visible") lock(); }
+    lock();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+      try { if (wakeRef.current) wakeRef.current.release(); } catch (e) {}
+      wakeRef.current = null;
+    };
+  }, [keepAwake, activeTab]);
+
   // Тик таймера. Зависит и от endsAt: без этого повторный startTimer при уже
   // запущенном таймере гасил интервал и не создавал новый - время замирало.
   useEffect(() => {
@@ -2577,12 +2605,16 @@ function App() {
     const res = data.resuming;
     const today = todayKey();
     const byDate = {};
+    const allDone = {};   // дата -> выполнены ли все подходы упражнения (только по журналу)
     ((data.history || {})[activeDay] || []).forEach(entry => {
       if (entry.date === today || (res && entry.ts === res.ts)) return;
       const d = (entry.detail || []).find(x => x.id === exId);
       if (!d) return;
       const ws = (d.sets || []).filter(s => s.done && s.w).map(s => String(s.w));
-      if (ws.length && !byDate[entry.date]) byDate[entry.date] = ws;
+      if (ws.length && !byDate[entry.date]) {
+        byDate[entry.date] = ws;
+        allDone[entry.date] = (d.sets || []).every(s => s.done && s.w);
+      }
     });
     Object.keys(data.sessions || {}).forEach(k => {
       // ключ сессии: YYYY-MM-DD_день, день сам может содержать "_"
@@ -2593,7 +2625,27 @@ function App() {
       const ws = Object.values(ex || {}).map(s => s && s.weight).filter(Boolean).map(String);
       if (ws.length) byDate[date] = ws;
     });
-    return Object.keys(byDate).sort().reverse().map(date => ({ date: date, ws: byDate[date] }));
+    return Object.keys(byDate).sort().reverse().map(date => ({ date: date, ws: byDate[date], all: !!allDone[date] }));
+  }
+
+  // Подсказка прогрессии: если в прошлый раз упражнение выполнено целиком (все подходы
+  // отмечены с весом), предлагаем прибавить к рабочему весу. Повторы мы не храним, поэтому
+  // это именно подсказка. Шаг: гантели 2 кг (при "общем" весе пары - 4), остальное 2.5.
+  function getProgressionHint(exId, name) {
+    const past = getPastExSets(exId);
+    if (!past.length || !past[0].all) return null;
+    const top = Math.max.apply(null, past[0].ws.map(x => parseFloat(x) || 0));
+    if (!(top > 0)) return null;
+    const step = isDumbbell(name) ? ((data.dbMode || "single") === "total" ? 4 : 2) : 2.5;
+    return { from: top, step: step, to: Math.round((top + step) * 100) / 100 };
+  }
+
+  // Проставляет вес во все ещё пустые и не отмеченные подходы упражнения
+  function applyProgression(exId, nSets, weight) {
+    for (let i = 0; i < nSets; i++) {
+      const sd = getSetData(exId, i);
+      if (!sd.done && !sd.weight) updateSet(exId, i, "weight", String(weight));
+    }
   }
 
   function getLastWeight(exId) {
@@ -2757,6 +2809,9 @@ function App() {
               const isExpanded = expandedEx === baseEx.id;
               const lastW = getLastWeight(ex.id);
               const exHist = getExHistory(ex.id, 4);
+              // Подсказка прогрессии - только пока в упражнении ещё ничего не введено
+              const untouched = Array.from({ length: getExSets(baseEx.id) }, (_, si) => getSetData(ex.id, si)).every(s => !s.weight && !s.done);
+              const progHint = untouched ? getProgressionHint(ex.id, ex.name) : null;
               const allDone = exProg.done === getExSets(baseEx.id);
               const canSwap = hasAlts(baseEx.id);
 
@@ -2831,6 +2886,18 @@ function App() {
                           <div key={hi} title={`${h.maxW}кг`} style={{ flex: 1, height: barH, borderRadius: 2, background: isLast ? w.color + "90" : "#1e1e28", alignSelf: "flex-end", transition: "height 0.3s" }} />
                         );
                       })}
+                    </div>
+                  )}
+
+                  {!skipped && !editMode && progHint && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "0 14px 10px", padding: "8px 8px 8px 12px", background: "#0e1a13", border: "1px solid #1d3a28", borderRadius: 10 }}>
+                      <div style={{ flex: 1, fontSize: 11, color: "#7fc79a", lineHeight: 1.5 }}>
+                        Прошлый раз все подходы выполнены. Можно попробовать {progHint.to} {weightUnit(ex.name)} (+{progHint.step})
+                      </div>
+                      <button onClick={() => applyProgression(ex.id, getExSets(baseEx.id), progHint.to)}
+                        style={{ minHeight: 44, padding: "0 14px", borderRadius: 8, border: "1px solid #4a9a6a", background: "#4a9a6a18", color: "#7fc79a", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+                        ВЗЯТЬ
+                      </button>
                     </div>
                   )}
 
@@ -3723,6 +3790,26 @@ function App() {
                         style={{ flex: 1, padding: "12px 8px", borderRadius: 9, border: `1px solid ${on ? "#f7a84460" : "#2a2a2a"}`, background: on ? "#f7a84412" : "#0c0c0f", cursor: "pointer", fontFamily: "inherit", minHeight: 52 }}>
                         <div style={{ fontSize: 10, color: on ? "#f7a844" : "#777", letterSpacing: 1, fontWeight: on ? 700 : 400, marginBottom: 3 }}>{m[1]}</div>
                         <div style={{ fontSize: 9, color: on ? "#8a7550" : "#555" }}>{m[2]}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div style={{ fontSize: 9, letterSpacing: 2, color: "#666", marginBottom: 10 }}>ЭКРАН</div>
+              <div style={{ background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "14px 14px", marginBottom: 24 }}>
+                <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6, marginBottom: 12 }}>
+                  {typeof navigator !== "undefined" && navigator.wakeLock
+                    ? "Не даём экрану гаснуть, пока открыта тренировка или разминка. Заряд расходуется быстрее."
+                    : "На этом телефоне не поддерживается (нужен iOS 16.4 или новее). Экран будет гаснуть как обычно."}
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {[[true, "НЕ ГАСИТЬ"], [false, "КАК ОБЫЧНО"]].map(m => {
+                    const on = keepAwake === m[0];
+                    return (
+                      <button key={m[1]} onClick={() => setData(prev => ({ ...prev, keepAwake: m[0] }))}
+                        style={{ flex: 1, padding: "12px 8px", borderRadius: 9, border: `1px solid ${on ? "#f7a84460" : "#2a2a2a"}`, background: on ? "#f7a84412" : "#0c0c0f", color: on ? "#f7a844" : "#777", fontSize: 10, letterSpacing: 1, fontWeight: on ? 700 : 400, cursor: "pointer", fontFamily: "inherit", minHeight: 48 }}>
+                        {m[1]}
                       </button>
                     );
                   })}
