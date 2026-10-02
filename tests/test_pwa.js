@@ -719,10 +719,12 @@ test('schedule: stored in data.schedule, 7 entries, used for activeDay init', ()
   assert(src.includes('parsed.schedule'), 'activeDay init reads persisted schedule');
 });
 
-test('Journal: incomplete indicator shown when pct < 100', () => {
-  assert(src.includes('const incomplete = pct < 100'), 'incomplete flag computed');
+test('Journal: "not finished" applies only to autosaves, never to manual finishes', () => {
+  assert(src.includes('const partial = pct < 100'), 'partial flag computed');
+  assert(src.includes('const incomplete = partial && entry.src === "auto"'),
+    'incomplete must require an autosave - a manually finished workout is finished at any pct');
   assert(src.includes('НЕ ЗАКОНЧЕНО'), 'incomplete badge text present');
-  assert(src.includes('ДОПОЛНИТЬ'), 'resume button present for incomplete entries');
+  assert(src.includes('ДОПОЛНИТЬ'), 'resume button present for partial entries');
 });
 
 test('custom workout CRUD: save, delete, getWorkout handles custom key', () => {
@@ -2131,7 +2133,7 @@ test('ДОПОЛНИТЬ is prominent only where it applies', () => {
   const jStart = src.indexOf('{activeTab === "journal"');
   const jEnd   = src.indexOf('{activeTab === "progress"');
   const j = src.slice(jStart, jEnd);
-  assert(j.includes('{!isResuming && incomplete && ('), 'ДОПОЛНИТЬ must be gated to incomplete entries');
+  assert(j.includes('{!isResuming && partial && ('), 'ДОПОЛНИТЬ must be gated to entries with unfinished sets');
   assert(!j.includes('!otherResuming'), 'ДОПОЛНИТЬ must stay tappable on other entries — hiding it strands the user');
   assert(j.includes('ПРОДОЛЖИТЬ'), 'the entry being resumed needs its own primary action');
   // delete must be secondary, not a full-width block

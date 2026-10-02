@@ -2646,7 +2646,11 @@ export default function App() {
                     const isOpen = openEntry === entry.ts;
                     const detail = entry.detail || [];
                     const pct = entry.total > 0 ? Math.round(entry.done / entry.total * 100) : 0;
-                    const incomplete = pct < 100;
+                    // partial - не все подходы выполнены; можно дополнить в любом случае.
+                    // incomplete - "не закончено" только у автосохранения: если тренировку
+                    // завершили вручную, она завершена, даже когда сделаны не все упражнения.
+                    const partial = pct < 100;
+                    const incomplete = partial && entry.src === "auto";
                     const isResuming = !!(data.resuming && data.resuming.ts === entry.ts);
                     const otherResuming = !!(data.resuming && data.resuming.ts !== entry.ts);
                     const totalVol = detail.reduce((sum, ex) =>
@@ -2719,7 +2723,7 @@ export default function App() {
                               </button>
                             </>
                           )}
-                          {!isResuming && incomplete && (
+                          {!isResuming && partial && (
                             <button onClick={() => resumeSession(entry)}
                               style={{ flex: 1, padding: "11px 12px", borderRadius: 8, border: "1px solid #f7a84450", background: "#f7a84410", color: "#f7a844", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 42 }}>
                               ДОПОЛНИТЬ
