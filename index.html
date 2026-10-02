@@ -116,11 +116,13 @@ window.onerror = function(msg, src, line, col, err) {
 };
 
 setLabel('REACT...');
-loadScript('https://unpkg.com/react@18/umd/react.production.min.js', function() {
+// Библиотеки лежат в vendor/ (версии и контрольные суммы - в vendor/README.md), а не на CDN:
+// приложение запускается без интернета и не зависит от чужого сервера.
+loadScript('vendor/react.production.min.js', function() {
   setLabel('REACT DOM...');
-  loadScript('https://unpkg.com/react-dom@18/umd/react-dom.production.min.js', function() {
+  loadScript('vendor/react-dom.production.min.js', function() {
     setLabel('КОМПИЛЯЦИЯ...');
-    loadScript('https://unpkg.com/@babel/standalone@7.23.10/babel.min.js', function() {
+    loadScript('vendor/babel.min.js', function() {
       try {
         setLabel('ЗАПУСК...');
         var code = document.getElementById('app-src').textContent;
@@ -140,15 +142,10 @@ loadScript('https://unpkg.com/react@18/umd/react.production.min.js', function() 
           setTimeout(function(){ document.getElementById('ios-hint').classList.add('show'); }, 2000);
         }
 
-        // Service worker for offline
+        // Service worker for offline: настоящий файл sw.js (blob-воркеры не регистрируются)
         if ('serviceWorker' in navigator) {
           try {
-            var sw = 'const C="sila-v5";' +
-              'self.addEventListener("install",e=>{self.skipWaiting()});' +
-              'self.addEventListener("activate",e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==C).map(k=>caches.delete(k)))))});' +
-              'self.addEventListener("fetch",e=>{e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(res=>{const cl=res.clone();caches.open(C).then(c=>c.put(e.request,cl));return res}).catch(()=>caches.match(e.request))))});';
-            var blob = new Blob([sw], {type:'application/javascript'});
-            navigator.serviceWorker.register(URL.createObjectURL(blob));
+            navigator.serviceWorker.register('sw.js').catch(function() {});
           } catch(e2) {}
         }
       } catch(e) {

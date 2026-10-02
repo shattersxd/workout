@@ -1,6 +1,7 @@
 # Workout Routine
 
-Трекер тренировок для зала. PWA, один HTML-файл, работает офлайн, ставится на
+Трекер тренировок для зала. PWA, один HTML-файл, работает офлайн (библиотеки
+лежат в репозитории, внешние серверы при запуске не нужны), ставится на
 домашний экран iPhone.
 
 **Открыть:** https://shattersxd.github.io/workout
@@ -27,7 +28,7 @@
 
 ```bash
 python3 scripts/build.py      # src/ -> index.html
-node tests/test_pwa.js        # 239 тестов, должно быть 239/239
+node tests/test_pwa.js        # 245 тестов, должно быть 245/245
 ```
 
 Или одной командой:
@@ -48,6 +49,8 @@ src/shell/tail.html       ErrorBoundary и монтирование React
 scripts/build.py          сборка одного файла
 tests/test_pwa.js         регрессионный набор
 index.html                собранное приложение, его раздаёт GitHub Pages
+vendor/                   React, ReactDOM и Babel: приложение не ходит на CDN
+sw.js                     service worker: кэш для работы без интернета
 CLAUDE.md                 ограничения платформы и контракты данных
 ```
 

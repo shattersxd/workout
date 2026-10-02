@@ -40,6 +40,10 @@ function test(name, fn) {
   try { fn(); PASS.push(name); console.log(`  ${GREEN('✓')} ${name}`); }
   catch(e) { FAIL.push({name, msg: e.message}); console.log(`  ${RED('✗')} ${name}\n    ${RED('→')} ${e.message}`); }
 }
+// Асинхронные тесты (сервис-воркер): test() не ждёт промисы и засчитал бы их вхолостую,
+// поэтому они копятся здесь и выполняются перед итогом, см. SUMMARY
+const ASYNC_TESTS = [];
+function testAsync(name, fn) { ASYNC_TESTS.push({ name, fn }); }
 function assert(cond, msg)    { if (!cond) throw new Error(msg || 'assertion failed'); }
 function assertNot(cond, msg) { if (cond)  throw new Error(msg || 'should not be true'); }
 function info(msg)            { console.log(`       ${DIM(msg)}`); }
@@ -323,10 +327,11 @@ test('React loads before ReactDOM loads before Babel (correct dependency order)'
 });
 
 test('Babel version pinned to specific release (not @latest)', () => {
-  const m = html.match(/@babel\/standalone[@/]([^/'">\s]+)/);
-  assert(m, 'Babel version string not found');
-  assertNot(m[1] === 'latest', 'Babel is @latest — will silently break on major updates');
-  info(`Babel: @${m[1]}`);
+  // Babel лежит в vendor/ и не обновляется сам: версия зашита самим файлом
+  const babel = fs.readFileSync(path.join(ROOT, 'vendor', 'babel.min.js'), 'utf8');
+  assert(babel.includes('7.23.10'), 'vendor/babel.min.js is not Babel 7.23.10 - the iOS syntax rules in CLAUDE.md were verified on it');
+  assertNot(html.includes('@latest'), 'a script URL points at @latest');
+  info('Babel: 7.23.10 (vendored)');
 });
 
 test('Babel compiles with react preset', () => {
@@ -2669,17 +2674,137 @@ test('weekKey groups by Monday regardless of timezone', () => {
   info('Week keys are timezone-independent');
 });
 
+// ── SECTION 22: SELF-HOSTED LIBRARIES & OFFLINE ─────────────────────────────
+section('22 · SELF-HOSTED LIBRARIES & OFFLINE');
+
+const crypto = require('crypto');
+const VENDOR = ['react.production.min.js', 'react-dom.production.min.js', 'babel.min.js'];
+const sha256 = f => crypto.createHash('sha256').update(fs.readFileSync(path.join(ROOT, 'vendor', f))).digest('hex');
+
+test('No script is loaded from an external server', () => {
+  assertNot(/<script[^>]+src=["']https?:/i.test(html), 'an external <script src> is present');
+  const loads = (html.match(/loadScript\(\s*['"][^'"]+['"]/g) || []);
+  assert(loads.length === 3, 'expected 3 loadScript calls, got ' + loads.length);
+  loads.forEach(l => assert(/loadScript\(\s*['"]vendor\//.test(l), 'loadScript must read from vendor/: ' + l));
+  assertNot(html.includes('unpkg.com') && /loadScript\([^)]*unpkg/.test(html), 'unpkg is still used to load code');
+  info('React, ReactDOM and Babel are all served from vendor/');
+});
+
+test('vendor/ files exist and match the checksums recorded in vendor/README.md', () => {
+  const readme = fs.readFileSync(path.join(ROOT, 'vendor', 'README.md'), 'utf8');
+  VENDOR.forEach(f => {
+    assert(fs.existsSync(path.join(ROOT, 'vendor', f)), 'missing vendor/' + f);
+    const h = sha256(f);
+    assert(readme.includes(h), 'vendor/' + f + ' differs from the recorded SHA-256 (' + h.slice(0, 12) + '...) - edited or line endings changed');
+  });
+  assert(fs.readFileSync(path.join(ROOT, 'vendor', 'react.production.min.js'), 'utf8').includes('18.3.1'), 'React must be 18.3.1');
+  assert(/vendor\/\* -text/.test(fs.readFileSync(path.join(ROOT, '.gitattributes'), 'utf8')), '.gitattributes must stop git rewriting vendor/ line endings');
+  info('Checksums match, git will not touch line endings');
+});
+
+test('Service worker is a real file, registered by URL (blob workers are rejected by browsers)', () => {
+  assert(fs.existsSync(path.join(ROOT, 'sw.js')), 'sw.js missing');
+  assert(html.includes("register('sw.js')"), 'page must register sw.js');
+  const shell = html.slice(0, html.indexOf('id="app-src"'));   // код приложения (скачивание копии) createObjectURL использует законно
+  assertNot(shell.includes('createObjectURL') || shell.includes('new Blob'), 'blob service worker is still there');
+  assertNot(html.includes('sila-v5'), 'old inline worker still present');
+  info('sw.js registered by URL');
+});
+
+test('sw.js precaches the page and every vendor file, all of which exist', () => {
+  const sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
+  const list = JSON.parse(sw.match(/const PRECACHE = (\[[\s\S]*?\]);/)[1]);
+  assert(list.includes('index.html') && list.includes('./'), 'page must be precached');
+  VENDOR.forEach(f => assert(list.includes('vendor/' + f), f + ' not precached - first offline start would fail'));
+  list.filter(u => u !== './').forEach(u => assert(fs.existsSync(path.join(ROOT, u)), 'precache entry does not exist: ' + u + ' (addAll would reject and the worker never installs)'));
+  assert(/const CACHE = "sila-v\d+"/.test(sw), 'cache name missing');
+  info('Precache list complete and every entry exists');
+});
+
+// Исполняет настоящий sw.js на заглушках Cache API; ждём сети 40 мс вместо 3 с
+function runSw(store, fetchImpl) {
+  let code = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8').replace('const NETWORK_WAIT_MS = 3000', 'const NETWORK_WAIT_MS = 40');
+  const handlers = {};
+  const key = r => (typeof r === 'string' ? (r === 'index.html' ? 'https://x.test/index.html' : r) : r.url);
+  const self_ = { location: { origin: 'https://x.test' }, addEventListener: (t, f) => { handlers[t] = f; }, skipWaiting: () => Promise.resolve(), clients: { claim: () => Promise.resolve() } };
+  const caches = {
+    open: async () => ({ addAll: async () => {}, put: async (r, res) => { store.set(key(r), res); } }),
+    match: async r => store.get(key(r)),
+    keys: async () => ['sila-v5', 'sila-v6'], delete: async k => { store.deleted = (store.deleted || []).concat(k); return true; },
+  };
+  class Response { constructor(body, o) { this.body = body; this.ok = !(o && o.ok === false); } clone() { return this; } static error() { const r = new Response('ERR', { ok: false }); r.isError = true; return r; } }
+  class Request { constructor(u) { this.url = u; } }
+  new Function('self', 'caches', 'fetch', 'Response', 'Request', code)(self_, caches, fetchImpl, Response, Request);
+  const get = async url => { let p; handlers.fetch({ request: { method: 'GET', url }, respondWith: x => { p = x; } }); return p; };
+  return { handlers, get, Response, self_, caches };
+}
+
+testAsync('sw.js behaviour: vendor cache-first, page network-first with a cache fallback', async () => {
+  const store = new Map();
+  let fetches = 0, mode = 'ok';
+  const fetchImpl = url => {
+    fetches++;
+    if (mode === 'fail') return Promise.reject(new Error('offline'));
+    if (mode === 'hang') return new Promise(() => {});
+    return Promise.resolve(new sw.Response('NET:' + (url.url || url)));
+  };
+  const sw = runSw(store, fetchImpl);
+  store.set('https://x.test/vendor/babel.min.js', new sw.Response('CACHED-BABEL'));
+  store.set('https://x.test/index.html', new sw.Response('CACHED-PAGE'));
+
+  let r = await sw.get('https://x.test/vendor/babel.min.js');
+  assert(r.body === 'CACHED-BABEL' && fetches === 0, 'vendor file must come from the cache without touching the network');
+
+  mode = 'ok'; r = await sw.get('https://x.test/index.html');
+  assert(r.body === 'NET:https://x.test/index.html', 'online: the fresh page wins, got ' + r.body);
+  assert(store.get('https://x.test/index.html').body === 'NET:https://x.test/index.html', 'fresh page must be written to the cache');
+
+  store.set('https://x.test/index.html', new sw.Response('CACHED-PAGE'));
+  mode = 'fail'; r = await sw.get('https://x.test/index.html');
+  assert(r.body === 'CACHED-PAGE', 'offline: the cached page must open, got ' + r.body);
+
+  mode = 'hang'; r = await sw.get('https://x.test/index.html');
+  assert(r.body === 'CACHED-PAGE', 'a hanging network must fall back to the cache after the wait, got ' + r.body);
+
+  store.clear(); mode = 'fail'; r = await sw.get('https://x.test/never-cached');
+  assert(r.isError, 'nothing cached and offline -> a network error, not a hang or a crash');
+
+  // чужие домены и не-GET воркер не трогает
+  let called = false;
+  sw.handlers.fetch({ request: { method: 'POST', url: 'https://x.test/index.html' }, respondWith: () => { called = true; } });
+  sw.handlers.fetch({ request: { method: 'GET', url: 'https://other.test/a.js' }, respondWith: () => { called = true; } });
+  assert(!called, 'POST and cross-origin requests must pass through untouched');
+  info('Cache-first vendor, network-first page, offline and slow-network fallbacks');
+});
+
+testAsync('sw.js activate deletes old caches (the inline sila-v5 worker)', async () => {
+  const store = new Map();
+  const sw = runSw(store, () => Promise.reject(new Error('x')));
+  let waited;
+  sw.handlers.activate({ waitUntil: p => { waited = p; } });
+  await waited;
+  assert((store.deleted || []).join() === 'sila-v5', 'only caches other than the current one must be deleted, got ' + store.deleted);
+  info('Old caches cleaned on activate');
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  SUMMARY
 // ═══════════════════════════════════════════════════════════════════════════
-const total = PASS.length + FAIL.length;
-console.log('\n' + '═'.repeat(55));
-if (FAIL.length === 0) {
-  console.log(GREEN(`✅  ALL ${total} TESTS PASSED`));
-} else {
-  console.log(RED(`❌  ${FAIL.length} FAILED`) + `  /  ${GREEN(PASS.length + ' passed')}  /  ${total} total`);
-  console.log('\n' + BOLD('Failed:'));
-  FAIL.forEach(f => console.log(`  ${RED('✗')} ${f.name}\n    ${RED('→')} ${f.msg}`));
-}
-console.log('═'.repeat(55) + '\n');
-process.exit(FAIL.length > 0 ? 1 : 0);
+(async function () {
+  if (ASYNC_TESTS.length) section('22 · SERVICE WORKER (async)');
+  for (const t of ASYNC_TESTS) {
+    try { await t.fn(); PASS.push(t.name); console.log(`  ${GREEN('✓')} ${t.name}`); }
+    catch (e) { FAIL.push({ name: t.name, msg: e.message }); console.log(`  ${RED('✗')} ${t.name}\n    ${RED('→')} ${e.message}`); }
+  }
+  const total = PASS.length + FAIL.length;
+  console.log('\n' + '═'.repeat(55));
+  if (FAIL.length === 0) {
+    console.log(GREEN(`✅  ALL ${total} TESTS PASSED`));
+  } else {
+    console.log(RED(`❌  ${FAIL.length} FAILED`) + `  /  ${GREEN(PASS.length + ' passed')}  /  ${total} total`);
+    console.log('\n' + BOLD('Failed:'));
+    FAIL.forEach(f => console.log(`  ${RED('✗')} ${f.name}\n    ${RED('→')} ${f.msg}`));
+  }
+  console.log('═'.repeat(55) + '\n');
+  process.exit(FAIL.length > 0 ? 1 : 0);
+})();
