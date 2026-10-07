@@ -28,7 +28,7 @@
 
 ```bash
 python3 scripts/build.py      # src/ -> index.html
-node tests/test_pwa.js        # 315 тестов, должно быть 315/315
+node tests/test_pwa.js        # 316 тестов, должно быть 316/316
 ```
 
 Или одной командой:
@@ -54,6 +54,7 @@ sw.js                     service worker: кэш для работы без ин
 beta/                     тестовая версия (собирается build.py из src/ + src/beta/)
 src/beta/                 код тестовой версии: тренер, Spotify; в боевую сборку не попадает
 docs/social-design.md     соц-функции: варианты бэкенда, приватность, дорожная карта
+docs/music-design.md      музыкальные сервисы: что возможно на iPhone, варианты и планы
 CLAUDE.md                 ограничения платформы и контракты данных
 ```
 

@@ -3282,6 +3282,14 @@ testAsync('Spotify: commands report errors to everyone and never hide them', asy
   info('Success, Premium and no-device cases');
 });
 
+test('Music design doc records the iPhone limit, the options and the decision to stay on Spotify for now', () => {
+  const doc = fs.readFileSync(path.join(ROOT, 'docs', 'music-design.md'), 'utf8');
+  ['останавливает звук при сворачивании или блокировке', 'Пульт', 'Плеер внутри приложения', 'Apple Music', 'Jamendo', 'Интернет-радио',
+    'решено пока делать только Spotify', 'Что надо проверить на телефоне', 'интерфейс провайдера'].forEach(x => assert(doc.includes(x), 'music doc is missing: ' + x));
+  assert((doc.match(/https:\/\//g) || []).length >= 4, 'the claims about services must carry source links');
+  info('Options, the iPhone limit and the decision are written down');
+});
+
 test('Spotify main-screen player: wired into App as a beta-only seam, picker offers playlists and search, no server needed', () => {
   const sp = fs.readFileSync(path.join(BETA_SRC_DIR, 'spotify.jsx'), 'utf8');
   assert(src.includes('{typeof BetaMiniPlayer === "function" && <BetaMiniPlayer />}'), 'the mini player seam is missing in App');
