@@ -75,6 +75,7 @@ function BetaTab(props) {
       {typeof BodyPanel === "function" && <BodyPanel data={data} setData={setData} showToast={showToast} />}
       {typeof CoachPanel === "function" && <CoachPanel data={data} setData={setData} />}
       {typeof SocialPanel === "function" && <SocialPanel data={data} setData={setData} />}
+      {typeof ArenaPanel === "function" && <ArenaPanel data={data} setData={setData} />}
       {typeof CompetePanel === "function" && <CompetePanel data={data} />}
       {typeof SpotifyPanel === "function" && <SpotifyPanel data={data} setData={setData} showToast={showToast} />}
     </div>

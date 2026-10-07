@@ -38,9 +38,34 @@ function socialEnsure(d, mkId) {
   out.social = {
     enabled: !!s.enabled,
     displayName: s.displayName || "",
+    visibility: SOCIAL_VISIBILITY.some(function (v) { return v[0] === s.visibility; }) ? s.visibility : "public",
+    consentAt: s.consentAt || "",
     share: Object.assign({ workouts: false, volume: false, prs: false }, s.share || {})
   };
   return out;
+}
+
+// Кто видит вас в живых соревнованиях. По умолчанию "все видят" (весь зал), но только ПОСЛЕ явного
+// согласия: пока consentAt пуст, наружу не уходит ничего. Комнаты друзей - отдельная функция, она не зависит
+// от открытого зала: можно быть скрытым от зала и играть с друзьями.
+const SOCIAL_VISIBILITY = [["public", "Все видят"], ["friends", "Только друзья"], ["hidden", "Скрыт"]];
+
+// Куда разрешено отправлять живой прогресс: { arena, friends }
+function socialPublishTargets(d) {
+  const s = d.social || {};
+  if (!s.consentAt) return { arena: false, friends: false };
+  const age = d.profile ? profileNum(d.profile.age) : 0;
+  const minor = !!d.profile && age > 0 && age < 16;   // открытый зал с незнакомцами - только с 16 лет
+  const v = s.visibility || "public";
+  return { arena: v === "public" && !minor, friends: v !== "hidden" };
+}
+
+// Имя в комнатах: выбранное или нейтральное «Участник XXXX» из кода устройства (не раскрывает личность)
+function socialDisplayName(d) {
+  const n = d.social && d.social.displayName;
+  if (n) return n;
+  const code = socialFriendCode(d.identity && d.identity.userId);
+  return code ? "Участник " + code.slice(0, 4) : "Участник";
 }
 
 // Ровно то, что увидят друзья. Собирается ТОЛЬКО из журнала и согласий: профиль, вес тела,

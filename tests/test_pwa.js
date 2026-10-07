@@ -3325,7 +3325,7 @@ function loadSocial() {
   const socSrc = fs.readFileSync(path.join(BETA_SRC_DIR, 'social.jsx'), 'utf8');
   const socPure = socSrc.slice(0, socSrc.indexOf('function SocialPanel'));
   return new Function('todayKey', dnSrc + profPure + coachPure + socPure +
-    '; return { socialUuid, socialFriendCode, socialEnsure, socialSummary, socialLeaderboard, socialLocalBackend, SOCIAL_BACKEND_METHODS, SOCIAL_SCHEMA_VERSION, SOCIAL_SHARE_KEYS };')(() => TODAY);
+    '; return { socialUuid, socialFriendCode, socialEnsure, socialSummary, socialLeaderboard, socialLocalBackend, SOCIAL_BACKEND_METHODS, SOCIAL_SCHEMA_VERSION, SOCIAL_SHARE_KEYS, SOCIAL_VISIBILITY, socialPublishTargets, socialDisplayName };')(() => TODAY);
 }
 const ID_A = '3f2a9c1e-7b4d-4e8a-9c01-aaaaaaaaaaaa';
 const ID_B = 'b81d0c77-1111-4222-8333-bbbbbbbbbbbb';
@@ -3344,6 +3344,42 @@ test('Social groundwork: identity, schema version and consent defaults are creat
   const c = s.socialEnsure(Object.assign({}, a, { social: { enabled: true, displayName: 'Ник', share: { volume: true } } }), () => ID_B);
   assert(c.social.enabled === true && c.social.displayName === 'Ник' && c.social.share.volume === true && c.social.share.prs === false, 'existing choices survive, missing categories default to hidden: ' + JSON.stringify(c.social));
   info('Private by default, stable id, no overwrite');
+});
+
+test('Visibility: everyone sees everyone by default, but only after an explicit choice; friends rooms are separate', () => {
+  const s = loadSocial();
+  const fresh = s.socialEnsure({}, () => ID_A);
+  assert(fresh.social.visibility === 'public' && fresh.social.consentAt === '', 'default is public, with no consent yet: ' + JSON.stringify(fresh.social));
+  let tg = s.socialPublishTargets(fresh);
+  assert(tg.arena === false && tg.friends === false, 'before the user chooses nothing may be published, even though the default is "everyone sees everyone"');
+  const pub = Object.assign({}, fresh, { social: Object.assign({}, fresh.social, { consentAt: TODAY }) });
+  tg = s.socialPublishTargets(pub);
+  assert(tg.arena === true && tg.friends === true, 'after consent the default reaches the whole arena and friends rooms');
+  const fr = Object.assign({}, fresh, { social: Object.assign({}, fresh.social, { consentAt: TODAY, visibility: 'friends' }) });
+  tg = s.socialPublishTargets(fr);
+  assert(tg.arena === false && tg.friends === true, '"friends only" hides you from the arena but keeps friends rooms');
+  const hid = Object.assign({}, fresh, { social: Object.assign({}, fresh.social, { consentAt: TODAY, visibility: 'hidden' }) });
+  tg = s.socialPublishTargets(hid);
+  assert(tg.arena === false && tg.friends === false, '"hidden" publishes nothing anywhere');
+  // открытый зал с незнакомцами - только с 16 лет; комнаты друзей остаются
+  const teen = Object.assign({}, pub, { profile: { age: 15 } });
+  tg = s.socialPublishTargets(teen);
+  assert(tg.arena === false && tg.friends === true, 'under 16: no open arena, friends rooms only');
+  assert(s.socialPublishTargets(Object.assign({}, pub, { profile: { age: 16 } })).arena === true, '16 and over: the arena is allowed');
+  assert(s.socialPublishTargets(Object.assign({}, pub, { profile: undefined })).arena === true, 'no questionnaire: the arena rule cannot be applied, the user choice decides');
+  // мусор в сохранённом значении не должен открывать зал или ломать модель
+  assert(s.socialEnsure({ social: { visibility: 'everything' } }, () => ID_A).social.visibility === 'public', 'an unknown value falls back to the default');
+  assert(s.SOCIAL_VISIBILITY.map(v => v[0]).join() === 'public,friends,hidden', 'three levels');
+  info('Default public, consent first, friends rooms independent, under-16 limited');
+});
+
+test('Display name: the chosen one, or a neutral pseudonym that does not reveal who you are', () => {
+  const s = loadSocial();
+  assert(s.socialDisplayName({ social: { displayName: 'Ник' }, identity: { userId: ID_A } }) === 'Ник', 'chosen name wins');
+  assert(s.socialDisplayName({ social: { displayName: '' }, identity: { userId: ID_A } }) === 'Участник 3F2A', 'neutral name from the device code');
+  assert(s.socialDisplayName({}) === 'Участник', 'even with no identity there is a safe fallback');
+  assert(/^Участник [0-9A-F]{4}$/.test(s.socialDisplayName({ social: {}, identity: { userId: ID_A } })), 'the pseudonym is exactly "Участник" plus four hex characters of the device code, nothing personal');
+  info('Участник XXXX by default');
 });
 
 test('Social groundwork: UUIDs are valid v4 and friend codes are short and readable', () => {
@@ -3456,7 +3492,7 @@ function loadCompete() {
   const socPure = cut(read('social.jsx'), 'function SocialPanel');
   const compPure = cut(read('compete.jsx'), '// ---- Интерфейс: демо-комната с ботами ----');
   return new Function(dnSrc + profPure + coachPure + socPure + compPure +
-    '; return { SOCIAL_FORMATS, SOCIAL_ROOM_METHODS, socialPlannedSets, socialRecordsToday, socialLiveProgress, socialLivePayload, socialCompScore, socialCompRank, socialTeamProgress, socialHash, socialBot, socialBotTimeline, socialReferencePace, socialBotLive, socialRoomBoard, socialLocalRooms };')();
+    '; return { SOCIAL_FORMATS, SOCIAL_ROOM_METHODS, socialPlannedSets, socialRecordsToday, socialLiveProgress, socialLivePayload, socialCompScore, socialCompRank, socialTeamProgress, socialHash, socialBot, socialBotTimeline, socialReferencePace, socialBotLive, socialRoomBoard, socialLocalRooms, ARENA_SHARD_SIZE, ARENA_LEVELS, socialCohortKey, socialShardIndex, socialArenaView };')();
 }
 const PROGS = { push: { exercises: [{ id: 'bench', sets: 4 }, { id: 'ohp', sets: 4 }, { id: 'dips', sets: 3 }] } };
 const T = '2026-10-07';
@@ -3658,13 +3694,81 @@ testAsync('Live rooms: the local stand-in supports create, join, publish and sub
   info('create / join / publish / getRoom / subscribe, anti-replay reach time');
 });
 
+test('Arena and friends rooms UI: consent screen, visibility choice, friends rooms without bots by default', () => {
+  const comp = fs.readFileSync(path.join(BETA_SRC_DIR, 'compete.jsx'), 'utf8');
+  assert(comp.includes('КТО ВАС УВИДИТ') && comp.includes('По умолчанию в зале все видят всех'), 'the first-use consent text must say what everyone sees');
+  assert(comp.includes('Пока вы не выберете, ничего не публикуется'), 'and that nothing is published before the choice');
+  assert(comp.includes('Веса, профиль, вес тела и самочувствие не видит никто'), 'and that health data is never shown');
+  assert(comp.includes('(ПО УМОЛЧАНИЮ)') && comp.includes('SOCIAL_VISIBILITY.map'), 'public is offered as the default, with the other two choices equally one tap away');
+  assert(comp.includes('consentAt: d.social.consentAt || todayKey()'), 'choosing records the consent date and never erases an earlier one');
+  assert(comp.includes('Открытый зал доступен с 16 лет'), 'the under-16 notice must be visible');
+  assert(comp.includes('КОМНАТЫ ДРУЗЕЙ (СКОРО)') && comp.includes('Закрытые комнаты: попасть можно только по коду'), 'friends rooms are described as private by code');
+  assert(comp.includes('const [withBots, setWithBots] = useState(false)'), 'bots are OFF by default in friends rooms');
+  assert(comp.includes('demo.withBots ? COMPETE_DEMO_CAPACITY : humans.length'), 'with bots off the room holds only people');
+  assert(betaSrc.includes('<ArenaPanel data={data} setData={setData} />'), 'the arena panel needs setData to store the choice');
+  assertNot(/fetch\(|WebSocket|sendBeacon/.test(comp), 'still no network');
+  info('Consent first, three equal choices, under-16 note, friends rooms bot-free by default');
+});
+
+test('Arena: cohorts, stable group assignment and an even spread of people over groups', () => {
+  const c = loadCompete();
+  assert(c.ARENA_SHARD_SIZE === 30, 'groups of up to 30');
+  assert(c.socialCohortKey('pro', 'plan') === 'pro:plan' && c.socialCohortKey('new', 'team') === 'new:team', 'cohort is level plus format');
+  assert(c.socialCohortKey(undefined, 'sets') === 'mid:sets' && c.socialCohortKey('legend', 'sets') === 'mid:sets', 'unknown or missing level falls back to the middle one');
+  assert(c.socialCohortKey('mid', 'nope') === 'mid:sets', 'unknown format falls back to sets');
+  const idx = (u, w, pop) => c.socialShardIndex(u, 'mid:sets', w, pop);
+  assert(idx('u1', 'w1', 100) === idx('u1', 'w1', 100), 'the same person lands in the same group every time (phones and server agree)');
+  assert(idx('u1', 'w1', 25) === 0 && idx('u2', 'w1', 30) === 0, 'up to 30 people: a single group, index 0');
+  // равномерность: 3000 человек -> 100 групп, в среднем по 30
+  const counts = {};
+  for (let i = 0; i < 3000; i++) { const s = idx('user-' + i, 'w1', 3000); counts[s] = (counts[s] || 0) + 1; }
+  const vals = Object.keys(counts).map(k => counts[k]);
+  assert(Object.keys(counts).length === 100 && Math.max(...vals) <= 55 && Math.min(...vals) >= 12, 'groups must be filled evenly, got min ' + Math.min(...vals) + ' max ' + Math.max(...vals));
+  // окно меняет состав: через окно люди перемешиваются
+  let moved = 0;
+  for (let i = 0; i < 300; i++) if (idx('user-' + i, 'w1', 3000) !== idx('user-' + i, 'w2', 3000)) moved++;
+  assert(moved > 250, 'groups are reshuffled between windows, only ' + moved + '/300 moved');
+  assert(idx('u', 'w', 0) === 0 && idx('u', 'w', 1) === 0, 'an empty or single-person population is safe');
+  info('Stable, even (12..55 per group of ~30), reshuffled by window');
+});
+
+test('Arena view: your place, leaders and neighbours, without duplicates', () => {
+  const c = loadCompete();
+  const board = n => Array.from({ length: n }, (_, i) => ({ userId: i === 14 ? 'me' : 'u' + i, name: 'N' + i, bot: i % 3 === 0, rank: i + 1, score: 100 - i }));
+  const v = c.socialArenaView(board(30), 'me', 2);
+  assert(v.total === 30 && v.rank === 15 && v.betterThan === 52, 'rank 15 of 30 beats 52% (14/29): ' + JSON.stringify({ r: v.rank, b: v.betterThan }));
+  assert(v.top.map(r => r.rank).join() === '1,2,3', 'the top three');
+  assert(v.near.map(r => r.rank).join() === '13,14,15,16,17' && v.gap === true, 'five neighbours around you, a gap marker between them and the leaders');
+  assert(v.people + v.bots === 30 && v.bots === 10 && v.people === 20, 'people and bots are counted separately');
+  const first = c.socialArenaView(board(30).map((r, i) => Object.assign({}, r, { userId: i === 0 ? 'me' : 'u' + i })), 'me', 2);
+  assert(first.rank === 1 && first.betterThan === 100 && first.near.map(r => r.rank).join() === '4,5' && first.gap === false, 'first place: leaders already shown, near rows exclude them: ' + first.near.map(r => r.rank));
+  const lastB = board(30).map((r, i) => Object.assign({}, r, { userId: i === 29 ? 'me' : 'u' + i }));
+  const last = c.socialArenaView(lastB, 'me', 2);
+  assert(last.rank === 30 && last.betterThan === 0 && last.near.map(r => r.rank).join() === '26,27,28,29,30' && last.gap === true, 'last place: the window is pinned to the end, got ' + last.near.map(r => r.rank));
+  const small = c.socialArenaView(board(4).map((r, i) => Object.assign({}, r, { userId: i === 3 ? 'me' : 'u' + i })), 'me', 2);
+  assert(small.near.length === 1 && small.near[0].rank === 4 && small.gap === false, 'a tiny group has no gap and no duplicates: ' + JSON.stringify(small.near.map(r => r.rank)));
+  assert(c.socialArenaView(board(1).map(r => Object.assign({}, r, { userId: 'me' })), 'me', 2).betterThan === null, 'alone in a group there is no percentile to brag about');
+  const away = c.socialArenaView(board(30), 'ghost', 2);
+  assert(away.rank === null && away.near.length === 0 && away.betterThan === null, 'someone who is not on the board gets no place');
+  assert(new Set([...v.top, ...v.near].map(r => r.userId)).size === v.top.length + v.near.length, 'no row is shown twice');
+  info('Place, percentile, leaders, neighbours, gap marker, edges');
+});
+
+test('Arena + friends rooms: the design doc records the decisions', () => {
+  const doc = fs.readFileSync(path.join(ROOT, 'docs', 'social-design.md'), 'utf8');
+  ['10. Зал: всё приложение - одна большая комната', 'Все видят', 'Пока человек не выбрал, не публикуется ничего', 'с 16 лет', 'Общий счётчик «сейчас в зале» считает **только людей**',
+    'Вариант', 'B. Зал из групп по 30', 'фильтр имён'].forEach(x => assert(doc.includes(x), 'design doc missing: ' + x));
+  info('Section 10 covers scale variants, consent, age rule, honest counter, moderation');
+});
+
 test('Live competition UI: bots are labelled, no network, wired in, privacy stated, beta only', () => {
   const comp = fs.readFileSync(path.join(BETA_SRC_DIR, 'compete.jsx'), 'utf8');
   ['fetch(', 'XMLHttpRequest', 'sendBeacon', 'WebSocket', 'EventSource', 'navigator.share'].forEach(x => assertNot(comp.includes(x), 'compete.jsx must not touch the network: ' + x));
   // Боты ведут себя по-человечески, но НЕ выдаются за людей: значок у имени и строка в шапке комнаты обязательны
   assert(comp.includes('{r.bot && <span title="бот-партнёр"') && comp.includes('🤖'), 'every bot row must carry the robot marker');
   assert(/В комнате: .*человек.*бот-партнёр/.test(comp.replace(/\s+/g, ' ')), 'the room header must say how many people and bots are in the room');
-  assert(comp.includes('боты-партнёры (они отмечены значком 🤖)'), 'the intro text must say bots are marked');
+  assert(comp.includes('Боты-партнёры (значок 🤖) по умолчанию выключены'), 'friends rooms: bots are off by default and marked when on');
+  assert(comp.includes('боты-партнёры (значок 🤖)'), 'the arena intro must say bots are marked');
   assert(comp.includes('не выдаются за людей') && comp.includes('нельзя'), 'the no-deception rule must stay in the code comment');
   assertNot(/hideBot|скрыть бот|без пометки|неотличим/i.test(comp), 'there must be no switch that hides the bot marker');
   assert(comp.includes('Каждый подключившийся человек вытесняет одного бота'), 'the replacement rule is explained to the user');
