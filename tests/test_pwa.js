@@ -4126,6 +4126,262 @@ test('--check covers beta, and the default build writes all three files', () => 
   info('build.py builds and checks index.html, beta/index.html, beta/sw.js');
 });
 
+// ── SECTION 24: LIGHT / DARK THEME ──────────────────────────────────────────
+section('24 · LIGHT / DARK THEME');
+
+const headSrc = fs.readFileSync(path.join(ROOT, 'src', 'shell', 'head.html'), 'utf8');
+function cssBlock(text, selector) {
+  const i = text.indexOf(selector);
+  assert(i >= 0, 'CSS block not found: ' + selector);
+  const j = text.indexOf('{', i), k = text.indexOf('}', j);
+  return text.slice(j + 1, k);
+}
+function cssVars(block) { const o = {}; for (const m of block.matchAll(/--([a-z0-9-]+):\s*([^;]+);/g)) o[m[1]] = m[2].trim(); return o; }
+const DARK = cssVars(cssBlock(headSrc, ':root{'));
+const LIGHT = cssVars(cssBlock(headSrc, ':root[data-theme="light"]{'));
+const hexRgb = h => { h = h.replace('#', ''); if (h.length === 3) h = h.split('').map(c => c + c).join(''); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); };
+const lumOf = c => { const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); };
+const contrastOf = (a, b) => { const x = lumOf(hexRgb(a)), y = lumOf(hexRgb(b)); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+const COLOR_TOKENS = Object.keys(DARK).filter(k => /^(bg|bd|tx)-/.test(k));
+
+// Настоящие функции темы из исходника, с подставными localStorage / window / document
+function makeThemeEnv(opts) {
+  opts = opts || {};
+  const doc = {
+    attrs: {}, meta: { content: '' },
+    documentElement: null,
+    querySelector(sel) { return /theme-color/.test(sel) ? this.meta : null; },
+  };
+  doc.documentElement = { setAttribute(k, v) { doc.attrs[k] = v; } };
+  doc.meta.setAttribute = function (k, v) { if (k === 'content') this.content = v; };
+  const store = opts.store || {};
+  const ls = {
+    getItem(k) { if (opts.lsThrows) throw new Error('blocked'); return Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null; },
+    setItem(k, v) { store[k] = String(v); },
+  };
+  const win = opts.noMatchMedia ? {} : { matchMedia: () => ({ matches: !!opts.systemLight }) };
+  return { doc, ls, win, store };
+}
+function loadTheme(variant, opts) {
+  const env = makeThemeEnv(opts);
+  const body = src.slice(src.indexOf('const THEME_KEY'), src.indexOf('// Локальная дата'));
+  const api = new Function('APP_VARIANT', 'localStorage', 'window', 'document',
+    body + '; return { THEME_KEY, THEME_PREFS, THEME_BAR, themeNormalize, themeResolve, themeStored, themeSystemLight, themeApply, themeInk };')(variant, env.ls, env.win, env.doc);
+  return Object.assign({ env }, api);
+}
+
+test('Theme: dark and light palettes define exactly the same tokens', () => {
+  const dk = Object.keys(DARK).sort(), lk = Object.keys(LIGHT).sort();
+  assert(dk.length >= 60, 'palette looks truncated: ' + dk.length + ' tokens');
+  assert(dk.join() === lk.join(), 'tokens differ between themes: ' + dk.filter(k => !(k in LIGHT)).concat(lk.filter(k => !(k in DARK))).join(', '));
+  assert(/:root\{\s*color-scheme:dark/.test(headSrc) && /data-theme="light"\]\{\s*color-scheme:light/.test(headSrc), 'both themes must declare color-scheme (native controls follow it)');
+  info(dk.length + ' tokens in each theme');
+});
+
+test('Theme: a token name is its dark value, so the dark theme is the original look', () => {
+  const bad = [];
+  COLOR_TOKENS.forEach(k => {
+    const hex = k.replace(/^(bg|bd|tx)-/, '');
+    if (!/^([0-9a-f]{3}|[0-9a-f]{6})$/.test(hex)) { bad.push(k + ' (name is not a hex)'); return; }
+    if (hexRgb(hex).join() !== hexRgb(DARK[k]).join()) bad.push(k + ' = ' + DARK[k]);
+  });
+  assert(bad.length === 0, 'dark value differs from the token name: ' + bad.join('; '));
+  info(COLOR_TOKENS.length + ' tokens, names match the dark values');
+});
+
+test('Theme: every var(--token) is defined, and no token is left unused', () => {
+  const tail = headSrc.replace(/:root\{[\s\S]*?\}\s*:root\[data-theme="light"\]\{[\s\S]*?\}/, '');
+  const used = new Set();
+  for (const text of [src, tail]) for (const m of text.matchAll(/var\(--([a-z0-9-]+)\)/g)) used.add(m[1]);
+  const undef = [...used].filter(k => !(k in DARK));
+  const dead = Object.keys(DARK).filter(k => !used.has(k));
+  assert(undef.length === 0, 'used but not defined: ' + undef.join(', '));
+  assert(dead.length === 0, 'defined but never used (delete or use): ' + dead.join(', '));
+  info(used.size + ' tokens in use');
+});
+
+test('Theme: no raw grey hex left in the app styles (use var(--bg|bd|tx-...))', () => {
+  const body = src.slice(src.indexOf('const APP_VARIANT'));
+  const ALLOWED = [
+    'const THEME_BAR = { dark: "#0c0c0f", light: "#f2f2f7" };',                       // цвет шапки браузера
+    'return w ? w.color : "#444";',                                                   // запасной цвет дня: к нему
+    'color: w ? w.color : "#666",',                                                   // потом дописывают
+    'const wColor = wObj ? wObj.color : "#2a2a2a";',                                  // прозрачность (${c}15), var() тут нельзя
+    'const day = PROGRAM[entry.workout] || { color: "#666", name: entry.name, label: "" };',
+    'const day = PROGRAM[entry.workout] || { color: "#555", name: entry.name };',
+  ];
+  const bad = [];
+  body.split('\n').forEach((line, i) => {
+    if (ALLOWED.some(a => line.includes(a))) return;
+    for (const m of line.matchAll(/#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})(?![0-9a-fA-F])/g)) {
+      const c = hexRgb(m[0]);
+      if (Math.max(...c) - Math.min(...c) <= 24 && m[0].toLowerCase() !== '#000' && m[0].toLowerCase() !== '#000000') bad.push((i + 1) + ': ' + m[0]);
+    }
+  });
+  assert(bad.length === 0, 'raw grey colours (will stay dark in the light theme): ' + bad.slice(0, 8).join(', '));
+  info('Greys are tokens; only 6 fallback colours stay as hex because transparency is appended to them');
+});
+
+test('Theme: text colours of a day go through ink(), so bright accents stay readable on white', () => {
+  const body = src.slice(src.indexOf('export default function App'));
+  const bad = [];
+  const re = /[\s{,]color:\s*/g;
+  let m;
+  while ((m = re.exec(body))) {
+    let i = re.lastIndex, depth = 0, q = null;
+    for (; i < body.length; i++) {
+      const c = body[i];
+      if (q) { if (c === '\\') i++; else if (c === q) q = null; continue; }
+      if (c === '"' || c === "'" || c === '`') { q = c; continue; }
+      if (c === '(' || c === '[' || c === '{') depth++;
+      else if (c === ')' || c === ']') depth--;
+      else if (c === '}') { if (depth === 0) break; depth--; }
+      else if (c === ',' && depth === 0) break;
+    }
+    const value = body.slice(re.lastIndex, i);
+    const before = body.slice(Math.max(0, m.index - 90), m.index);
+    const isData = before.includes('"ВСЕ"') || before.includes('"ДРУГИЕ"');   // данные, не стиль: цвет потом идёт в ${c}30
+    if (/\.color\b/.test(value) && !/ink\(/.test(value) && !isData) bad.push(value.trim());
+  }
+  assert(bad.length === 0, 'text colour taken from .color without ink(): ' + bad.join(' | '));
+  assert(/stroke=\{ink\(done \? "#00d4aa" : w\.color\)\}/.test(src), 'the timer ring stroke must go through ink()');
+  info('Every text colour from a day goes through ink()');
+});
+
+test('Theme: light palette keeps text readable (same hierarchy as the dark one)', () => {
+  const bad = [];
+  COLOR_TOKENS.filter(k => k.startsWith('tx-')).forEach(k => {
+    const dark = contrastOf(DARK[k], DARK['bg-0c0c0f']);
+    const onPage = contrastOf(LIGHT[k], LIGHT['bg-0c0c0f']), onCard = contrastOf(LIGHT[k], LIGHT['bg-0f0f12']);
+    const need = dark >= 4.3 ? 4.5 : dark - 0.3;       // читаемое в тёмной - читаемо и в светлой; тусклое не тусклее прежнего
+    if (onPage < need || onCard < need) bad.push(k + ' ' + onPage.toFixed(2) + '/' + onCard.toFixed(2) + ' < ' + need.toFixed(2));
+  });
+  assert(bad.length === 0, 'too little contrast in the light theme: ' + bad.join('; '));
+  info('All text tokens at least as readable as in the dark theme');
+});
+
+test('Theme: the grey ramp keeps its order (brighter text stays more prominent) and surfaces stay layered', () => {
+  const ramp = ['fff', 'e8e8e8', 'ddd', 'ccc', 'bbb', 'aaa', '999', '888', '777', '666', '555', '444', '3a3a3a', '333', '2a2a2a', '222'];
+  for (let i = 1; i < ramp.length; i++) {
+    const a = lumOf(hexRgb(LIGHT['tx-' + ramp[i - 1]])), b = lumOf(hexRgb(LIGHT['tx-' + ramp[i]]));
+    assert(a < b, 'tx-' + ramp[i - 1] + ' must be darker than tx-' + ramp[i] + ' in the light theme');
+  }
+  const L = k => lumOf(hexRgb(LIGHT[k]));
+  assert(L('bg-0f0f12') > L('bg-0c0c0f'), 'cards must be lighter than the page');
+  assert(L('bg-0a0a0c') < L('bg-0c0c0f') && L('bg-1a1a22') < L('bg-0c0c0f'), 'inset and raised surfaces must be darker than the page');
+  ['bd-1a1a22', 'bd-2a2a2a'].forEach(k => assert(contrastOf(LIGHT[k], LIGHT['bg-0f0f12']) >= 1.2, k + ' border is invisible on a white card'));
+  assert(contrastOf(LIGHT['bg-0f0f12'], LIGHT['bg-0c0c0f']) >= 1.05, 'card and page are indistinguishable');
+  info('Ramp is reversed correctly; page < card, borders visible');
+});
+
+test('Theme: themeResolve / themeNormalize / themeStored behave (auto follows the phone, bad values mean dark)', () => {
+  const t = loadTheme('prod');
+  [['dark', true, 'dark'], ['dark', false, 'dark'], ['light', true, 'light'], ['light', false, 'light'],
+   ['auto', true, 'light'], ['auto', false, 'dark'], ['junk', true, 'dark'], [null, true, 'dark'], [undefined, true, 'dark']]
+    .forEach(([pref, sys, want]) => assert(t.themeResolve(pref, sys) === want, 'resolve(' + pref + ', ' + sys + ') -> ' + t.themeResolve(pref, sys) + ', want ' + want));
+  assert(t.themeNormalize('light') === 'light' && t.themeNormalize('auto') === 'auto' && t.themeNormalize('<b>') === 'dark', 'normalize');
+  assert(t.THEME_KEY === 'sila_theme', 'production key');
+  assert(loadTheme('prod', { store: { sila_theme: 'light' } }).themeStored() === 'light', 'a saved choice is read');
+  assert(loadTheme('prod', { store: { sila_theme: 'neon' } }).themeStored() === 'dark', 'a corrupted value falls back to dark');
+  assert(loadTheme('prod').themeStored() === 'dark', 'default is dark: nothing changes until the user chooses');
+  assert(loadTheme('prod', { lsThrows: true }).themeStored() === 'dark', 'blocked storage must not break the app');
+  assert(loadTheme('prod', { systemLight: true }).themeSystemLight() === true && loadTheme('prod', { noMatchMedia: true }).themeSystemLight() === false, 'system theme detection');
+  info('Resolution matrix OK, default dark, storage errors are swallowed');
+});
+
+test('Theme: the test version is always dark (its panels are drawn for a dark background) and keeps its own key', () => {
+  const b = loadTheme('beta', { store: { sila_theme: 'light', sila_theme_beta: 'light' }, systemLight: true });
+  ['light', 'auto', 'dark'].forEach(p => assert(b.themeResolve(p, true) === 'dark', 'beta must stay dark for ' + p));
+  assert(b.THEME_KEY === 'sila_theme_beta', 'beta must not read or write the production theme key');
+  assert(betaHtml.includes("localStorage.getItem('sila_theme_beta')") && !betaHtml.includes("localStorage.getItem('sila_theme')"), 'the early script in beta must read the beta key');
+  const prodHead = html.slice(0, html.indexOf(APP_MARKER));
+  assert(prodHead.includes("localStorage.getItem('sila_theme')") && !prodHead.includes('sila_theme_beta'), 'the production early script must read only the production key');
+  assert(/\{APP_VARIANT !== "beta" && \(\s*<>\s*<div[^>]*>ТЕМА<\/div>/.test(src), 'the theme switch must be hidden in beta');
+  info('Beta: always dark, own key, no switch');
+});
+
+test('Theme: the early script in <head> agrees with themeResolve for every stored value and system theme', () => {
+  const m = headSrc.match(/<meta name="theme-color"[^>]*>\s*<script>([\s\S]*?)<\/script>/);
+  assert(m, 'the theme script must sit right after the theme-color meta (it patches that tag)');
+  const t = loadTheme('prod');
+  const stored = [null, 'light', 'dark', 'auto', 'neon'];
+  let n = 0;
+  stored.forEach(s => [true, false].forEach(sys => {
+    const env = makeThemeEnv({ store: s === null ? {} : { sila_theme: s }, systemLight: sys });
+    new Function('document', 'localStorage', 'window', m[1])(env.doc, env.ls, env.win);
+    const want = t.themeResolve(s, sys);
+    assert(env.doc.attrs['data-theme'] === want, 'stored=' + s + ' system=' + sys + ': script set ' + env.doc.attrs['data-theme'] + ', app resolves ' + want);
+    assert(env.doc.meta.content === t.THEME_BAR[want], 'theme-color for ' + want + ' is ' + env.doc.meta.content);
+    n++;
+  }));
+  const e1 = makeThemeEnv({ lsThrows: true });
+  new Function('document', 'localStorage', 'window', m[1])(e1.doc, e1.ls, e1.win);
+  assert(e1.doc.attrs['data-theme'] === 'dark', 'blocked storage -> dark');
+  const e2 = makeThemeEnv({ store: { sila_theme: 'auto' }, noMatchMedia: true });
+  new Function('document', 'localStorage', 'window', m[1])(e2.doc, e2.ls, e2.win);
+  assert(e2.doc.attrs['data-theme'] === 'dark', 'auto without matchMedia -> dark');
+  info(n + ' combinations match, errors fall back to dark');
+});
+
+test('Theme: themeApply sets data-theme and the browser bar colour', () => {
+  const t = loadTheme('prod');
+  t.themeApply('light');
+  assert(t.env.doc.attrs['data-theme'] === 'light' && t.env.doc.meta.content === '#f2f2f7', 'light');
+  t.themeApply('dark');
+  assert(t.env.doc.attrs['data-theme'] === 'dark' && t.env.doc.meta.content === '#0c0c0f', 'dark');
+  assert(headSrc.includes('<meta name="theme-color" content="#0c0c0f">'), 'dark stays the default colour in the markup');
+  info('data-theme and meta theme-color follow the mode');
+});
+
+test('Theme: themeInk darkens day colours for light backgrounds and leaves everything else alone', () => {
+  const t = loadTheme('prod');
+  const dayColors = [...new Set([...src.slice(0, src.indexOf('const APP_VARIANT')).matchAll(/color:\s*"(#[0-9a-fA-F]{6})"/g)].map(m => m[1])
+    .concat([...src.match(/const COLORS = \[([^\]]*)\]/)[1].matchAll(/"(#[0-9a-fA-F]{6})"/g)].map(m => m[1])))];
+  assert(dayColors.length >= 8, 'expected the day and builder colours, got ' + dayColors.length);
+  const page = hexRgb('#f2f2f7');
+  dayColors.forEach(c => {
+    assert(t.themeInk(c, 'dark') === c, 'dark theme must not touch ' + c);
+    const ink = t.themeInk(c, 'light');
+    assert(/^#[0-9a-f]{6}$/.test(ink), 'bad output for ' + c + ': ' + ink);
+    const base = hexRgb(c), tint = page.map((p, i) => Math.round(p * 0.9 + base[i] * 0.1));
+    const ratio = contrastOf(ink, '#' + tint.map(v => v.toString(16).padStart(2, '0')).join(''));
+    assert(ratio >= 4.5, c + ' -> ' + ink + ' has contrast ' + ratio.toFixed(2) + ' on its own tint');
+    hexRgb(ink).forEach((v, i) => assert(v <= base[i], 'ink may only darken: ' + c + ' -> ' + ink));
+  });
+  ['rgba(0,0,0,.5)', 'none', '#fff', undefined, null, 12].forEach(v => assert(t.themeInk(v, 'light') === v, 'must return as is: ' + v));
+  assert(t.themeInk('#FF6B35', 'light') === t.themeInk('#ff6b35', 'light'), 'case-insensitive');
+  info(dayColors.length + ' accent colours checked: contrast >= 4.5 in the light theme');
+});
+
+test('Theme: the choice is saved under its own key, never in data or in a backup', () => {
+  const fn = src.slice(src.indexOf('const chooseTheme'), src.indexOf('// Экран не гаснет,'));
+  assert(fn.includes('localStorage.setItem(THEME_KEY, p)') && !fn.includes('setData'), 'chooseTheme must only write THEME_KEY');
+  assert(!/data\.(theme|themePref)/.test(src), 'the theme must not live in data (it would travel inside backups)');
+  const { buildBackup } = loadBackupFns();
+  const json = JSON.stringify(buildBackup(Object.assign(emptyData(), { keepAwake: false })));
+  assert(!/theme|sila_theme/i.test(json), 'a backup must not contain the theme');
+  assert(src.includes('const THEME_KEY = APP_VARIANT === "beta" ? "sila_theme_beta" : "sila_theme";'), 'key constant');
+  info('Device preference: own key, not in the backup');
+});
+
+test('Theme: settings offer Auto / Light / Dark, and "Auto" tracks the system without leaking listeners', () => {
+  assert(/\[\["auto", "АВТО"\], \["light", "СВЕТЛАЯ"\], \["dark", "ТЁМНАЯ"\]\]/.test(src), 'three choices in the plan screen');
+  assert(src.includes('onClick={() => chooseTheme(m[0])}'), 'buttons must call chooseTheme');
+  const fx = src.slice(src.indexOf('const [themePref'), src.indexOf('const chooseTheme'));
+  assert(fx.includes('useState(themeStored)') && fx.includes('themeResolve(themePref, sysLight)') && fx.includes('themeApply(themeMode)'), 'state, resolution and DOM sync');
+  assert(fx.includes('addEventListener("change", sync)') && fx.includes('removeEventListener("change", sync)') && fx.includes('addListener') && fx.includes('removeListener'), 'system listener is added and removed (old Safari uses addListener)');
+  assert(fx.includes('visibilitychange'), 'iOS may skip change events while suspended: re-read the system theme on return');
+  assert(fx.includes('themePref !== "auto"'), 'no listener unless Auto is chosen');
+  info('Switch, live system tracking, cleanup');
+});
+
+test('Theme: in the light theme the iPhone status-bar strip stays dark (the bar text is always white)', () => {
+  assert(/data-theme="light"\] body::before\{[^}]*position:fixed[^}]*height:env\(safe-area-inset-top\)[^}]*background:#0c0c0f/.test(headSrc), 'strip rule missing');
+  assert(headSrc.includes('apple-mobile-web-app-status-bar-style" content="black-translucent"'), 'the strip exists because of black-translucent');
+  assert(/html\{[^}]*background:var\(--bg-0c0c0f\)\}/.test(headSrc) && /#loader\{[^}]*background:var\(--bg-0c0c0f\)/.test(headSrc), 'html and loader follow the theme (no dark flash)');
+  info('Dark strip under the status bar, no flash of the wrong theme');
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  SUMMARY
 // ═══════════════════════════════════════════════════════════════════════════

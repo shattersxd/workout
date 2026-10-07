@@ -20,6 +20,7 @@ system, so the build rewrites the module boundary:
     const APP_VARIANT = "prod";        ->  "beta"  (ключи localStorage свои, см. STORAGE_KEY)
     <title> / имя на экране "Домой"    ->  Workout BETA
     loadScript('vendor/...')           ->  loadScript('../vendor/...')  (библиотеки общие)
+    getItem('sila_theme')              ->  getItem('sila_theme_beta')  (тема беты - всегда тёмная)
 
 Usage:
     python3 scripts/build.py                 # пишет index.html, beta/index.html, beta/sw.js
@@ -109,6 +110,9 @@ def build(beta: bool = False) -> str:
         )
         head = replace_once(head, "%22name%22%3A%22Workout%20Routine%22", "%22name%22%3A%22Workout%20BETA%22", "manifest name")
         head = replace_once(head, "%22short_name%22%3A%22Workout%22", "%22short_name%22%3A%22Workout%20BETA%22", "manifest short_name")
+        # ключ темы у беты свой (в приложении то же самое делает THEME_KEY); у беты он никем не пишется,
+        # поэтому она всегда тёмная
+        head = replace_once(head, "localStorage.getItem('sila_theme')", "localStorage.getItem('sila_theme_beta')", "ключ темы")
         for lib in LIBS:
             head = replace_once(head, "loadScript('vendor/%s'" % lib, "loadScript('../vendor/%s'" % lib, lib)
 

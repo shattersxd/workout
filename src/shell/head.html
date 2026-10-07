@@ -4,6 +4,20 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#0c0c0f">
+  <script>
+  // Тема выставляется ДО первого кадра, иначе при светлой теме на миг мелькнёт тёмный фон. Те же правила,
+  // что у themeResolve в приложении (там же и объяснение): ключ sila_theme, значения auto / light / dark,
+  // по умолчанию dark. Тест сверяет оба места.
+  (function () {
+    var pref = 'dark', mode = 'dark';
+    try { var s = localStorage.getItem('sila_theme'); if (s === 'light' || s === 'auto' || s === 'dark') pref = s; } catch (e) {}
+    if (pref === 'auto') { try { mode = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; } catch (e) {} }
+    else mode = pref;
+    document.documentElement.setAttribute('data-theme', mode);
+    var m = document.querySelector('meta[name="theme-color"]');
+    if (m) m.setAttribute('content', mode === 'light' ? '#f2f2f7' : '#0c0c0f');
+  })();
+  </script>
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Workout Routine">
@@ -11,9 +25,54 @@
   <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230c0c0f'/><text y='.9em' font-size='80' x='10'>🏋️</text></svg>">
   <link rel="manifest" href="data:application/json,%7B%22name%22%3A%22Workout%20Routine%22%2C%22short_name%22%3A%22Workout%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%230c0c0f%22%2C%22theme_color%22%3A%22%230c0c0f%22%2C%22orientation%22%3A%22portrait%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22data%3Aimage/png%3Bbase64%2CiVBORw0KGgoAAAANSUhEUgAAAEwAAABMCAIAAABI9cZ8AAAA50lEQVR4nO3awQnCMBhAYSs9VtzCSbqHs7lHF3AF7x48igv0FkuFKElUeP/7jhZ%2B%2BgilJtoNw35Dt/33DfyCkRRGUhhJYSSFkRRGUhhJYSSFkRRGUhhJ0WeuPY6HzNXd6dL6Zt4ru6UQK2kkRe6Z/NA0Pn9NGad7/cDVzPqxIVbSSAojKUJElr9C0jes8/X2%2BmGl5cz6sSFW0kgKIylCRJa/QtI2fLljaHVcsNqFpLFl75IQK2kkhZEUISIbHGS1Orz63swQK2kkRecf7SGMpDCSwkgKIymMpDCSwkgKIymMpDCSIkTkDHXnIpWOIm3fAAAAAElFTkSuQmCC%22%2C%22sizes%22%3A%2276x76%22%2C%22type%22%3A%22image/png%22%7D%2C%7B%22src%22%3A%22data%3Aimage/png%3Bbase64%2CiVBORw0KGgoAAAANSUhEUgAAAHgAAAB4CAIAAAC2BqGFAAABg0lEQVR4nO3dsW3CUBRAUUApQWyRSdgjs2UPFmAFegrKiAUYABdOgs9H4p7agsfVKzB8xHq73a%2ByvM3oAd5FoZFCI4VGCo0UGik0Umik0EihkUIjhUYKjRQaKTRSaKTQSKGRQiOFRgqNFBopNFJopNBIoZFCI4VGCo0UGik0Umik0EihkUIjhUYKjXzMuej29fmrB919n/80zAt5%2Bktuo5FCI4VGCo0UGpn1ruP/joeJX5wfjj/m2V9hkjYaKTRSaKTQSKGRQiOFRgqNFBopNFJoZJHPOh6/njhdrnMuA0ZN0kYjhUYKjRQaKTRSaKTQSKGRRW5YHs9HTX4lOuTk2MxJnn4L00YjhUYKjRQaKTRSaKTQSKGRQiOFRgqNoIPoQ86cTxo1SRuNFBopNFJopNDIur9CNdpopNBIoZFCI4VGCo0UGik0Umik0EihkUIjhUYKjRQaKTRSaKTQSKGRQiOFRgqNFBopNFJopNBIoZFCI4VGCo0UGik0Umik0EihkUIjdydbIu0MVmobAAAAAElFTkSuQmCC%22%2C%22sizes%22%3A%22120x120%22%2C%22type%22%3A%22image/png%22%7D%2C%7B%22src%22%3A%22data%3Aimage/png%3Bbase64%2CiVBORw0KGgoAAAANSUhEUgAAAJgAAACYCAIAAACXoLd2AAAB40lEQVR4nO3dwU3CYBiAYTEca9zCSdiD2dyDBVzBuweOxgVcgEZL9G/75nnONHzhzXegtOUwTc8P7N/j2gPwN4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDLiuPSAr/PL3W/29Pp%2B97E7NezjspERQkYIGSFkhJARQkYs/vrxHy6n239Zcbp8Dp7kR5sd1UZGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkx9GesuUvK3j6ui16/os2OaiMjhIwQMkLICCEjhIwQMkLICCEjhIwQMkLIiKEnzefupZ67oWKDt6ovHXXYyXQbGSFkhJARQkYIGSFkhJARQkYIGSFkhJARQkYIGSFkxCYeYbb6879%2Bb7Oj2sgIISOEjBAyQsgIISMO03T7sjD2xUZGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBnxDTGbIy1oSHE/AAAAAElFTkSuQmCC%22%2C%22sizes%22%3A%22152x152%22%2C%22type%22%3A%22image/png%22%7D%2C%7B%22src%22%3A%22data%3Aimage/png%3Bbase64%2CiVBORw0KGgoAAAANSUhEUgAAALQAAAC0CAIAAACyr5FlAAACI0lEQVR4nO3dsU3DQBiAUYIojbIFk2QPZmOPLMAK9BQpEQuwAJ%2BLk5Wz4b02cuKLPv1FHJ9Py3J%2BgN88zj4B9kscJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQnsYO%2B3592eTjn98%2BNnmfP2ziV21ykMRBEgdJHCRxkMRBEgdJHKTBH8Hu4Ho5r7x6uX7d7Uw2ccTlmBwkcZDEQRIHSRwkcZDEQRIHSRwkcZDEQRIHSRwkcZDEQRIHSRykyf8EW7nX7/3zNnbgPh1xOSYHSRwkcZDEQRIHSRwkcZDEQRIHSRwkcZDEQRIHSRykyZfsV7bVXd/t5HBbHw8vZ%2BLVfJODJA6SOEjiIImDJA6SOEjiIImDJA6SOEjiIImDJA6SOEjiIImDtN/HeO3zyVbDjrgck4MkDpI4SOIgiYMkDpI4SOIgnZZl7TY9/jOTgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQO0g/srCNlJNoCCAAAAABJRU5ErkJggg%3D%3D%22%2C%22sizes%22%3A%22180x180%22%2C%22type%22%3A%22image/png%22%2C%22purpose%22%3A%22any%20maskable%22%7D%5D%2C%22scope%22%3A%22/%22%7D">
   <style>
+    /* ===== Палитра. Имя токена = роль (bg фон, bd граница, tx текст) + ТЁМНОЕ значение, которое он
+       заменяет: в тёмной теме приложение выглядит как раньше, светлая лежит ниже. Новые цвета в
+       src брать отсюда (var(--tx-666)), а не писать hex: тест ловит голые серые. ===== */
+    :root{
+      color-scheme:dark;
+      --bg-0a0a0c:#0a0a0c; --bg-0c0c0f:#0c0c0f; --bg-0f0f12:#0f0f12; --bg-111:#111111;
+      --bg-1a1a22:#1a1a22; --bg-1e1e28:#1e1e28; --bg-2a2a2a:#2a2a2a; --bg-2a2a3a:#2a2a3a; --bg-333:#333333;
+      --bg-0e1a13:#0e1a13; --bg-1a2a1a:#1a2a1a; --bg-0f0a0a:#0f0a0a; --bg-1a1206:#1a1206; --bg-1a1a2e:#1a1a2e;
+      --bd-111:#111111; --bd-161620:#161620; --bd-1a1a22:#1a1a22; --bd-1e1e28:#1e1e28; --bd-222:#222222;
+      --bd-252530:#252530; --bd-2a2a2a:#2a2a2a; --bd-2a2a35:#2a2a35; --bd-333:#333333;
+      --bd-1d3a28:#1d3a28; --bd-241618:#241618; --bd-2a1a1a:#2a1a1a; --bd-2a4a2a:#2a4a2a; --bd-33334a:#33334a;
+      --bd-3a1a1a:#3a1a1a; --bd-3a2a10:#3a2a10;
+      --tx-fff:#ffffff; --tx-e8e8e8:#e8e8e8; --tx-ddd:#dddddd; --tx-ccc:#cccccc; --tx-bbb:#bbbbbb;
+      --tx-aaa:#aaaaaa; --tx-999:#999999; --tx-888:#888888; --tx-777:#777777; --tx-666:#666666;
+      --tx-555:#555555; --tx-444:#444444; --tx-3a3a3a:#3a3a3a; --tx-333:#333333; --tx-2a2a2a:#2a2a2a; --tx-222:#222222;
+      --tx-00d4aa:#00d4aa; --tx-4a9a6a:#4a9a6a; --tx-5a9a5a:#5a9a5a; --tx-5a9a7a:#5a9a7a; --tx-7fc79a:#7fc79a;
+      --tx-f7a844:#f7a844; --tx-8a7550:#8a7550; --tx-a89060:#a89060;
+      --tx-ff6b6b:#ff6b6b; --tx-ff5555:#ff5555; --tx-cc7777:#cc7777; --tx-883333:#883333; --tx-6a4444:#6a4444;
+      --tx-6a2a2a:#6a2a2a; --tx-5a3a3a:#5a3a3a; --tx-6a8aaa:#6a8aaa; --tx-7788dd:#7788dd;
+      --ph:#6f6f80;
+      --scrim:rgba(0,0,0,.85); --scrim-lite:rgba(0,0,0,.7); --shadow-pop:0 8px 32px rgba(0,0,0,.6);
+    }
+    :root[data-theme="light"]{
+      color-scheme:light;
+      --bg-0a0a0c:#eaeaf0; --bg-0c0c0f:#f2f2f7; --bg-0f0f12:#ffffff; --bg-111:#f5f5f9;
+      --bg-1a1a22:#e4e4ec; --bg-1e1e28:#dedee6; --bg-2a2a2a:#d6d6de; --bg-2a2a3a:#cfcfda; --bg-333:#cbcbd4;
+      --bg-0e1a13:#e3f5ea; --bg-1a2a1a:#d6efdd; --bg-0f0a0a:#fdecec; --bg-1a1206:#fff3dc; --bg-1a1a2e:#e5e8fb;
+      --bd-111:#efeff4; --bd-161620:#e9e9ef; --bd-1a1a22:#e0e0e8; --bd-1e1e28:#dadae2; --bd-222:#d4d4dd;
+      --bd-252530:#d0d0da; --bd-2a2a2a:#d0d0d9; --bd-2a2a35:#d0d0dc; --bd-333:#c6c6d1;
+      --bd-1d3a28:#b4e0c4; --bd-241618:#f3d3d3; --bd-2a1a1a:#f1d8c9; --bd-2a4a2a:#b9dec2; --bd-33334a:#c5caf0;
+      --bd-3a1a1a:#ebc0c0; --bd-3a2a10:#ebd2a3;
+      --tx-fff:#0f0f14; --tx-e8e8e8:#1c1c22; --tx-ddd:#25252c; --tx-ccc:#2f2f37; --tx-bbb:#3a3a43;
+      --tx-aaa:#474750; --tx-999:#54545e; --tx-888:#606069; --tx-777:#6c6c77; --tx-666:#787883;
+      --tx-555:#888893; --tx-444:#9999a3; --tx-3a3a3a:#a5a5af; --tx-333:#b0b0ba; --tx-2a2a2a:#bdbdc6; --tx-222:#cacad2;
+      --tx-00d4aa:#007a63; --tx-4a9a6a:#2c7a4b; --tx-5a9a5a:#2a7432; --tx-5a9a7a:#2a7a58; --tx-7fc79a:#1f7545;
+      --tx-f7a844:#9a5800; --tx-8a7550:#85641f; --tx-a89060:#8a6620;
+      --tx-ff6b6b:#c93030; --tx-ff5555:#cf2727; --tx-cc7777:#b03f3f; --tx-883333:#a83232; --tx-6a4444:#a05a5a;
+      --tx-6a2a2a:#b04a4a; --tx-5a3a3a:#8f4a4a; --tx-6a8aaa:#3f6a94; --tx-7788dd:#3a4bb5;
+      --ph:#9a9aa8;
+      --scrim:rgba(20,20,35,.5); --scrim-lite:rgba(20,20,35,.4); --shadow-pop:0 8px 32px rgba(30,30,60,.22);
+    }
+    /* Статус-бар iPhone при black-translucent всегда с БЕЛЫМ текстом: на светлой странице часы
+       пропали бы. Поэтому в светлой теме полоса под статус-баром остаётся тёмной (в Safari
+       без установки на экран высота полосы 0). */
+    :root[data-theme="light"] body::before{content:"";position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top);background:#0c0c0f;z-index:3000;pointer-events:none}
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-    html{height:100%;background:#0c0c0f}
-    body{min-height:100%;background:#0c0c0f;max-width:100vw}
+    html{height:100%;background:var(--bg-0c0c0f)}
+    body{min-height:100%;background:var(--bg-0c0c0f);max-width:100vw}
     body{
       overscroll-behavior-y:contain;
       -webkit-user-select:none;user-select:none;
@@ -29,17 +88,17 @@
     input[type=number]{-moz-appearance:textfield}
     input,button,select{font-size:16px}
     button{touch-action:manipulation}
-    .wt::placeholder{color:#6f6f80;opacity:1}
+    .wt::placeholder{color:var(--ph);opacity:1}
     ::-webkit-scrollbar{display:none;width:0;height:0}
     *{scrollbar-width:none;-ms-overflow-style:none}
     #root{min-height:100vh;min-height:100dvh}
     #loader{
-      position:fixed;inset:0;background:#0c0c0f;
+      position:fixed;inset:0;background:var(--bg-0c0c0f);
       display:flex;flex-direction:column;align-items:center;justify-content:center;
       z-index:9999;gap:16px;transition:opacity 0.5s;
     }
     #loader .ico{font-size:52px}
-    #loader .lbl{font-family:monospace;font-size:10px;letter-spacing:4px;color:#333}
+    #loader .lbl{font-family:monospace;font-size:10px;letter-spacing:4px;color:var(--tx-333)}
     #loader .ring{width:48px;height:48px}
     #loader .err{
       font-family:monospace;font-size:11px;color:#ff6b6b;
@@ -49,15 +108,15 @@
     }
     #ios-hint{
       display:none;position:fixed;bottom:20px;left:16px;right:16px;
-      background:#1a1a22;border:1px solid #2a2a35;border-radius:14px;
+      background:var(--bg-1a1a22);border:1px solid var(--bd-2a2a35);border-radius:14px;
       padding:18px 16px 16px;z-index:1000;font-family:monospace;
     }
     #ios-hint.show{display:block}
-    #ios-hint p{font-size:13px;color:#888;line-height:1.8}
-    #ios-hint strong{color:#fff}
+    #ios-hint p{font-size:13px;color:var(--tx-888);line-height:1.8}
+    #ios-hint strong{color:var(--tx-fff)}
     #ios-hint .cls{
       position:absolute;top:10px;right:14px;background:none;
-      border:none;color:#555;font-size:20px;cursor:pointer;padding:4px;
+      border:none;color:var(--tx-555);font-size:20px;cursor:pointer;padding:4px;
     }
   </style>
 </head>
@@ -66,7 +125,7 @@
 <div id="loader">
   <div class="ico">🏋️</div>
   <svg class="ring" viewBox="0 0 48 48">
-    <circle cx="24" cy="24" r="20" fill="none" stroke="#1a1a22" stroke-width="3"/>
+    <circle cx="24" cy="24" r="20" fill="none" style="stroke:var(--bd-1a1a22)" stroke-width="3"/>
     <circle id="spin-arc" cx="24" cy="24" r="20" fill="none" stroke="#ff6b35"
       stroke-width="3" stroke-linecap="round"
       stroke-dasharray="30 96" transform="rotate(-90 24 24)">

@@ -4,6 +4,20 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#0c0c0f">
+  <script>
+  // Тема выставляется ДО первого кадра, иначе при светлой теме на миг мелькнёт тёмный фон. Те же правила,
+  // что у themeResolve в приложении (там же и объяснение): ключ sila_theme, значения auto / light / dark,
+  // по умолчанию dark. Тест сверяет оба места.
+  (function () {
+    var pref = 'dark', mode = 'dark';
+    try { var s = localStorage.getItem('sila_theme'); if (s === 'light' || s === 'auto' || s === 'dark') pref = s; } catch (e) {}
+    if (pref === 'auto') { try { mode = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; } catch (e) {} }
+    else mode = pref;
+    document.documentElement.setAttribute('data-theme', mode);
+    var m = document.querySelector('meta[name="theme-color"]');
+    if (m) m.setAttribute('content', mode === 'light' ? '#f2f2f7' : '#0c0c0f');
+  })();
+  </script>
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Workout Routine">
@@ -11,9 +25,54 @@
   <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230c0c0f'/><text y='.9em' font-size='80' x='10'>🏋️</text></svg>">
   <link rel="manifest" href="data:application/json,%7B%22name%22%3A%22Workout%20Routine%22%2C%22short_name%22%3A%22Workout%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%230c0c0f%22%2C%22theme_color%22%3A%22%230c0c0f%22%2C%22orientation%22%3A%22portrait%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22data%3Aimage/png%3Bbase64%2CiVBORw0KGgoAAAANSUhEUgAAAEwAAABMCAIAAABI9cZ8AAAA50lEQVR4nO3awQnCMBhAYSs9VtzCSbqHs7lHF3AF7x48igv0FkuFKElUeP/7jhZ%2B%2BgilJtoNw35Dt/33DfyCkRRGUhhJYSSFkRRGUhhJYSSFkRRGUhhJ0WeuPY6HzNXd6dL6Zt4ru6UQK2kkRe6Z/NA0Pn9NGad7/cDVzPqxIVbSSAojKUJElr9C0jes8/X2%2BmGl5cz6sSFW0kgKIylCRJa/QtI2fLljaHVcsNqFpLFl75IQK2kkhZEUISIbHGS1Orz63swQK2kkRecf7SGMpDCSwkgKIymMpDCSwkgKIymMpDCSIkTkDHXnIpWOIm3fAAAAAElFTkSuQmCC%22%2C%22sizes%22%3A%2276x76%22%2C%22type%22%3A%22image/png%22%7D%2C%7B%22src%22%3A%22data%3Aimage/png%3Bbase64%2CiVBORw0KGgoAAAANSUhEUgAAAHgAAAB4CAIAAAC2BqGFAAABg0lEQVR4nO3dsW3CUBRAUUApQWyRSdgjs2UPFmAFegrKiAUYABdOgs9H4p7agsfVKzB8xHq73a%2ByvM3oAd5FoZFCI4VGCo0UGik0Umik0EihkUIjhUYKjRQaKTRSaKTQSKGRQiOFRgqNFBopNFJopNBIoZFCI4VGCo0UGik0Umik0EihkUIjhUYKjXzMuej29fmrB919n/80zAt5%2Bktuo5FCI4VGCo0UGpn1ruP/joeJX5wfjj/m2V9hkjYaKTRSaKTQSKGRQiOFRgqNFBopNFJoZJHPOh6/njhdrnMuA0ZN0kYjhUYKjRQaKTRSaKTQSKGRRW5YHs9HTX4lOuTk2MxJnn4L00YjhUYKjRQaKTRSaKTQSKGRQiOFRgqNoIPoQ86cTxo1SRuNFBopNFJopNDIur9CNdpopNBIoZFCI4VGCo0UGik0Umik0EihkUIjhUYKjRQaKTRSaKTQSKGRQiOFRgqNFBopNFJopNBIoZFCI4VGCo0UGik0Umik0EihkUIjdydbIu0MVmobAAAAAElFTkSuQmCC%22%2C%22sizes%22%3A%22120x120%22%2C%22type%22%3A%22image/png%22%7D%2C%7B%22src%22%3A%22data%3Aimage/png%3Bbase64%2CiVBORw0KGgoAAAANSUhEUgAAAJgAAACYCAIAAACXoLd2AAAB40lEQVR4nO3dwU3CYBiAYTEca9zCSdiD2dyDBVzBuweOxgVcgEZL9G/75nnONHzhzXegtOUwTc8P7N/j2gPwN4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDJCyAghI4SMEDLiuPSAr/PL3W/29Pp%2B97E7NezjspERQkYIGSFkhJARQkYs/vrxHy6n239Zcbp8Dp7kR5sd1UZGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkx9GesuUvK3j6ui16/os2OaiMjhIwQMkLICCEjhIwQMkLICCEjhIwQMkLIiKEnzefupZ67oWKDt6ovHXXYyXQbGSFkhJARQkYIGSFkhJARQkYIGSFkhJARQkYIGSFkxCYeYbb6879%2Bb7Oj2sgIISOEjBAyQsgIISMO03T7sjD2xUZGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBkhZISQEUJGCBnxDTGbIy1oSHE/AAAAAElFTkSuQmCC%22%2C%22sizes%22%3A%22152x152%22%2C%22type%22%3A%22image/png%22%7D%2C%7B%22src%22%3A%22data%3Aimage/png%3Bbase64%2CiVBORw0KGgoAAAANSUhEUgAAALQAAAC0CAIAAACyr5FlAAACI0lEQVR4nO3dsU3DQBiAUYIojbIFk2QPZmOPLMAK9BQpEQuwAJ%2BLk5Wz4b02cuKLPv1FHJ9Py3J%2BgN88zj4B9kscJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQxEESB0kcJHGQnsYO%2B3592eTjn98%2BNnmfP2ziV21ykMRBEgdJHCRxkMRBEgdJHKTBH8Hu4Ho5r7x6uX7d7Uw2ccTlmBwkcZDEQRIHSRwkcZDEQRIHSRwkcZDEQRIHSRwkcZDEQRIHSRykyf8EW7nX7/3zNnbgPh1xOSYHSRwkcZDEQRIHSRwkcZDEQRIHSRwkcZDEQRIHSRykyZfsV7bVXd/t5HBbHw8vZ%2BLVfJODJA6SOEjiIImDJA6SOEjiIImDJA6SOEjiIImDJA6SOEjiIImDtN/HeO3zyVbDjrgck4MkDpI4SOIgiYMkDpI4SOIgnZZl7TY9/jOTgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQOkjhI4iCJgyQO0g/srCNlJNoCCAAAAABJRU5ErkJggg%3D%3D%22%2C%22sizes%22%3A%22180x180%22%2C%22type%22%3A%22image/png%22%2C%22purpose%22%3A%22any%20maskable%22%7D%5D%2C%22scope%22%3A%22/%22%7D">
   <style>
+    /* ===== Палитра. Имя токена = роль (bg фон, bd граница, tx текст) + ТЁМНОЕ значение, которое он
+       заменяет: в тёмной теме приложение выглядит как раньше, светлая лежит ниже. Новые цвета в
+       src брать отсюда (var(--tx-666)), а не писать hex: тест ловит голые серые. ===== */
+    :root{
+      color-scheme:dark;
+      --bg-0a0a0c:#0a0a0c; --bg-0c0c0f:#0c0c0f; --bg-0f0f12:#0f0f12; --bg-111:#111111;
+      --bg-1a1a22:#1a1a22; --bg-1e1e28:#1e1e28; --bg-2a2a2a:#2a2a2a; --bg-2a2a3a:#2a2a3a; --bg-333:#333333;
+      --bg-0e1a13:#0e1a13; --bg-1a2a1a:#1a2a1a; --bg-0f0a0a:#0f0a0a; --bg-1a1206:#1a1206; --bg-1a1a2e:#1a1a2e;
+      --bd-111:#111111; --bd-161620:#161620; --bd-1a1a22:#1a1a22; --bd-1e1e28:#1e1e28; --bd-222:#222222;
+      --bd-252530:#252530; --bd-2a2a2a:#2a2a2a; --bd-2a2a35:#2a2a35; --bd-333:#333333;
+      --bd-1d3a28:#1d3a28; --bd-241618:#241618; --bd-2a1a1a:#2a1a1a; --bd-2a4a2a:#2a4a2a; --bd-33334a:#33334a;
+      --bd-3a1a1a:#3a1a1a; --bd-3a2a10:#3a2a10;
+      --tx-fff:#ffffff; --tx-e8e8e8:#e8e8e8; --tx-ddd:#dddddd; --tx-ccc:#cccccc; --tx-bbb:#bbbbbb;
+      --tx-aaa:#aaaaaa; --tx-999:#999999; --tx-888:#888888; --tx-777:#777777; --tx-666:#666666;
+      --tx-555:#555555; --tx-444:#444444; --tx-3a3a3a:#3a3a3a; --tx-333:#333333; --tx-2a2a2a:#2a2a2a; --tx-222:#222222;
+      --tx-00d4aa:#00d4aa; --tx-4a9a6a:#4a9a6a; --tx-5a9a5a:#5a9a5a; --tx-5a9a7a:#5a9a7a; --tx-7fc79a:#7fc79a;
+      --tx-f7a844:#f7a844; --tx-8a7550:#8a7550; --tx-a89060:#a89060;
+      --tx-ff6b6b:#ff6b6b; --tx-ff5555:#ff5555; --tx-cc7777:#cc7777; --tx-883333:#883333; --tx-6a4444:#6a4444;
+      --tx-6a2a2a:#6a2a2a; --tx-5a3a3a:#5a3a3a; --tx-6a8aaa:#6a8aaa; --tx-7788dd:#7788dd;
+      --ph:#6f6f80;
+      --scrim:rgba(0,0,0,.85); --scrim-lite:rgba(0,0,0,.7); --shadow-pop:0 8px 32px rgba(0,0,0,.6);
+    }
+    :root[data-theme="light"]{
+      color-scheme:light;
+      --bg-0a0a0c:#eaeaf0; --bg-0c0c0f:#f2f2f7; --bg-0f0f12:#ffffff; --bg-111:#f5f5f9;
+      --bg-1a1a22:#e4e4ec; --bg-1e1e28:#dedee6; --bg-2a2a2a:#d6d6de; --bg-2a2a3a:#cfcfda; --bg-333:#cbcbd4;
+      --bg-0e1a13:#e3f5ea; --bg-1a2a1a:#d6efdd; --bg-0f0a0a:#fdecec; --bg-1a1206:#fff3dc; --bg-1a1a2e:#e5e8fb;
+      --bd-111:#efeff4; --bd-161620:#e9e9ef; --bd-1a1a22:#e0e0e8; --bd-1e1e28:#dadae2; --bd-222:#d4d4dd;
+      --bd-252530:#d0d0da; --bd-2a2a2a:#d0d0d9; --bd-2a2a35:#d0d0dc; --bd-333:#c6c6d1;
+      --bd-1d3a28:#b4e0c4; --bd-241618:#f3d3d3; --bd-2a1a1a:#f1d8c9; --bd-2a4a2a:#b9dec2; --bd-33334a:#c5caf0;
+      --bd-3a1a1a:#ebc0c0; --bd-3a2a10:#ebd2a3;
+      --tx-fff:#0f0f14; --tx-e8e8e8:#1c1c22; --tx-ddd:#25252c; --tx-ccc:#2f2f37; --tx-bbb:#3a3a43;
+      --tx-aaa:#474750; --tx-999:#54545e; --tx-888:#606069; --tx-777:#6c6c77; --tx-666:#787883;
+      --tx-555:#888893; --tx-444:#9999a3; --tx-3a3a3a:#a5a5af; --tx-333:#b0b0ba; --tx-2a2a2a:#bdbdc6; --tx-222:#cacad2;
+      --tx-00d4aa:#007a63; --tx-4a9a6a:#2c7a4b; --tx-5a9a5a:#2a7432; --tx-5a9a7a:#2a7a58; --tx-7fc79a:#1f7545;
+      --tx-f7a844:#9a5800; --tx-8a7550:#85641f; --tx-a89060:#8a6620;
+      --tx-ff6b6b:#c93030; --tx-ff5555:#cf2727; --tx-cc7777:#b03f3f; --tx-883333:#a83232; --tx-6a4444:#a05a5a;
+      --tx-6a2a2a:#b04a4a; --tx-5a3a3a:#8f4a4a; --tx-6a8aaa:#3f6a94; --tx-7788dd:#3a4bb5;
+      --ph:#9a9aa8;
+      --scrim:rgba(20,20,35,.5); --scrim-lite:rgba(20,20,35,.4); --shadow-pop:0 8px 32px rgba(30,30,60,.22);
+    }
+    /* Статус-бар iPhone при black-translucent всегда с БЕЛЫМ текстом: на светлой странице часы
+       пропали бы. Поэтому в светлой теме полоса под статус-баром остаётся тёмной (в Safari
+       без установки на экран высота полосы 0). */
+    :root[data-theme="light"] body::before{content:"";position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top);background:#0c0c0f;z-index:3000;pointer-events:none}
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-    html{height:100%;background:#0c0c0f}
-    body{min-height:100%;background:#0c0c0f;max-width:100vw}
+    html{height:100%;background:var(--bg-0c0c0f)}
+    body{min-height:100%;background:var(--bg-0c0c0f);max-width:100vw}
     body{
       overscroll-behavior-y:contain;
       -webkit-user-select:none;user-select:none;
@@ -29,17 +88,17 @@
     input[type=number]{-moz-appearance:textfield}
     input,button,select{font-size:16px}
     button{touch-action:manipulation}
-    .wt::placeholder{color:#6f6f80;opacity:1}
+    .wt::placeholder{color:var(--ph);opacity:1}
     ::-webkit-scrollbar{display:none;width:0;height:0}
     *{scrollbar-width:none;-ms-overflow-style:none}
     #root{min-height:100vh;min-height:100dvh}
     #loader{
-      position:fixed;inset:0;background:#0c0c0f;
+      position:fixed;inset:0;background:var(--bg-0c0c0f);
       display:flex;flex-direction:column;align-items:center;justify-content:center;
       z-index:9999;gap:16px;transition:opacity 0.5s;
     }
     #loader .ico{font-size:52px}
-    #loader .lbl{font-family:monospace;font-size:10px;letter-spacing:4px;color:#333}
+    #loader .lbl{font-family:monospace;font-size:10px;letter-spacing:4px;color:var(--tx-333)}
     #loader .ring{width:48px;height:48px}
     #loader .err{
       font-family:monospace;font-size:11px;color:#ff6b6b;
@@ -49,15 +108,15 @@
     }
     #ios-hint{
       display:none;position:fixed;bottom:20px;left:16px;right:16px;
-      background:#1a1a22;border:1px solid #2a2a35;border-radius:14px;
+      background:var(--bg-1a1a22);border:1px solid var(--bd-2a2a35);border-radius:14px;
       padding:18px 16px 16px;z-index:1000;font-family:monospace;
     }
     #ios-hint.show{display:block}
-    #ios-hint p{font-size:13px;color:#888;line-height:1.8}
-    #ios-hint strong{color:#fff}
+    #ios-hint p{font-size:13px;color:var(--tx-888);line-height:1.8}
+    #ios-hint strong{color:var(--tx-fff)}
     #ios-hint .cls{
       position:absolute;top:10px;right:14px;background:none;
-      border:none;color:#555;font-size:20px;cursor:pointer;padding:4px;
+      border:none;color:var(--tx-555);font-size:20px;cursor:pointer;padding:4px;
     }
   </style>
 </head>
@@ -66,7 +125,7 @@
 <div id="loader">
   <div class="ico">🏋️</div>
   <svg class="ring" viewBox="0 0 48 48">
-    <circle cx="24" cy="24" r="20" fill="none" stroke="#1a1a22" stroke-width="3"/>
+    <circle cx="24" cy="24" r="20" fill="none" style="stroke:var(--bd-1a1a22)" stroke-width="3"/>
     <circle id="spin-arc" cx="24" cy="24" r="20" fill="none" stroke="#ff6b35"
       stroke-width="3" stroke-linecap="round"
       stroke-dasharray="30 96" transform="rotate(-90 24 24)">
@@ -1381,6 +1440,56 @@ function loadData() {
   catch { return { sessions: {}, history: {}, swaps: {}, skipped: {}, customWorkouts: {}, customSets: {}, addedEx: {}, resuming: null, dbMode: "single", trash: [], schedule: ["push",null,"pull",null,"legs",null,null] }; }
 }
 function saveData(d) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); } catch {} }
+// ---- Тема оформления: светлая / тёмная / как на телефоне ----
+// Цвета в стилях - переменные CSS (var(--bg-0c0c0f), var(--tx-666) ...). Имя токена: роль (bg - фон,
+// bd - граница, tx - текст) и ТЁМНОЕ значение, которое он заменяет; светлые значения лежат в head.html.
+// Выбор хранится отдельным ключом, не в data: его читает загрузчик до первого кадра (иначе мелькнёт
+// не та тема), и он не должен ехать в файл резервной копии. Акценты дней (w.color) как текст на
+// светлом фоне нечитаемы - их пропускаем через ink() (themeInk).
+const THEME_KEY = APP_VARIANT === "beta" ? "sila_theme_beta" : "sila_theme";
+const THEME_PREFS = ["auto", "light", "dark"];
+const THEME_BAR = { dark: "#0c0c0f", light: "#f2f2f7" };   // цвет шапки браузера (meta theme-color)
+function themeNormalize(p) { return THEME_PREFS.indexOf(p) >= 0 ? p : "dark"; }
+// Какую тему показываем. Тестовая версия пока только тёмная: её панели нарисованы под тёмный фон.
+function themeResolve(pref, systemLight) {
+  if (APP_VARIANT === "beta") return "dark";
+  const p = themeNormalize(pref);
+  if (p === "auto") return systemLight ? "light" : "dark";
+  return p;
+}
+function themeStored() { try { return themeNormalize(localStorage.getItem(THEME_KEY)); } catch (e) { return "dark"; } }
+function themeSystemLight() {
+  try { return !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches); } catch (e) { return false; }
+}
+function themeApply(mode) {
+  try {
+    document.documentElement.setAttribute("data-theme", mode);
+    const m = document.querySelector('meta[name="theme-color"]');
+    if (m) m.setAttribute("content", THEME_BAR[mode] || THEME_BAR.dark);
+  } catch (e) {}
+}
+function themeRgb(hex) { return [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)]; }
+function themeLum(c) {
+  const f = v => { v = v / 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+  return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]);
+}
+function themeContrast(a, b) {
+  const la = themeLum(a), lb = themeLum(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+// Цвет дня для текста и обводок. В тёмной теме - как есть. В светлой - тот же оттенок, затемнённый ровно
+// настолько, чтобы контраст с фоном страницы (в худшем случае с 10% подкраской этим же цветом) был >= 4.5.
+// Не 6-значный hex (rgba, none, пусто) возвращается без изменений.
+function themeInk(color, mode) {
+  if (mode !== "light" || typeof color !== "string" || !/^#[0-9a-fA-F]{6}$/.test(color)) return color;
+  const base = themeRgb(color);
+  const page = themeRgb(THEME_BAR.light);
+  const tint = page.map((p, i) => Math.round(p * 0.9 + base[i] * 0.1));
+  let f = 1;
+  while (f > 0 && themeContrast(base.map(v => Math.round(v * f)), tint) < 4.5) f = Math.round((f - 0.02) * 100) / 100;
+  return "#" + base.map(v => { const s = Math.round(v * f).toString(16); return s.length < 2 ? "0" + s : s; }).join("");
+}
+
 // Локальная дата, не UTC: toISOString() после полуночи (в Москве до 03:00) даёт вчерашнее число
 function todayKey() {
   const d = new Date();
@@ -1551,6 +1660,31 @@ function App() {
   const importRef = useRef(null); // скрытый input[type=file] для загрузки копии
 
   useEffect(() => { saveData(data); }, [data]);
+
+  // Тема: выбор хранится отдельным ключом (THEME_KEY), атрибут data-theme на <html> переключает
+  // переменные CSS. "Авто" следит за настройкой телефона, в том числе когда приложение вернули из фона.
+  const [themePref, setThemePref] = useState(themeStored);
+  const [sysLight, setSysLight] = useState(themeSystemLight);
+  const themeMode = themeResolve(themePref, sysLight);
+  const ink = (c) => themeInk(c, themeMode);
+  useEffect(() => { themeApply(themeMode); }, [themeMode]);
+  useEffect(() => {
+    if (themePref !== "auto" || !window.matchMedia) return;
+    const mq = window.matchMedia("(prefers-color-scheme: light)");
+    const sync = () => setSysLight(mq.matches);
+    const onVisible = () => { if (document.visibilityState === "visible") sync(); };
+    sync();
+    if (mq.addEventListener) mq.addEventListener("change", sync); else if (mq.addListener) mq.addListener(sync);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener("change", sync); else if (mq.removeListener) mq.removeListener(sync);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [themePref]);
+  const chooseTheme = (p) => {
+    setThemePref(p);
+    try { localStorage.setItem(THEME_KEY, p); } catch (e) {}
+  };
 
   // Экран не гаснет, пока открыта тренировка или разминка (Screen Wake Lock, iOS 16.4+).
   // Система снимает замок при сворачивании приложения - берём его заново, когда вернулись.
@@ -2711,28 +2845,28 @@ function App() {
   const hasAlts = (id) => (ALTERNATIVES[id] || []).length > 0;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0c0c0f", color: "#e8e8e8", fontFamily: "'DM Mono','Fira Mono',monospace", paddingBottom: timer ? 180 : 100 }}>
+    <div style={{ minHeight: "100vh", background: "var(--bg-0c0c0f)", color: "var(--tx-e8e8e8)", fontFamily: "'DM Mono','Fira Mono',monospace", paddingBottom: timer ? 180 : 100 }}>
 
       {/* HEADER */}
-      <div style={{ background: "#0c0c0f", borderBottom: "1px solid #1a1a22", padding: "20px 20px 0", position: "sticky", top: 0, zIndex: 100, isolation: "isolate" }}>
+      <div style={{ background: "var(--bg-0c0c0f)", borderBottom: "1px solid var(--bd-1a1a22)", padding: "20px 20px 0", position: "sticky", top: 0, zIndex: 100, isolation: "isolate" }}>
         <div style={{ maxWidth: 560, margin: "0 auto" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
             <div>
-              <div style={{ fontSize: 10, letterSpacing: 4, color: "#777", marginBottom: 4 }}>PUSH / PULL / LEGS</div>
-              <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: 1, color: "#fff" }}>
+              <div style={{ fontSize: 10, letterSpacing: 4, color: "var(--tx-777)", marginBottom: 4 }}>PUSH / PULL / LEGS</div>
+              <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: 1, color: "var(--tx-fff)" }}>
                 WORKOUT ROUTINE
-                {APP_VARIANT === "beta" && <span style={{ marginLeft: 8, padding: "2px 6px", borderRadius: 4, border: "1px solid #f7a844", color: "#f7a844", fontSize: 9, letterSpacing: 2, verticalAlign: "middle" }}>BETA</span>}
+                {APP_VARIANT === "beta" && <span style={{ marginLeft: 8, padding: "2px 6px", borderRadius: 4, border: "1px solid #f7a844", color: "var(--tx-f7a844)", fontSize: 9, letterSpacing: 2, verticalAlign: "middle" }}>BETA</span>}
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 10, color: "#777", marginBottom: 2 }}>сегодня</div>
-                <div style={{ fontSize: 13, color: "#999" }}>{new Date().toLocaleDateString("ru", { day: "numeric", month: "short" })}</div>
+                <div style={{ fontSize: 10, color: "var(--tx-777)", marginBottom: 2 }}>сегодня</div>
+                <div style={{ fontSize: 13, color: "var(--tx-999)" }}>{new Date().toLocaleDateString("ru", { day: "numeric", month: "short" })}</div>
               </div>
               <button onClick={() => setPlanScreen("list")}
-                style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "6px 10px", borderRadius: 8, border: "1px solid #2a2a2a", background: "#0f0f12", cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
-                <span style={{ fontSize: 14, color: "#666", lineHeight: 1 }}>+</span>
-                <span style={{ fontSize: 7, color: "#777", letterSpacing: 0.5 }}>ПЛАН</span>
+                style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "6px 10px", borderRadius: 8, border: "1px solid var(--bd-2a2a2a)", background: "var(--bg-0f0f12)", cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+                <span style={{ fontSize: 14, color: "var(--tx-666)", lineHeight: 1 }}>+</span>
+                <span style={{ fontSize: 7, color: "var(--tx-777)", letterSpacing: 0.5 }}>ПЛАН</span>
               </button>
             </div>
           </div>
@@ -2747,16 +2881,16 @@ function App() {
               return (
                 <div key={dayLabel} onClick={() => workout && setActiveDay(workout)}
                   style={{ flex: 1, textAlign: "center", cursor: workout ? "pointer" : "default", padding: "7px 2px 8px", borderRadius: 6, background: isToday ? `${wColor}15` : "transparent", border: isToday ? `1px solid ${wColor}50` : "1px solid transparent" }}>
-                  <div style={{ fontSize: 9, color: isToday ? "#ccc" : "#2a2a2a", letterSpacing: 1, marginBottom: 5, fontWeight: isToday ? 700 : 400 }}>{dayLabel}</div>
-                  <div style={{ width: workout ? 8 : 5, height: workout ? 8 : 5, borderRadius: "50%", background: workout ? wColor : "#1a1a22", margin: "0 auto", boxShadow: isToday && workout ? `0 0 6px ${wColor}` : "none" }} />
+                  <div style={{ fontSize: 9, color: isToday ? "var(--tx-ccc)" : "var(--tx-2a2a2a)", letterSpacing: 1, marginBottom: 5, fontWeight: isToday ? 700 : 400 }}>{dayLabel}</div>
+                  <div style={{ width: workout ? 8 : 5, height: workout ? 8 : 5, borderRadius: "50%", background: workout ? wColor : "var(--bg-1a1a22)", margin: "0 auto", boxShadow: isToday && workout ? `0 0 6px ${wColor}` : "none" }} />
                 </div>
               );
             })}
           </div>
-          <div style={{ display: "flex", borderBottom: "1px solid #1a1a22" }}>
+          <div style={{ display: "flex", borderBottom: "1px solid var(--bd-1a1a22)" }}>
             {[["workout","ТРЕНИРОВКА"],["warmup","РАЗМИНКА"],["journal","ЖУРНАЛ"],["achievements","АЧИВКИ"]].concat(typeof BetaTab === "function" ? [["beta","БЕТА"]] : []).map(([id, label]) => (
               <button key={id} onClick={() => setActiveTab(id)}
-                style={{ flex: 1, padding: "11px 1px 13px", background: "none", border: "none", borderBottom: activeTab === id ? `3px solid ${w.color}` : "3px solid transparent", color: activeTab === id ? "#fff" : "#383838", fontSize: 9.5, letterSpacing: 0.5, cursor: "pointer", marginBottom: -1, transition: "all 0.15s", fontFamily: "inherit", fontWeight: activeTab === id ? 700 : 400, whiteSpace: "nowrap" }}>
+                style={{ flex: 1, padding: "11px 1px 13px", background: "none", border: "none", borderBottom: activeTab === id ? `3px solid ${w.color}` : "3px solid transparent", color: activeTab === id ? "var(--tx-fff)" : "var(--tx-3a3a3a)", fontSize: 9.5, letterSpacing: 0.5, cursor: "pointer", marginBottom: -1, transition: "all 0.15s", fontFamily: "inherit", fontWeight: activeTab === id ? 700 : 400, whiteSpace: "nowrap" }}>
                 {label}
               </button>
             ))}
@@ -2780,11 +2914,11 @@ function App() {
                   const isActive = activeDay === key;
                   return (
                     <button key={key} onClick={() => { setActiveDay(key); setExpandedEx(null); lastPromptedExDone.current = 0; stopTimer(); }}
-                      style={{ minWidth: 80, padding: "12px 8px", borderRadius: 8, border: "1px solid", borderColor: isActive ? day.color : "#1a1a22", background: isActive ? `${day.color}18` : "#0f0f12", cursor: "pointer", transition: "all 0.2s", fontFamily: "inherit", position: "relative" }}>
+                      style={{ minWidth: 80, padding: "12px 8px", borderRadius: 8, border: "1px solid", borderColor: isActive ? day.color : "var(--bd-1a1a22)", background: isActive ? `${day.color}18` : "var(--bg-0f0f12)", cursor: "pointer", transition: "all 0.2s", fontFamily: "inherit", position: "relative" }}>
                       {day.isCustom && <div style={{ position: "absolute", top: 4, right: 4, width: 5, height: 5, borderRadius: "50%", background: day.color }} />}
-                      <div style={{ fontSize: 8, color: isActive ? day.color : "#555", letterSpacing: 2, marginBottom: 3 }}>{day.label}</div>
-                      <div style={{ fontSize: 12, color: isActive ? "#fff" : "#888", fontWeight: 700, marginBottom: isActive ? 3 : 0 }}>{day.name}</div>
-                      {isActive && <div style={{ fontSize: 8, color: day.color, opacity: 0.7, letterSpacing: 0 }}>{(day.sub || "").split("|")[0].trim()}</div>}
+                      <div style={{ fontSize: 8, color: isActive ? ink(day.color) : "var(--tx-555)", letterSpacing: 2, marginBottom: 3 }}>{day.label}</div>
+                      <div style={{ fontSize: 12, color: isActive ? "var(--tx-fff)" : "var(--tx-888)", fontWeight: 700, marginBottom: isActive ? 3 : 0 }}>{day.name}</div>
+                      {isActive && <div style={{ fontSize: 8, color: ink(day.color), opacity: 0.7, letterSpacing: 0 }}>{(day.sub || "").split("|")[0].trim()}</div>}
                     </button>
                   );
                 })}
@@ -2794,29 +2928,29 @@ function App() {
 
             <div style={{ marginBottom: 20 }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                <div style={{ fontSize: 11, color: "#666" }}>{w.sub}</div>
-                <div style={{ fontSize: 11, color: w.color }}>{prog.done}/{prog.total} подходов</div>
+                <div style={{ fontSize: 11, color: "var(--tx-666)" }}>{w.sub}</div>
+                <div style={{ fontSize: 11, color: ink(w.color) }}>{prog.done}/{prog.total} подходов</div>
               </div>
-              <div style={{ height: 5, background: "#1a1a22", borderRadius: 3, overflow: "hidden" }}>
+              <div style={{ height: 5, background: "var(--bg-1a1a22)", borderRadius: 3, overflow: "hidden" }}>
                 <div style={{ height: "100%", width: `${prog.pct}%`, background: w.color, borderRadius: 3, transition: "width 0.5s", boxShadow: prog.pct > 0 ? `0 0 8px ${w.color}60` : "none" }} />
               </div>
             </div>
 
             {/* Напоминание о резервной копии - не мешаем, когда тренировка уже идёт */}
             {prog.done === 0 && backupDue(data, todayKey()) && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#1a1206", border: "1px solid #f7a84440", borderRadius: 12, padding: "12px 12px 12px 14px", marginBottom: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--bg-1a1206)", border: "1px solid #f7a84440", borderRadius: 12, padding: "12px 12px 12px 14px", marginBottom: 16 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 9, letterSpacing: 2, color: "#f7a844", marginBottom: 4 }}>РЕЗЕРВНАЯ КОПИЯ</div>
-                  <div style={{ fontSize: 11, color: "#ccc", lineHeight: 1.5 }}>
+                  <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-f7a844)", marginBottom: 4 }}>РЕЗЕРВНАЯ КОПИЯ</div>
+                  <div style={{ fontSize: 11, color: "var(--tx-ccc)", lineHeight: 1.5 }}>
                     {data.lastBackup ? "Копию не делали " + backupAgeDays(data, todayKey()) + " дн." : "Копии истории ещё нет"}
                   </div>
                 </div>
                 <button onClick={exportBackup}
-                  style={{ padding: "10px 12px", minHeight: 44, borderRadius: 8, border: "1px solid #f7a844", background: "#f7a84418", color: "#f7a844", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+                  style={{ padding: "10px 12px", minHeight: 44, borderRadius: 8, border: "1px solid #f7a844", background: "#f7a84418", color: "var(--tx-f7a844)", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
                   СОХРАНИТЬ
                 </button>
                 <button onClick={() => setData(prev => ({ ...prev, backupSnooze: todayKey() }))}
-                  style={{ padding: "10px 10px", minHeight: 44, borderRadius: 8, border: "1px solid #3a2a10", background: "#0c0c0f", color: "#a89060", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+                  style={{ padding: "10px 10px", minHeight: 44, borderRadius: 8, border: "1px solid var(--bd-3a2a10)", background: "var(--bg-0c0c0f)", color: "var(--tx-a89060)", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
                   ПОЗЖЕ
                 </button>
               </div>
@@ -2824,11 +2958,11 @@ function App() {
 
             {/* Edit mode toggle */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-              <div style={{ fontSize: 10, color: "#666", letterSpacing: 1 }}>
+              <div style={{ fontSize: 10, color: "var(--tx-666)", letterSpacing: 1 }}>
                 {getSessionExercises().filter(e => !isSkipped(e.id)).length} / {getSessionExercises().length} упражнений
               </div>
               <button onClick={() => setEditMode(!editMode)}
-                style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${editMode ? w.color : "#2a2a2a"}`, background: editMode ? `${w.color}20` : "#0c0c0f", color: editMode ? w.color : "#555", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 36 }}>
+                style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${editMode ? w.color : "var(--bd-2a2a2a)"}`, background: editMode ? `${w.color}20` : "var(--bg-0c0c0f)", color: editMode ? ink(w.color) : "var(--tx-555)", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 36 }}>
                 {editMode ? "OK" : "ИЗМЕНИТЬ СПИСОК"}
               </button>
             </div>
@@ -2850,57 +2984,57 @@ function App() {
               if (skipped && !editMode) return null;
 
               return (
-                <div key={baseEx.id} style={{ background: skipped ? "#0a0a0c" : "#0f0f12", border: `1px solid ${skipped ? "#161616" : allDone ? w.color + "60" : "#1a1a22"}`, borderLeft: !skipped && ex.warn ? `3px solid #ff4d4d50` : `1px solid ${skipped ? "#161616" : allDone ? w.color + "60" : "#1a1a22"}`, borderRadius: 12, marginBottom: 12, overflow: "hidden", opacity: skipped ? 0.45 : 1, transition: "all 0.2s" }}>
+                <div key={baseEx.id} style={{ background: skipped ? "var(--bg-0a0a0c)" : "var(--bg-0f0f12)", border: `1px solid ${skipped ? "var(--bd-161620)" : allDone ? w.color + "60" : "var(--bd-1a1a22)"}`, borderLeft: !skipped && ex.warn ? `3px solid #ff4d4d50` : `1px solid ${skipped ? "var(--bd-161620)" : allDone ? w.color + "60" : "var(--bd-1a1a22)"}`, borderRadius: 12, marginBottom: 12, overflow: "hidden", opacity: skipped ? 0.45 : 1, transition: "all 0.2s" }}>
 
                   {/* Header row */}
                   <div style={{ padding: "16px 16px 10px", display: "flex", alignItems: "flex-start", gap: 12 }}>
                     {/* Edit mode: skip toggle button instead of number */}
                     {editMode ? (
                       <button onClick={() => toggleSkip(baseEx.id)}
-                        style={{ width: 28, height: 28, borderRadius: 7, border: `1px solid ${skipped ? "#333" : w.color + "80"}`, background: skipped ? "#111" : `${w.color}25`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: "pointer", fontSize: 13 }}>
+                        style={{ width: 28, height: 28, borderRadius: 7, border: `1px solid ${skipped ? "var(--bd-333)" : w.color + "80"}`, background: skipped ? "var(--bg-111)" : `${w.color}25`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: "pointer", fontSize: 13 }}>
                         {skipped ? "+" : "x"}
                       </button>
                     ) : (
-                      <div onClick={() => setExpandedEx(isExpanded ? null : baseEx.id)} style={{ width: 34, height: 34, borderRadius: 9, background: allDone ? w.color : "#1a1a22", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "background 0.3s", cursor: "pointer" }}>
-                        <span style={{ fontSize: 13, color: allDone ? "#000" : "#555", fontWeight: 700 }}>{exIdx + 1}</span>
+                      <div onClick={() => setExpandedEx(isExpanded ? null : baseEx.id)} style={{ width: 34, height: 34, borderRadius: 9, background: allDone ? w.color : "var(--bg-1a1a22)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "background 0.3s", cursor: "pointer" }}>
+                        <span style={{ fontSize: 13, color: allDone ? "#000" : "var(--tx-555)", fontWeight: 700 }}>{exIdx + 1}</span>
                       </div>
                     )}
                     <div onClick={() => !editMode && setExpandedEx(isExpanded ? null : baseEx.id)} style={{ flex: 1, minWidth: 0, cursor: editMode ? "default" : "pointer" }}>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: skipped ? "#333" : "#fff", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", lineHeight: 1.3 }}>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: skipped ? "var(--tx-333)" : "var(--tx-fff)", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", lineHeight: 1.3 }}>
                         {ex.name}
-                        {!skipped && ex.warn && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: "#ff4d4d18", color: "#ff6b6b", letterSpacing: 1 }}>!</span>}
-                        {!skipped && ex._isSwapped && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: `${w.color}20`, color: w.color, letterSpacing: 1 }}>ЗАМЕНА</span>}
-                        {baseEx._added && <span onClick={e => { e.stopPropagation(); removeAddedExercise(baseEx.id); }} style={{ fontSize: 8, padding: "2px 7px", borderRadius: 4, background: "#1a2a1a", color: "#5a9a5a", letterSpacing: 1, cursor: "pointer", border: "1px solid #2a4a2a" }}>ДОБАВЛЕНО x</span>}
-                        {skipped && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: "#1a1a22", color: "#777", letterSpacing: 1 }}>ПРОПУЩЕНО</span>}
+                        {!skipped && ex.warn && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: "#ff4d4d18", color: "var(--tx-ff6b6b)", letterSpacing: 1 }}>!</span>}
+                        {!skipped && ex._isSwapped && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: `${w.color}20`, color: ink(w.color), letterSpacing: 1 }}>ЗАМЕНА</span>}
+                        {baseEx._added && <span onClick={e => { e.stopPropagation(); removeAddedExercise(baseEx.id); }} style={{ fontSize: 8, padding: "2px 7px", borderRadius: 4, background: "var(--bg-1a2a1a)", color: "var(--tx-5a9a5a)", letterSpacing: 1, cursor: "pointer", border: "1px solid var(--bd-2a4a2a)" }}>ДОБАВЛЕНО x</span>}
+                        {skipped && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: "var(--bg-1a1a22)", color: "var(--tx-777)", letterSpacing: 1 }}>ПРОПУЩЕНО</span>}
                       </div>
                     </div>
                     {!skipped && !editMode && (
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       {canSwap && (
                         <button onClick={() => setSwapModal(baseEx.id)}
-                          style={{ padding: "9px 10px", borderRadius: 8, border: `1px solid ${ex._isSwapped ? w.color + "60" : "#2a2a2a"}`, background: ex._isSwapped ? `${w.color}15` : "#0c0c0f", color: ex._isSwapped ? w.color : "#777", fontSize: 9, cursor: "pointer", fontFamily: "inherit", letterSpacing: 1, whiteSpace: "nowrap", flexShrink: 0 }}>
+                          style={{ padding: "9px 10px", borderRadius: 8, border: `1px solid ${ex._isSwapped ? w.color + "60" : "var(--bd-2a2a2a)"}`, background: ex._isSwapped ? `${w.color}15` : "var(--bg-0c0c0f)", color: ex._isSwapped ? ink(w.color) : "var(--tx-777)", fontSize: 9, cursor: "pointer", fontFamily: "inherit", letterSpacing: 1, whiteSpace: "nowrap", flexShrink: 0 }}>
                           {ex._isSwapped ? "* заменено" : "= заменить"}
                         </button>
                       )}
-                      <div onClick={() => setExpandedEx(isExpanded ? null : baseEx.id)} style={{ color: isExpanded ? w.color : "#666", fontSize: 14, transition: "all 0.2s", cursor: "pointer", padding: "6px 4px", fontWeight: 400, transform: isExpanded ? "rotate(90deg)" : "none" }}>{">"}</div>
+                      <div onClick={() => setExpandedEx(isExpanded ? null : baseEx.id)} style={{ color: isExpanded ? ink(w.color) : "var(--tx-666)", fontSize: 14, transition: "all 0.2s", cursor: "pointer", padding: "6px 4px", fontWeight: 400, transform: isExpanded ? "rotate(90deg)" : "none" }}>{">"}</div>
                     </div>
                     )}
                   </div>
 
                   {/* META ROW - full width, no cramping */}
-                  <div style={{ padding: "0 16px 12px", display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#777", flexWrap: "nowrap", overflowX: "auto" }}>
+                  <div style={{ padding: "0 16px 12px", display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--tx-777)", flexWrap: "nowrap", overflowX: "auto" }}>
                     {!skipped && !editMode ? (
                       <>
                         <button onClick={e => { e.stopPropagation(); setExSets(baseEx.id, getExSets(baseEx.id) - 1); }}
-                          style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #333", background: "#111", color: "#999", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit", flexShrink: 0, lineHeight: 1 }}>-</button>
-                        <span style={{ minWidth: 18, textAlign: "center", color: "#fff", fontWeight: 700, fontSize: 14, flexShrink: 0 }}>{getExSets(baseEx.id)}</span>
+                          style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid var(--bd-333)", background: "var(--bg-111)", color: "var(--tx-999)", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit", flexShrink: 0, lineHeight: 1 }}>-</button>
+                        <span style={{ minWidth: 18, textAlign: "center", color: "var(--tx-fff)", fontWeight: 700, fontSize: 14, flexShrink: 0 }}>{getExSets(baseEx.id)}</span>
                         <button onClick={e => { e.stopPropagation(); setExSets(baseEx.id, getExSets(baseEx.id) + 1); }}
-                          style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #333", background: "#111", color: "#999", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit", flexShrink: 0, lineHeight: 1 }}>+</button>
-                        <span style={{ color: "#444", flexShrink: 0 }}>x</span>
+                          style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid var(--bd-333)", background: "var(--bg-111)", color: "var(--tx-999)", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit", flexShrink: 0, lineHeight: 1 }}>+</button>
+                        <span style={{ color: "var(--tx-444)", flexShrink: 0 }}>x</span>
                         <span style={{ whiteSpace: "nowrap", flexShrink: 0 }}>{ex.reps}</span>
-                        <span style={{ color: "#444", flexShrink: 0 }}>|</span>
+                        <span style={{ color: "var(--tx-444)", flexShrink: 0 }}>|</span>
                         <span style={{ whiteSpace: "nowrap", flexShrink: 0 }}>{ex.rest}</span>
-                        {lastW && <><span style={{ color: "#444", flexShrink: 0 }}>|</span><span style={{ color: "#aaa", whiteSpace: "nowrap", flexShrink: 0, fontWeight: 600 }}>{lastW} {weightUnit(ex.name)}</span></>}
+                        {lastW && <><span style={{ color: "var(--tx-444)", flexShrink: 0 }}>|</span><span style={{ color: "var(--tx-aaa)", whiteSpace: "nowrap", flexShrink: 0, fontWeight: 600 }}>{lastW} {weightUnit(ex.name)}</span></>}
                       </>
                     ) : (
                       <span style={{ whiteSpace: "nowrap" }}>{getExSets(baseEx.id)} x {ex.reps}  |  {ex.rest}</span>
@@ -2914,19 +3048,19 @@ function App() {
                         const barH = maxAcross > 0 ? Math.max(3, Math.round((h.maxW / maxAcross) * 16)) : 3;
                         const isLast = hi === exHist.length - 1;
                         return (
-                          <div key={hi} title={`${h.maxW}кг`} style={{ flex: 1, height: barH, borderRadius: 2, background: isLast ? w.color + "90" : "#1e1e28", alignSelf: "flex-end", transition: "height 0.3s" }} />
+                          <div key={hi} title={`${h.maxW}кг`} style={{ flex: 1, height: barH, borderRadius: 2, background: isLast ? w.color + "90" : "var(--bg-1e1e28)", alignSelf: "flex-end", transition: "height 0.3s" }} />
                         );
                       })}
                     </div>
                   )}
 
                   {!skipped && !editMode && progHint && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "0 14px 10px", padding: "8px 8px 8px 12px", background: "#0e1a13", border: "1px solid #1d3a28", borderRadius: 10 }}>
-                      <div style={{ flex: 1, fontSize: 11, color: "#7fc79a", lineHeight: 1.5 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "0 14px 10px", padding: "8px 8px 8px 12px", background: "var(--bg-0e1a13)", border: "1px solid var(--bd-1d3a28)", borderRadius: 10 }}>
+                      <div style={{ flex: 1, fontSize: 11, color: "var(--tx-7fc79a)", lineHeight: 1.5 }}>
                         Прошлый раз все подходы выполнены. Можно попробовать {progHint.to} {weightUnit(ex.name)} (+{progHint.step})
                       </div>
                       <button onClick={() => applyProgression(ex.id, getExSets(baseEx.id), progHint.to)}
-                        style={{ minHeight: 44, padding: "0 14px", borderRadius: 8, border: "1px solid #4a9a6a", background: "#4a9a6a18", color: "#7fc79a", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+                        style={{ minHeight: 44, padding: "0 14px", borderRadius: 8, border: "1px solid #4a9a6a", background: "#4a9a6a18", color: "var(--tx-7fc79a)", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
                         ВЗЯТЬ
                       </button>
                     </div>
@@ -2939,19 +3073,19 @@ function App() {
                       const sd = getSetData(ex.id, i);
                       return (
                         <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <div style={{ fontSize: 12, color: "#666", width: 18, textAlign: "center", flexShrink: 0, fontWeight: 600 }}>{i + 1}</div>
-                          <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, background: "#0c0c0f", borderRadius: 10, padding: "10px 14px", border: `1px solid ${sd.done ? w.color + "50" : "#1e1e28"}`, transition: "border-color 0.2s" }}>
+                          <div style={{ fontSize: 12, color: "var(--tx-666)", width: 18, textAlign: "center", flexShrink: 0, fontWeight: 600 }}>{i + 1}</div>
+                          <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, background: "var(--bg-0c0c0f)", borderRadius: 10, padding: "10px 14px", border: `1px solid ${sd.done ? w.color + "50" : "var(--bd-1e1e28)"}`, transition: "border-color 0.2s" }}>
                             <input type="number" className="wt" placeholder={getSuggestedWeight(ex.id, i) || " - "} value={sd.weight}
                               readOnly={sd.done}
                               onClick={() => { if (sd.done) showToast("Сними отметку, чтобы изменить вес"); }}
                               onChange={e => updateSet(ex.id, i, "weight", e.target.value)}
-                              style={{ width: 60, background: "none", border: "none", outline: "none", color: "#fff", fontSize: 16, fontFamily: "inherit", fontWeight: 700 }} />
-                            <span style={{ fontSize: 12, color: isDumbbell(ex.name) ? "#8a7550" : "#666", whiteSpace: "nowrap" }}>{weightUnit(ex.name)}</span>
+                              style={{ width: 60, background: "none", border: "none", outline: "none", color: "var(--tx-fff)", fontSize: 16, fontFamily: "inherit", fontWeight: 700 }} />
+                            <span style={{ fontSize: 12, color: isDumbbell(ex.name) ? "var(--tx-8a7550)" : "var(--tx-666)", whiteSpace: "nowrap" }}>{weightUnit(ex.name)}</span>
                             <span style={{ flex: 1 }} />
-                            <span style={{ fontSize: 12, color: "#888" }}>{ex.reps} повт.</span>
+                            <span style={{ fontSize: 12, color: "var(--tx-888)" }}>{ex.reps} повт.</span>
                           </div>
                           <button onClick={() => toggleDone(ex.id, i, ex.rest)}
-                            style={{ width: 44, height: 44, borderRadius: 11, border: `2px solid ${sd.done ? w.color : "#252530"}`, background: sd.done ? w.color : "#0c0c0f", cursor: "pointer", color: sd.done ? "#000" : "#444", fontSize: sd.done ? 17 : 13, fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", flexShrink: 0 }}>
+                            style={{ width: 44, height: 44, borderRadius: 11, border: `2px solid ${sd.done ? w.color : "var(--bd-252530)"}`, background: sd.done ? w.color : "var(--bg-0c0c0f)", cursor: "pointer", color: sd.done ? "#000" : "var(--tx-444)", fontSize: sd.done ? 17 : 13, fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", flexShrink: 0 }}>
                             {sd.done ? "OK" : "O"}
                           </button>
                         </div>
@@ -2963,23 +3097,23 @@ function App() {
                   {/* Техника */}
                   {isExpanded && !skipped && !editMode && (
                     <div style={{ padding: "0 16px 16px" }}>
-                      <div style={{ background: "#0c0c0f", borderRadius: 8, padding: "12px 14px", marginBottom: ex.danger ? 8 : 0, border: "1px solid #1a1a22" }}>
+                      <div style={{ background: "var(--bg-0c0c0f)", borderRadius: 8, padding: "12px 14px", marginBottom: ex.danger ? 8 : 0, border: "1px solid var(--bd-1a1a22)" }}>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                          <div style={{ fontSize: 9, letterSpacing: 3, color: w.color, fontWeight: 700 }}>ТЕХНИКА</div>
+                          <div style={{ fontSize: 9, letterSpacing: 3, color: ink(w.color), fontWeight: 700 }}>ТЕХНИКА</div>
 
                         </div>
 
                         {ex.steps.map((step, si) => (
-                          <div key={si} style={{ display: "flex", gap: 10, padding: "6px 0", borderBottom: si < ex.steps.length - 1 ? "1px solid #111" : "none" }}>
-                            <div style={{ fontSize: 9, color: w.color, fontWeight: 700, minWidth: 18, paddingTop: 2, flexShrink: 0 }}>{si + 1}.</div>
-                            <div style={{ fontSize: 12, color: "#888", lineHeight: 1.65 }}>{step}</div>
+                          <div key={si} style={{ display: "flex", gap: 10, padding: "6px 0", borderBottom: si < ex.steps.length - 1 ? "1px solid var(--bd-111)" : "none" }}>
+                            <div style={{ fontSize: 9, color: ink(w.color), fontWeight: 700, minWidth: 18, paddingTop: 2, flexShrink: 0 }}>{si + 1}.</div>
+                            <div style={{ fontSize: 12, color: "var(--tx-888)", lineHeight: 1.65 }}>{step}</div>
                           </div>
                         ))}
                       </div>
                       {ex.danger && (
                         <div style={{ background: "#ff4d4d08", borderRadius: 8, padding: "10px 14px", border: "1px solid #ff4d4d25" }}>
-                          <div style={{ fontSize: 9, letterSpacing: 3, color: "#ff6b6b", marginBottom: 6, fontWeight: 700 }}>! ТИПИЧНЫЕ ОШИБКИ</div>
-                          <div style={{ fontSize: 11, color: "#cc7777", lineHeight: 1.65 }}>{ex.danger}</div>
+                          <div style={{ fontSize: 9, letterSpacing: 3, color: "var(--tx-ff6b6b)", marginBottom: 6, fontWeight: 700 }}>! ТИПИЧНЫЕ ОШИБКИ</div>
+                          <div style={{ fontSize: 11, color: "var(--tx-cc7777)", lineHeight: 1.65 }}>{ex.danger}</div>
                         </div>
                       )}
                     </div>
@@ -2990,20 +3124,20 @@ function App() {
 
             {!editMode && (
               <button onClick={() => { setAddExModal(true); setAddExSearch(""); }}
-                style={{ width: "100%", padding: 15, marginTop: 4, marginBottom: 16, background: "none", border: "1px dashed #2a2a2a", borderRadius: 12, color: "#777", fontSize: 11, letterSpacing: 2, cursor: "pointer", fontFamily: "inherit" }}>
+                style={{ width: "100%", padding: 15, marginTop: 4, marginBottom: 16, background: "none", border: "1px dashed var(--bd-2a2a2a)", borderRadius: 12, color: "var(--tx-777)", fontSize: 11, letterSpacing: 2, cursor: "pointer", fontFamily: "inherit" }}>
                 + ДОБАВИТЬ УПРАЖНЕНИЕ
               </button>
             )}
 
             <div style={{ marginTop: 8 }}>
               {prog.exDone < 3 && (
-                <div style={{ textAlign: "center", fontSize: 11, color: "#888", letterSpacing: 1, marginBottom: 10, padding: "8px 12px", background: "#111", borderRadius: 8, border: "1px solid #222" }}>
+                <div style={{ textAlign: "center", fontSize: 11, color: "var(--tx-888)", letterSpacing: 1, marginBottom: 10, padding: "8px 12px", background: "var(--bg-111)", borderRadius: 8, border: "1px solid var(--bd-222)" }}>
                   {prog.exDone > 0 ? `${prog.exDone} / 3 упражнений выполнено` : "Выполни хотя бы 3 упражнения"}
                 </div>
               )}
               <button onClick={finishWorkout}
                 disabled={prog.exDone < 3}
-                style={{ width: "100%", padding: 16, background: prog.exDone >= 3 ? w.color : "#1a1a22", border: `1px solid ${prog.exDone >= 3 ? "transparent" : "#333"}`, borderRadius: 10, color: prog.exDone >= 3 ? "#000" : "#555", fontSize: 12, fontWeight: 700, letterSpacing: 3, cursor: prog.exDone >= 3 ? "pointer" : "default", fontFamily: "inherit", transition: "all 0.3s" }}>
+                style={{ width: "100%", padding: 16, background: prog.exDone >= 3 ? w.color : "var(--bg-1a1a22)", border: `1px solid ${prog.exDone >= 3 ? "transparent" : "var(--bd-333)"}`, borderRadius: 10, color: prog.exDone >= 3 ? "#000" : "var(--tx-555)", fontSize: 12, fontWeight: 700, letterSpacing: 3, cursor: prog.exDone >= 3 ? "pointer" : "default", fontFamily: "inherit", transition: "all 0.3s" }}>
                 ЗАВЕРШИТЬ ТРЕНИРОВКУ
               </button>
             </div>
@@ -3016,15 +3150,15 @@ function App() {
           const wu = WARMUP[activeDay] || null;
           if (!wu) return (
             <div style={{ paddingTop: 40, textAlign: "center" }}>
-              <div style={{ fontSize: 11, color: "#666", letterSpacing: 2, marginBottom: 12 }}>НЕТ РАЗМИНКИ</div>
-              <div style={{ fontSize: 11, color: "#555", lineHeight: 1.7 }}>Для этой тренировки разминка не задана.</div>
+              <div style={{ fontSize: 11, color: "var(--tx-666)", letterSpacing: 2, marginBottom: 12 }}>НЕТ РАЗМИНКИ</div>
+              <div style={{ fontSize: 11, color: "var(--tx-555)", lineHeight: 1.7 }}>Для этой тренировки разминка не задана.</div>
               <div style={{ display: "flex", gap: 6, marginTop: 24, justifyContent: "center", flexWrap: "wrap" }}>
                 {Object.keys(WARMUP).map(day => {
                   const dp = PROGRAM[day];
                   if (!dp) return null;
                   return (
                     <button key={day} onClick={() => setActiveDay(day)}
-                      style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #1a1a22", background: "#0f0f12", color: "#888", fontSize: 9, cursor: "pointer", fontFamily: "inherit" }}>
+                      style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid var(--bd-1a1a22)", background: "var(--bg-0f0f12)", color: "var(--tx-888)", fontSize: 9, cursor: "pointer", fontFamily: "inherit" }}>
                       {dp.label}
                     </button>
                   );
@@ -3041,7 +3175,7 @@ function App() {
                     if (!dayProg) return null;
                     return (
                       <button key={day} onClick={() => setActiveDay(day)}
-                        style={{ minWidth: 72, padding: "8px 10px", borderRadius: 8, border: `1px solid ${activeDay === day ? dayProg.color : "#1a1a22"}`, background: activeDay === day ? `${dayProg.color}18` : "#0c0c0f", color: activeDay === day ? "#fff" : "#666", fontSize: 9, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+                        style={{ minWidth: 72, padding: "8px 10px", borderRadius: 8, border: `1px solid ${activeDay === day ? dayProg.color : "var(--bd-1a1a22)"}`, background: activeDay === day ? `${dayProg.color}18` : "var(--bg-0c0c0f)", color: activeDay === day ? "var(--tx-fff)" : "var(--tx-666)", fontSize: 9, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
                         {dayProg.label}
                       </button>
                     );
@@ -3053,43 +3187,43 @@ function App() {
               <div style={{ background: `${w.color}12`, border: `1px solid ${w.color}30`, borderRadius: 12, padding: "16px 16px", marginBottom: 16 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
                   <div style={{ width: 8, height: 8, borderRadius: "50%", background: w.color }} />
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{wu.label}</div>
-                  <div style={{ marginLeft: "auto", fontSize: 10, color: w.color, background: `${w.color}20`, padding: "3px 8px", borderRadius: 20 }}>{wu.duration}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--tx-fff)" }}>{wu.label}</div>
+                  <div style={{ marginLeft: "auto", fontSize: 10, color: ink(w.color), background: `${w.color}20`, padding: "3px 8px", borderRadius: 20 }}>{wu.duration}</div>
                 </div>
-                <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6 }}>{wu.why}</div>
+                <div style={{ fontSize: 11, color: "var(--tx-888)", lineHeight: 1.6 }}>{wu.why}</div>
               </div>
 
               {/* Warmup blocks */}
               {wu.blocks.map((block, bi) => (
                 <div key={bi} style={{ marginBottom: 16 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "#ccc" }}>{block.title}</div>
-                    <div style={{ fontSize: 9, color: "#666", marginLeft: "auto" }}>{block.time}</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--tx-ccc)" }}>{block.title}</div>
+                    <div style={{ fontSize: 9, color: "var(--tx-666)", marginLeft: "auto" }}>{block.time}</div>
                   </div>
                   {block.items.map((item, ii) => {
                     const itemKey = activeDay + "_" + bi + "_" + ii;
                     const isOpen = expandedEx === itemKey;
                     return (
-                      <div key={ii} style={{ background: "#0c0c0f", border: `1px solid ${isOpen ? w.color + "60" : "#1a1a22"}`, borderRadius: 10, marginBottom: 6, overflow: "hidden" }}>
+                      <div key={ii} style={{ background: "var(--bg-0c0c0f)", border: `1px solid ${isOpen ? w.color + "60" : "var(--bd-1a1a22)"}`, borderRadius: 10, marginBottom: 6, overflow: "hidden" }}>
                         <div onClick={() => setExpandedEx(isOpen ? null : itemKey)}
                           style={{ padding: "12px 14px", cursor: "pointer", display: "flex", alignItems: "flex-start", gap: 10 }}>
                           <div style={{ width: 5, height: 5, borderRadius: "50%", background: w.color, marginTop: 6, flexShrink: 0 }} />
                           <div style={{ flex: 1 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                              <span style={{ fontSize: 12, color: "#ddd", fontWeight: 600 }}>{item.name}</span>
-                              <span style={{ fontSize: 10, color: w.color, marginLeft: "auto", flexShrink: 0 }}>{item.sets}</span>
-                              <span style={{ fontSize: 10, color: "#666", marginLeft: 4 }}>{isOpen ? "^" : "v"}</span>
+                              <span style={{ fontSize: 12, color: "var(--tx-ddd)", fontWeight: 600 }}>{item.name}</span>
+                              <span style={{ fontSize: 10, color: ink(w.color), marginLeft: "auto", flexShrink: 0 }}>{item.sets}</span>
+                              <span style={{ fontSize: 10, color: "var(--tx-666)", marginLeft: 4 }}>{isOpen ? "^" : "v"}</span>
                             </div>
-                            {item.tip && !isOpen ? <div style={{ fontSize: 11, color: "#666", marginTop: 4, lineHeight: 1.4 }}>{item.tip}</div> : null}
+                            {item.tip && !isOpen ? <div style={{ fontSize: 11, color: "var(--tx-666)", marginTop: 4, lineHeight: 1.4 }}>{item.tip}</div> : null}
                           </div>
                         </div>
                         {isOpen && (
                           <div style={{ padding: "0 14px 14px 29px" }}>
-                            {item.tip && <div style={{ fontSize: 11, color: "#666", marginBottom: 10, lineHeight: 1.5, fontStyle: "italic" }}>{item.tip}</div>}
+                            {item.tip && <div style={{ fontSize: 11, color: "var(--tx-666)", marginBottom: 10, lineHeight: 1.5, fontStyle: "italic" }}>{item.tip}</div>}
                             {item.steps && item.steps.map((step, si) => (
                               <div key={si} style={{ display: "flex", gap: 10, marginBottom: 7 }}>
-                                <div style={{ fontSize: 10, color: w.color, fontWeight: 700, flexShrink: 0, minWidth: 16 }}>{si + 1}.</div>
-                                <div style={{ fontSize: 11, color: "#aaa", lineHeight: 1.6 }}>{step}</div>
+                                <div style={{ fontSize: 10, color: ink(w.color), fontWeight: 700, flexShrink: 0, minWidth: 16 }}>{si + 1}.</div>
+                                <div style={{ fontSize: 11, color: "var(--tx-aaa)", lineHeight: 1.6 }}>{step}</div>
                               </div>
                             ))}
                           </div>
@@ -3101,12 +3235,12 @@ function App() {
               ))}
 
               {/* Avoid section */}
-              <div style={{ background: "#0f0a0a", border: "1px solid #2a1a1a", borderRadius: 12, padding: "14px 16px", marginTop: 8 }}>
-                <div style={{ fontSize: 10, letterSpacing: 2, color: "#6a2a2a", marginBottom: 10 }}>ЧЕГО ИЗБЕГАТЬ</div>
+              <div style={{ background: "var(--bg-0f0a0a)", border: "1px solid var(--bd-2a1a1a)", borderRadius: 12, padding: "14px 16px", marginTop: 8 }}>
+                <div style={{ fontSize: 10, letterSpacing: 2, color: "var(--tx-6a2a2a)", marginBottom: 10 }}>ЧЕГО ИЗБЕГАТЬ</div>
                 {wu.avoid.map((a, ai) => (
                   <div key={ai} style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                    <span style={{ color: "#6a2a2a", fontSize: 12, flexShrink: 0 }}>!</span>
-                    <span style={{ fontSize: 11, color: "#5a3a3a", lineHeight: 1.5 }}>{a}</span>
+                    <span style={{ color: "var(--tx-6a2a2a)", fontSize: 12, flexShrink: 0 }}>!</span>
+                    <span style={{ fontSize: 11, color: "var(--tx-5a3a3a)", lineHeight: 1.5 }}>{a}</span>
                   </div>
                 ))}
               </div>
@@ -3131,7 +3265,7 @@ function App() {
               <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
                 {[["log","ЖУРНАЛ"],["progress","ПРОГРЕССИЯ"]].map(m => (
                   <button key={m[0]} onClick={() => { setJournalMode(m[0]); setJournalEx(null); }}
-                    style={{ flex: 1, padding: "12px 8px", borderRadius: 10, border: `1px solid ${journalMode === m[0] ? w.color : "#1a1a22"}`, background: journalMode === m[0] ? `${w.color}18` : "#0c0c0f", color: journalMode === m[0] ? "#fff" : "#777", fontSize: 11, letterSpacing: 2, cursor: "pointer", fontFamily: "inherit", fontWeight: journalMode === m[0] ? 700 : 400 }}>
+                    style={{ flex: 1, padding: "12px 8px", borderRadius: 10, border: `1px solid ${journalMode === m[0] ? w.color : "var(--bd-1a1a22)"}`, background: journalMode === m[0] ? `${w.color}18` : "var(--bg-0c0c0f)", color: journalMode === m[0] ? "var(--tx-fff)" : "var(--tx-777)", fontSize: 11, letterSpacing: 2, cursor: "pointer", fontFamily: "inherit", fontWeight: journalMode === m[0] ? 700 : 400 }}>
                     {m[1]}
                   </button>
                 ))}
@@ -3145,7 +3279,7 @@ function App() {
                         const on = dayFilter === o.key;
                         return (
                           <button key={o.key || "all"} onClick={() => setJournalDay(o.key)}
-                            style={{ flexShrink: 0, minHeight: 44, padding: "0 14px", borderRadius: 10, border: `1px solid ${on ? o.color : "#1a1a22"}`, background: on ? `${o.color}18` : "#0c0c0f", color: on ? "#fff" : "#777", fontSize: 10, letterSpacing: 1, fontWeight: on ? 700 : 400, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+                            style={{ flexShrink: 0, minHeight: 44, padding: "0 14px", borderRadius: 10, border: `1px solid ${on ? o.color : "var(--bd-1a1a22)"}`, background: on ? `${o.color}18` : "var(--bg-0c0c0f)", color: on ? "var(--tx-fff)" : "var(--tx-777)", fontSize: 10, letterSpacing: 1, fontWeight: on ? 700 : 400, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
                             {o.name}
                           </button>
                         );
@@ -3155,28 +3289,28 @@ function App() {
                   <div style={{ position: "relative" }}>
                     <input value={journalQ} onChange={e => setJournalQ(e.target.value)}
                       placeholder="Поиск по упражнению..."
-                      style={{ width: "100%", boxSizing: "border-box", minHeight: 44, background: "#0c0c0f", border: "1px solid #1a1a22", borderRadius: 10, padding: "12px 44px 12px 14px", color: "#fff", fontSize: 16, fontFamily: "inherit", outline: "none" }} />
+                      style={{ width: "100%", boxSizing: "border-box", minHeight: 44, background: "var(--bg-0c0c0f)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "12px 44px 12px 14px", color: "var(--tx-fff)", fontSize: 16, fontFamily: "inherit", outline: "none" }} />
                     {journalQ && (
                       <button onClick={() => setJournalQ("")}
-                        style={{ position: "absolute", right: 0, top: 0, width: 44, height: 44, background: "none", border: "none", color: "#777", fontSize: 16, cursor: "pointer", fontFamily: "inherit" }}>x</button>
+                        style={{ position: "absolute", right: 0, top: 0, width: 44, height: 44, background: "none", border: "none", color: "var(--tx-777)", fontSize: 16, cursor: "pointer", fontFamily: "inherit" }}>x</button>
                     )}
                   </div>
                   {(dayFilter || needle) && (
-                    <div style={{ fontSize: 10, color: "#666", marginTop: 8 }}>Найдено: {shown.length} из {entries.length}</div>
+                    <div style={{ fontSize: 10, color: "var(--tx-666)", marginTop: 8 }}>Найдено: {shown.length} из {entries.length}</div>
                   )}
                 </div>
               )}
 
               {journalMode === "log" && (
                 entries.length === 0 ? (
-                  <div style={{ textAlign: "center", padding: "60px 20px", color: "#555", fontSize: 13, lineHeight: 1.7 }}>
+                  <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--tx-555)", fontSize: 13, lineHeight: 1.7 }}>
                     Журнал пуст.<br />Заверши тренировку — появятся детали:<br />какие упражнения, сколько подходов и с каким весом.
                   </div>
                 ) : shown.length === 0 ? (
-                  <div style={{ textAlign: "center", padding: "40px 20px", color: "#555", fontSize: 13, lineHeight: 1.7 }}>
+                  <div style={{ textAlign: "center", padding: "40px 20px", color: "var(--tx-555)", fontSize: 13, lineHeight: 1.7 }}>
                     Ничего не найдено.<br />
                     <button onClick={() => { setJournalDay(null); setJournalQ(""); }}
-                      style={{ marginTop: 14, minHeight: 44, padding: "0 18px", borderRadius: 10, border: "1px solid #2a2a2a", background: "#0c0c0f", color: "#999", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" }}>
+                      style={{ marginTop: 14, minHeight: 44, padding: "0 18px", borderRadius: 10, border: "1px solid var(--bd-2a2a2a)", background: "var(--bg-0c0c0f)", color: "var(--tx-999)", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" }}>
                       СБРОСИТЬ ФИЛЬТР
                     </button>
                   </div>
@@ -3196,38 +3330,38 @@ function App() {
                     const totalVol = detail.reduce((sum, ex) =>
                       sum + (ex.sets || []).filter(s => s.done && s.w).reduce((a, s) => a + (parseFloat(s.w) || 0), 0), 0);
                     return (
-                      <div key={i} style={{ background: "#0f0f12", border: `1px solid ${incomplete ? "#2a1a0a" : "#1a1a22"}`, borderLeft: `3px solid ${day.color}`, borderRadius: 12, marginBottom: 10, overflow: "hidden" }}>
+                      <div key={i} style={{ background: "var(--bg-0f0f12)", border: `1px solid ${incomplete ? "var(--bd-2a1a1a)" : "var(--bd-1a1a22)"}`, borderLeft: `3px solid ${day.color}`, borderRadius: 12, marginBottom: 10, overflow: "hidden" }}>
                         <div onClick={() => detail.length > 0 && setOpenEntry(isOpen ? null : entry.ts)}
                           style={{ padding: "16px 16px", cursor: detail.length > 0 ? "pointer" : "default", display: "flex", alignItems: "center", gap: 12 }}>
                           <div style={{ width: 46, height: 46, borderRadius: 10, background: `${day.color}15`, border: `1px solid ${day.color}40`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                            <div style={{ fontSize: 14, fontWeight: 700, color: incomplete ? "#f7a844" : day.color }}>{pct}%</div>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: incomplete ? "var(--tx-f7a844)" : ink(day.color) }}>{pct}%</div>
                           </div>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 4 }}>
-                              <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>{entry.name}</div>
-                              {isResuming && <span style={{ fontSize: 8, color: "#f7a844", letterSpacing: 1, border: "1px solid #f7a844", borderRadius: 4, padding: "2px 6px", background: "#f7a84418" }}>ДОПОЛНЯЕТСЯ</span>}
-                              {!isResuming && !incomplete && entry.src === "auto" && <span style={{ fontSize: 8, color: "#6a8aaa", letterSpacing: 1, border: "1px solid #6a8aaa40", borderRadius: 4, padding: "2px 6px" }}>АВТОСОХРАНЕНО</span>}
-                              {!isResuming && !incomplete && entry.src !== "auto" && <span style={{ fontSize: 8, color: "#4a9a6a", letterSpacing: 1, border: "1px solid #4a9a6a40", borderRadius: 4, padding: "2px 6px" }}>ЗАВЕРШЕНА</span>}
-                              {!isResuming && incomplete && <span style={{ fontSize: 8, color: "#f7a844", letterSpacing: 1, border: "1px solid #f7a84440", borderRadius: 4, padding: "2px 6px" }}>НЕ ЗАКОНЧЕНО</span>}
+                              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--tx-fff)" }}>{entry.name}</div>
+                              {isResuming && <span style={{ fontSize: 8, color: "var(--tx-f7a844)", letterSpacing: 1, border: "1px solid #f7a844", borderRadius: 4, padding: "2px 6px", background: "#f7a84418" }}>ДОПОЛНЯЕТСЯ</span>}
+                              {!isResuming && !incomplete && entry.src === "auto" && <span style={{ fontSize: 8, color: "var(--tx-6a8aaa)", letterSpacing: 1, border: "1px solid #6a8aaa40", borderRadius: 4, padding: "2px 6px" }}>АВТОСОХРАНЕНО</span>}
+                              {!isResuming && !incomplete && entry.src !== "auto" && <span style={{ fontSize: 8, color: "var(--tx-4a9a6a)", letterSpacing: 1, border: "1px solid #4a9a6a40", borderRadius: 4, padding: "2px 6px" }}>ЗАВЕРШЕНА</span>}
+                              {!isResuming && incomplete && <span style={{ fontSize: 8, color: "var(--tx-f7a844)", letterSpacing: 1, border: "1px solid #f7a84440", borderRadius: 4, padding: "2px 6px" }}>НЕ ЗАКОНЧЕНО</span>}
                             </div>
-                            <div style={{ fontSize: 11, color: "#777" }}>
+                            <div style={{ fontSize: 11, color: "var(--tx-777)" }}>
                               {new Date(entry.date).toLocaleDateString("ru", { weekday: "short", day: "numeric", month: "long" })}
                             </div>
-                            <div style={{ fontSize: 10, color: "#666", marginTop: 5 }}>
+                            <div style={{ fontSize: 10, color: "var(--tx-666)", marginTop: 5 }}>
                               {detail.length > 0 ? detail.length + " упр  |  " : ""}{entry.done}/{entry.total} подходов{totalVol > 0 ? "  |  " + Math.round(totalVol) + " кг" : ""}
                             </div>
                             {needle && detail.filter(d => exMatches(d, needle)).map((d, di) => {
                               const ws = (d.sets || []).filter(s => s.done && s.w).map(s => parseFloat(s.w) || 0);
                               const mx = ws.length ? Math.max.apply(null, ws) : 0;
                               return (
-                                <div key={di} style={{ fontSize: 11, color: day.color, marginTop: 5, fontWeight: 600 }}>
+                                <div key={di} style={{ fontSize: 11, color: ink(day.color), marginTop: 5, fontWeight: 600 }}>
                                   {d.name}{mx > 0 ? ":  " + mx + " " + weightUnit(d.name, entry.dbMode) : ""}
                                 </div>
                               );
                             })}
                           </div>
                           {detail.length > 0 && (
-                            <div style={{ fontSize: 15, color: isOpen ? day.color : "#666", transform: isOpen ? "rotate(90deg)" : "none", transition: "all 0.2s", flexShrink: 0, padding: "6px 4px" }}>{">"}</div>
+                            <div style={{ fontSize: 15, color: isOpen ? ink(day.color) : "var(--tx-666)", transform: isOpen ? "rotate(90deg)" : "none", transition: "all 0.2s", flexShrink: 0, padding: "6px 4px" }}>{">"}</div>
                           )}
                         </div>
 
@@ -3237,20 +3371,20 @@ function App() {
                               const doneSets = (ex.sets || []).filter(s => s.done && s.w);
                               const maxW = doneSets.length ? Math.max.apply(null, doneSets.map(s => parseFloat(s.w) || 0)) : 0;
                               return (
-                                <div key={ei} style={{ background: "#0a0a0d", borderRadius: 10, padding: "12px 14px", marginBottom: 6, border: "1px solid #161620" }}>
+                                <div key={ei} style={{ background: "var(--bg-0a0a0c)", borderRadius: 10, padding: "12px 14px", marginBottom: 6, border: "1px solid var(--bd-161620)" }}>
                                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: doneSets.length ? 8 : 0 }}>
-                                    <div style={{ fontSize: 12, color: doneSets.length ? "#ddd" : "#555", fontWeight: 600, flex: 1 }}>{ex.name}</div>
-                                    {ex.added && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: "#1a2a1a", color: "#5a9a5a", letterSpacing: 1 }}>ДОБАВЛЕНО</span>}
-                                    {maxW > 0 && <span style={{ fontSize: 12, color: day.color, fontWeight: 700, whiteSpace: "nowrap" }}>{maxW} {weightUnit(ex.name, entry.dbMode)}</span>}
+                                    <div style={{ fontSize: 12, color: doneSets.length ? "var(--tx-ddd)" : "var(--tx-555)", fontWeight: 600, flex: 1 }}>{ex.name}</div>
+                                    {ex.added && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: "var(--bg-1a2a1a)", color: "var(--tx-5a9a5a)", letterSpacing: 1 }}>ДОБАВЛЕНО</span>}
+                                    {maxW > 0 && <span style={{ fontSize: 12, color: ink(day.color), fontWeight: 700, whiteSpace: "nowrap" }}>{maxW} {weightUnit(ex.name, entry.dbMode)}</span>}
                                   </div>
                                   {doneSets.length > 0 && (
                                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                                       {(ex.sets || []).map((s, si) => (
-                                        <div key={si} style={{ fontSize: 11, padding: "4px 9px", borderRadius: 6, background: s.done ? `${day.color}18` : "#111", border: `1px solid ${s.done ? day.color + "40" : "#1a1a22"}`, color: s.done ? "#ddd" : "#444" }}>
+                                        <div key={si} style={{ fontSize: 11, padding: "4px 9px", borderRadius: 6, background: s.done ? `${day.color}18` : "var(--bg-111)", border: `1px solid ${s.done ? day.color + "40" : "var(--bd-1a1a22)"}`, color: s.done ? "var(--tx-ddd)" : "var(--tx-444)" }}>
                                           {s.w ? s.w : "-"}
                                         </div>
                                       ))}
-                                      <div style={{ fontSize: 10, color: "#555", alignSelf: "center", marginLeft: 4 }}>{ex.reps} повт</div>
+                                      <div style={{ fontSize: 10, color: "var(--tx-555)", alignSelf: "center", marginLeft: 4 }}>{ex.reps} повт</div>
                                     </div>
                                   )}
                                 </div>
@@ -3263,24 +3397,24 @@ function App() {
                           {isResuming && (
                             <>
                               <button onClick={() => { setActiveTab("workout"); setActiveDay(entry.workout); }}
-                                style={{ flex: 1, padding: "11px 12px", borderRadius: 8, border: "1px solid #f7a844", background: "#f7a84418", color: "#f7a844", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 42, fontWeight: 700 }}>
+                                style={{ flex: 1, padding: "11px 12px", borderRadius: 8, border: "1px solid #f7a844", background: "#f7a84418", color: "var(--tx-f7a844)", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 42, fontWeight: 700 }}>
                                 ПРОДОЛЖИТЬ
                               </button>
                               <button onClick={cancelResume}
-                                style={{ padding: "11px 13px", borderRadius: 8, border: "1px solid #2a2a2a", background: "none", color: "#999", fontSize: 9, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 42, flexShrink: 0 }}>
+                                style={{ padding: "11px 13px", borderRadius: 8, border: "1px solid var(--bd-2a2a2a)", background: "none", color: "var(--tx-999)", fontSize: 9, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 42, flexShrink: 0 }}>
                                 ОТМЕНИТЬ РЕДАКТ.
                               </button>
                             </>
                           )}
                           {!isResuming && partial && (
                             <button onClick={() => resumeSession(entry)}
-                              style={{ flex: 1, padding: "11px 12px", borderRadius: 8, border: "1px solid #f7a84450", background: "#f7a84410", color: "#f7a844", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 42 }}>
+                              style={{ flex: 1, padding: "11px 12px", borderRadius: 8, border: "1px solid #f7a84450", background: "#f7a84410", color: "var(--tx-f7a844)", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 42 }}>
                               ДОПОЛНИТЬ
                             </button>
                           )}
                           {!isResuming && (
                             <button onClick={() => deleteHistoryEntry(entry.workout, entry.ts)}
-                              style={{ marginLeft: "auto", padding: "9px 12px", borderRadius: 8, border: "1px solid #241618", background: "none", color: "#6a4444", fontSize: 9, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 38, flexShrink: 0 }}>
+                              style={{ marginLeft: "auto", padding: "9px 12px", borderRadius: 8, border: "1px solid var(--bd-241618)", background: "none", color: "var(--tx-6a4444)", fontSize: 9, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 38, flexShrink: 0 }}>
                               удалить
                             </button>
                           )}
@@ -3294,12 +3428,12 @@ function App() {
               {journalMode === "log" && (data.trash || []).length > 0 && (
                 <div style={{ marginTop: 20 }}>
                   <div onClick={() => setTrashOpen(!trashOpen)}
-                    style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", background: "#0c0c0f", border: "1px solid #1a1a22", borderRadius: 12, cursor: "pointer" }}>
+                    style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", background: "var(--bg-0c0c0f)", border: "1px solid var(--bd-1a1a22)", borderRadius: 12, cursor: "pointer" }}>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 10, letterSpacing: 2, color: "#777" }}>КОРЗИНА</div>
-                      <div style={{ fontSize: 10, color: "#555", marginTop: 3 }}>{(data.trash || []).length} удалённых  -  можно вернуть</div>
+                      <div style={{ fontSize: 10, letterSpacing: 2, color: "var(--tx-777)" }}>КОРЗИНА</div>
+                      <div style={{ fontSize: 10, color: "var(--tx-555)", marginTop: 3 }}>{(data.trash || []).length} удалённых  -  можно вернуть</div>
                     </div>
-                    <div style={{ fontSize: 14, color: "#666", transform: trashOpen ? "rotate(90deg)" : "none", transition: "transform 0.2s", padding: "4px" }}>{">"}</div>
+                    <div style={{ fontSize: 14, color: "var(--tx-666)", transform: trashOpen ? "rotate(90deg)" : "none", transition: "transform 0.2s", padding: "4px" }}>{">"}</div>
                   </div>
 
                   {trashOpen && (
@@ -3308,22 +3442,22 @@ function App() {
                         const day = PROGRAM[entry.workout] || { color: "#555", name: entry.name };
                         const pct = entry.total > 0 ? Math.round(entry.done / entry.total * 100) : 0;
                         return (
-                          <div key={ti} style={{ display: "flex", alignItems: "center", gap: 12, background: "#0a0a0d", border: "1px solid #161620", borderLeft: `3px solid ${day.color}60`, borderRadius: 10, padding: "12px 14px", marginBottom: 6 }}>
+                          <div key={ti} style={{ display: "flex", alignItems: "center", gap: 12, background: "var(--bg-0a0a0c)", border: "1px solid var(--bd-161620)", borderLeft: `3px solid ${day.color}60`, borderRadius: 10, padding: "12px 14px", marginBottom: 6 }}>
                             <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 12, color: "#aaa", fontWeight: 600 }}>{entry.name}</div>
-                              <div style={{ fontSize: 10, color: "#555", marginTop: 3 }}>
+                              <div style={{ fontSize: 12, color: "var(--tx-aaa)", fontWeight: 600 }}>{entry.name}</div>
+                              <div style={{ fontSize: 10, color: "var(--tx-555)", marginTop: 3 }}>
                                 {new Date(entry.date).toLocaleDateString("ru", { day: "numeric", month: "long" })}  |  {pct}%  |  {entry.done}/{entry.total}
                               </div>
                             </div>
                             <button onClick={() => restoreHistoryEntry(entry.ts)}
-                              style={{ padding: "10px 14px", minHeight: 40, borderRadius: 8, border: "1px solid #2a4a3a", background: "#0d1a14", color: "#5a9a7a", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+                              style={{ padding: "10px 14px", minHeight: 40, borderRadius: 8, border: "1px solid var(--bd-2a4a2a)", background: "var(--bg-0e1a13)", color: "var(--tx-5a9a7a)", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
                               ВЕРНУТЬ
                             </button>
                           </div>
                         );
                       })}
                       <button onClick={purgeTrash}
-                        style={{ width: "100%", padding: "11px 12px", minHeight: 40, borderRadius: 8, border: "1px solid #241618", background: "none", color: "#6a4444", fontSize: 9, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", marginTop: 4 }}>
+                        style={{ width: "100%", padding: "11px 12px", minHeight: 40, borderRadius: 8, border: "1px solid var(--bd-241618)", background: "none", color: "var(--tx-6a4444)", fontSize: 9, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", marginTop: 4 }}>
                         очистить корзину
                       </button>
                     </div>
@@ -3341,14 +3475,14 @@ function App() {
                   return (
                     <div>
                       <button onClick={() => setJournalEx(null)}
-                        style={{ background: "none", border: "none", color: "#777", fontSize: 12, cursor: "pointer", padding: "6px 0 14px", fontFamily: "inherit" }}>{"< назад к списку"}</button>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: "#fff", marginBottom: 16 }}>{journalEx.name}</div>
+                        style={{ background: "none", border: "none", color: "var(--tx-777)", fontSize: 12, cursor: "pointer", padding: "6px 0 14px", fontFamily: "inherit" }}>{"< назад к списку"}</button>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: "var(--tx-fff)", marginBottom: 16 }}>{journalEx.name}</div>
 
                       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
                         {[["МАКС", last + " " + weightUnit(journalEx.name)], ["СТАРТ", first + " " + weightUnit(journalEx.name)], ["ПРИРОСТ", (delta >= 0 ? "+" : "") + delta]].map(s => (
-                          <div key={s[0]} style={{ flex: 1, background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "12px 6px", textAlign: "center" }}>
-                            <div style={{ fontSize: 15, fontWeight: 700, color: s[0] === "ПРИРОСТ" ? (delta > 0 ? "#00d4aa" : delta < 0 ? "#ff6b6b" : "#888") : "#ddd", marginBottom: 3 }}>{s[1]}</div>
-                            <div style={{ fontSize: 8, color: "#666", letterSpacing: 2 }}>{s[0]}</div>
+                          <div key={s[0]} style={{ flex: 1, background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "12px 6px", textAlign: "center" }}>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: s[0] === "ПРИРОСТ" ? (delta > 0 ? "var(--tx-00d4aa)" : delta < 0 ? "var(--tx-ff6b6b)" : "var(--tx-888)") : "var(--tx-ddd)", marginBottom: 3 }}>{s[1]}</div>
+                            <div style={{ fontSize: 8, color: "var(--tx-666)", letterSpacing: 2 }}>{s[0]}</div>
                           </div>
                         ))}
                       </div>
@@ -3357,55 +3491,55 @@ function App() {
                         const wd = getExerciseWeekDelta(journalEx.id);
                         if (!wd) return null;
                         return (
-                          <div style={{ display: "flex", alignItems: "center", gap: 12, background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "14px 16px", marginBottom: 20 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 12, background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "14px 16px", marginBottom: 20 }}>
                             <div style={{ flex: 1 }}>
-                              <div style={{ fontSize: 9, letterSpacing: 2, color: "#666", marginBottom: 4 }}>К ПРОШЛОЙ НЕДЕЛЕ</div>
-                              <div style={{ fontSize: 11, color: "#888" }}>{wd.prev} {"->"} {wd.cur} {weightUnit(journalEx.name)}</div>
+                              <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-666)", marginBottom: 4 }}>К ПРОШЛОЙ НЕДЕЛЕ</div>
+                              <div style={{ fontSize: 11, color: "var(--tx-888)" }}>{wd.prev} {"->"} {wd.cur} {weightUnit(journalEx.name)}</div>
                             </div>
-                            <div style={{ fontSize: 17, fontWeight: 700, color: wd.delta > 0 ? "#00d4aa" : wd.delta < 0 ? "#ff6b6b" : "#777", flexShrink: 0 }}>
+                            <div style={{ fontSize: 17, fontWeight: 700, color: wd.delta > 0 ? "var(--tx-00d4aa)" : wd.delta < 0 ? "var(--tx-ff6b6b)" : "var(--tx-777)", flexShrink: 0 }}>
                               {wd.delta > 0 ? "+" : ""}{wd.delta}
                             </div>
                           </div>
                         );
                       })()}
 
-                      <div style={{ fontSize: 10, letterSpacing: 2, color: "#666", marginBottom: 12 }}>ДИНАМИКА ВЕСА</div>
-                      <div style={{ display: "flex", gap: 4, alignItems: "flex-end", height: 130, marginBottom: 8, background: "#0a0a0d", borderRadius: 10, padding: "12px 10px", border: "1px solid #161620" }}>
+                      <div style={{ fontSize: 10, letterSpacing: 2, color: "var(--tx-666)", marginBottom: 12 }}>ДИНАМИКА ВЕСА</div>
+                      <div style={{ display: "flex", gap: 4, alignItems: "flex-end", height: 130, marginBottom: 8, background: "var(--bg-0a0a0c)", borderRadius: 10, padding: "12px 10px", border: "1px solid var(--bd-161620)" }}>
                         {prog.map((p, pi) => {
                           const h = maxAll > 0 ? Math.max(6, Math.round((p.maxW / maxAll) * 96)) : 6;
                           const isLast = pi === prog.length - 1;
                           return (
                             <div key={pi} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 0 }}>
-                              <div style={{ fontSize: 9, color: isLast ? w.color : "#777", fontWeight: isLast ? 700 : 400 }}>{p.maxW}</div>
-                              <div style={{ width: "100%", height: h, borderRadius: 3, background: isLast ? w.color : "#2a2a3a", transition: "height 0.3s" }} />
+                              <div style={{ fontSize: 9, color: isLast ? ink(w.color) : "var(--tx-777)", fontWeight: isLast ? 700 : 400 }}>{p.maxW}</div>
+                              <div style={{ width: "100%", height: h, borderRadius: 3, background: isLast ? w.color : "var(--bg-2a2a3a)", transition: "height 0.3s" }} />
                             </div>
                           );
                         })}
                       </div>
                       <div style={{ display: "flex", gap: 4, marginBottom: 24 }}>
                         {prog.map((p, pi) => (
-                          <div key={pi} style={{ flex: 1, fontSize: 8, color: "#555", textAlign: "center", minWidth: 0, overflow: "hidden" }}>
+                          <div key={pi} style={{ flex: 1, fontSize: 8, color: "var(--tx-555)", textAlign: "center", minWidth: 0, overflow: "hidden" }}>
                             {p.date.slice(5).replace("-", ".")}
                           </div>
                         ))}
                       </div>
 
-                      <div style={{ fontSize: 10, letterSpacing: 2, color: "#666", marginBottom: 10 }}>ПО ТРЕНИРОВКАМ</div>
+                      <div style={{ fontSize: 10, letterSpacing: 2, color: "var(--tx-666)", marginBottom: 10 }}>ПО ТРЕНИРОВКАМ</div>
                       {prog.slice().reverse().map((p, pi) => (
-                        <div key={pi} style={{ display: "flex", alignItems: "center", gap: 12, background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "12px 14px", marginBottom: 6 }}>
-                          <div style={{ fontSize: 11, color: "#777", flex: 1 }}>
+                        <div key={pi} style={{ display: "flex", alignItems: "center", gap: 12, background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "12px 14px", marginBottom: 6 }}>
+                          <div style={{ fontSize: 11, color: "var(--tx-777)", flex: 1 }}>
                             {new Date(p.date).toLocaleDateString("ru", { day: "numeric", month: "short" })}
                           </div>
-                          <div style={{ fontSize: 10, color: "#666" }}>{p.sets} подх</div>
-                          <div style={{ fontSize: 10, color: "#666" }}>{Math.round(p.volume)} кг</div>
-                          <div style={{ fontSize: 13, color: "#fff", fontWeight: 700, minWidth: 62, textAlign: "right", whiteSpace: "nowrap" }}>{p.maxW} {weightUnit(journalEx.name)}</div>
+                          <div style={{ fontSize: 10, color: "var(--tx-666)" }}>{p.sets} подх</div>
+                          <div style={{ fontSize: 10, color: "var(--tx-666)" }}>{Math.round(p.volume)} кг</div>
+                          <div style={{ fontSize: 13, color: "var(--tx-fff)", fontWeight: 700, minWidth: 62, textAlign: "right", whiteSpace: "nowrap" }}>{p.maxW} {weightUnit(journalEx.name)}</div>
                         </div>
                       ))}
                     </div>
                   );
                 })() : (
                   tracked.length === 0 ? (
-                    <div style={{ textAlign: "center", padding: "60px 20px", color: "#555", fontSize: 13, lineHeight: 1.7 }}>
+                    <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--tx-555)", fontSize: 13, lineHeight: 1.7 }}>
                       Пока нет данных для прогрессии.<br />Заверши пару тренировок с записанными весами.
                     </div>
                   ) : (() => {
@@ -3415,64 +3549,64 @@ function App() {
                     const totalVol = formatVolume(ov.totalVolume);
                     return (
                     <>
-                      <div style={{ fontSize: 10, letterSpacing: 2, color: "#666", marginBottom: 10 }}>ЗА ВСЁ ВРЕМЯ</div>
+                      <div style={{ fontSize: 10, letterSpacing: 2, color: "var(--tx-666)", marginBottom: 10 }}>ЗА ВСЁ ВРЕМЯ</div>
                       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
                         {[["ТРЕН", ov.totalWorkouts], ["ПОДХОДОВ", ov.totalSets], [totalVol.unit, totalVol.value]].map(s => (
-                          <div key={s[0]} style={{ flex: 1, background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "12px 6px", textAlign: "center" }}>
-                            <div style={{ fontSize: 17, fontWeight: 700, color: "#ddd", marginBottom: 3 }}>{s[1]}</div>
-                            <div style={{ fontSize: 8, color: "#666", letterSpacing: 2 }}>{s[0]}</div>
+                          <div key={s[0]} style={{ flex: 1, background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "12px 6px", textAlign: "center" }}>
+                            <div style={{ fontSize: 17, fontWeight: 700, color: "var(--tx-ddd)", marginBottom: 3 }}>{s[1]}</div>
+                            <div style={{ fontSize: 8, color: "var(--tx-666)", letterSpacing: 2 }}>{s[0]}</div>
                           </div>
                         ))}
                       </div>
 
-                      <div style={{ fontSize: 10, letterSpacing: 2, color: "#666", marginBottom: 10 }}>ЭТА НЕДЕЛЯ К ПРОШЛОЙ</div>
-                      <div style={{ background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 12, padding: "16px 16px", marginBottom: 16 }}>
+                      <div style={{ fontSize: 10, letterSpacing: 2, color: "var(--tx-666)", marginBottom: 10 }}>ЭТА НЕДЕЛЯ К ПРОШЛОЙ</div>
+                      <div style={{ background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 12, padding: "16px 16px", marginBottom: 16 }}>
                         <div style={{ display: "flex", alignItems: "flex-end", gap: 12, marginBottom: 14 }}>
                           <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 22, fontWeight: 700, color: "#fff", lineHeight: 1.2 }}>
-                              {Math.round(ov.curWeek.volume)} <span style={{ fontSize: 12, color: "#666" }}>кг</span>
+                            <div style={{ fontSize: 22, fontWeight: 700, color: "var(--tx-fff)", lineHeight: 1.2 }}>
+                              {Math.round(ov.curWeek.volume)} <span style={{ fontSize: 12, color: "var(--tx-666)" }}>кг</span>
                             </div>
-                            <div style={{ fontSize: 10, color: "#666", marginTop: 4 }}>
+                            <div style={{ fontSize: 10, color: "var(--tx-666)", marginTop: 4 }}>
                               было {Math.round(ov.prevWeek.volume)} кг
                             </div>
                           </div>
                           <div style={{ textAlign: "right" }}>
-                            <div style={{ fontSize: 18, fontWeight: 700, color: ov.deltaVolume > 0 ? "#00d4aa" : ov.deltaVolume < 0 ? "#ff6b6b" : "#777" }}>
+                            <div style={{ fontSize: 18, fontWeight: 700, color: ov.deltaVolume > 0 ? "var(--tx-00d4aa)" : ov.deltaVolume < 0 ? "var(--tx-ff6b6b)" : "var(--tx-777)" }}>
                               {ov.deltaVolume > 0 ? "+" : ""}{Math.round(ov.deltaVolume)}
                             </div>
                             {ov.pctVolume !== null && (
-                              <div style={{ fontSize: 10, color: ov.pctVolume > 0 ? "#00d4aa" : ov.pctVolume < 0 ? "#ff6b6b" : "#777", marginTop: 2 }}>
+                              <div style={{ fontSize: 10, color: ov.pctVolume > 0 ? "var(--tx-00d4aa)" : ov.pctVolume < 0 ? "var(--tx-ff6b6b)" : "var(--tx-777)", marginTop: 2 }}>
                                 {ov.pctVolume > 0 ? "+" : ""}{ov.pctVolume}%
                               </div>
                             )}
                           </div>
                         </div>
-                        <div style={{ display: "flex", gap: 16, fontSize: 10, color: "#666", paddingTop: 12, borderTop: "1px solid #1a1a22" }}>
-                          <span>тренировок: <span style={{ color: "#aaa" }}>{ov.curWeek.workouts}</span>
-                            {ov.deltaWorkouts !== 0 && <span style={{ color: ov.deltaWorkouts > 0 ? "#00d4aa" : "#ff6b6b" }}> ({ov.deltaWorkouts > 0 ? "+" : ""}{ov.deltaWorkouts})</span>}
+                        <div style={{ display: "flex", gap: 16, fontSize: 10, color: "var(--tx-666)", paddingTop: 12, borderTop: "1px solid var(--bd-1a1a22)" }}>
+                          <span>тренировок: <span style={{ color: "var(--tx-aaa)" }}>{ov.curWeek.workouts}</span>
+                            {ov.deltaWorkouts !== 0 && <span style={{ color: ov.deltaWorkouts > 0 ? "var(--tx-00d4aa)" : "var(--tx-ff6b6b)" }}> ({ov.deltaWorkouts > 0 ? "+" : ""}{ov.deltaWorkouts})</span>}
                           </span>
-                          <span>подходов: <span style={{ color: "#aaa" }}>{ov.curWeek.sets}</span></span>
+                          <span>подходов: <span style={{ color: "var(--tx-aaa)" }}>{ov.curWeek.sets}</span></span>
                         </div>
                       </div>
 
                       {ov.weeks.length > 1 && (
                         <>
-                          <div style={{ fontSize: 10, letterSpacing: 2, color: "#666", marginBottom: 10 }}>ОБЪЁМ ПО НЕДЕЛЯМ</div>
-                          <div style={{ display: "flex", gap: 4, alignItems: "flex-end", height: 90, background: "#0a0a0d", borderRadius: 10, padding: "12px 10px", border: "1px solid #161620", marginBottom: 6 }}>
+                          <div style={{ fontSize: 10, letterSpacing: 2, color: "var(--tx-666)", marginBottom: 10 }}>ОБЪЁМ ПО НЕДЕЛЯМ</div>
+                          <div style={{ display: "flex", gap: 4, alignItems: "flex-end", height: 90, background: "var(--bg-0a0a0c)", borderRadius: 10, padding: "12px 10px", border: "1px solid var(--bd-161620)", marginBottom: 6 }}>
                             {ov.weeks.slice(0, 8).reverse().map((wk, wi, arr) => {
                               const h = Math.max(4, Math.round((wk.volume / maxWeekVol) * 58));
                               const isLast = wi === arr.length - 1;
                               return (
                                 <div key={wi} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 0 }}>
-                                  <div style={{ fontSize: 8, color: isLast ? w.color : "#666" }}>{Math.round(wk.volume / 1000 * 10) / 10}т</div>
-                                  <div style={{ width: "100%", height: h, borderRadius: 3, background: isLast ? w.color : "#2a2a3a" }} />
+                                  <div style={{ fontSize: 8, color: isLast ? ink(w.color) : "var(--tx-666)" }}>{Math.round(wk.volume / 1000 * 10) / 10}т</div>
+                                  <div style={{ width: "100%", height: h, borderRadius: 3, background: isLast ? w.color : "var(--bg-2a2a3a)" }} />
                                 </div>
                               );
                             })}
                           </div>
                           <div style={{ display: "flex", gap: 4, marginBottom: 24 }}>
                             {ov.weeks.slice(0, 8).reverse().map((wk, wi) => (
-                              <div key={wi} style={{ flex: 1, fontSize: 8, color: "#555", textAlign: "center", minWidth: 0, overflow: "hidden" }}>
+                              <div key={wi} style={{ flex: 1, fontSize: 8, color: "var(--tx-555)", textAlign: "center", minWidth: 0, overflow: "hidden" }}>
                                 {wk.week.slice(5).replace("-", ".")}
                               </div>
                             ))}
@@ -3482,9 +3616,9 @@ function App() {
 
                       {groups.map(g => (
                         <div key={g.key} style={{ marginBottom: 20 }}>
-                          <div style={{ fontSize: 10, letterSpacing: 2, color: "#888", marginBottom: 8, paddingBottom: 6, borderBottom: `1px solid ${g.color}30`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <span style={{ color: g.color }}>{g.name}</span>
-                            <span style={{ fontSize: 9, color: "#555" }}>{g.items.length}</span>
+                          <div style={{ fontSize: 10, letterSpacing: 2, color: "var(--tx-888)", marginBottom: 8, paddingBottom: 6, borderBottom: `1px solid ${g.color}30`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span style={{ color: ink(g.color) }}>{g.name}</span>
+                            <span style={{ fontSize: 9, color: "var(--tx-555)" }}>{g.items.length}</span>
                           </div>
                           {g.items.map(t => {
                             const p = getExerciseProgression(t.id);
@@ -3494,24 +3628,24 @@ function App() {
                             const wd = getExerciseWeekDelta(t.id);
                             return (
                               <div key={t.id} onClick={() => setJournalEx(t)}
-                                style={{ display: "flex", alignItems: "center", gap: 12, background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "14px 14px", marginBottom: 6, cursor: "pointer" }}>
+                                style={{ display: "flex", alignItems: "center", gap: 12, background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "14px 14px", marginBottom: 6, cursor: "pointer" }}>
                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                  <div style={{ fontSize: 13, color: "#fff", fontWeight: 600, marginBottom: 3 }}>{t.name}</div>
-                                  <div style={{ fontSize: 10, color: "#666" }}>
+                                  <div style={{ fontSize: 13, color: "var(--tx-fff)", fontWeight: 600, marginBottom: 3 }}>{t.name}</div>
+                                  <div style={{ fontSize: 10, color: "var(--tx-666)" }}>
                                     {t.count} трен  |  макс {last} {weightUnit(t.name)}
                                     {wd && wd.delta !== 0 && (
-                                      <span style={{ color: wd.delta > 0 ? "#00d4aa" : "#ff6b6b" }}>
+                                      <span style={{ color: wd.delta > 0 ? "var(--tx-00d4aa)" : "var(--tx-ff6b6b)" }}>
                                         {"  |  за неделю "}{wd.delta > 0 ? "+" : ""}{wd.delta}
                                       </span>
                                     )}
                                   </div>
                                 </div>
                                 {d !== 0 && (
-                                  <div style={{ fontSize: 12, fontWeight: 700, color: d > 0 ? "#00d4aa" : "#ff6b6b", flexShrink: 0 }}>
+                                  <div style={{ fontSize: 12, fontWeight: 700, color: d > 0 ? "var(--tx-00d4aa)" : "var(--tx-ff6b6b)", flexShrink: 0 }}>
                                     {d > 0 ? "+" : ""}{d}
                                   </div>
                                 )}
-                                <div style={{ fontSize: 14, color: "#555", flexShrink: 0 }}>{">"}</div>
+                                <div style={{ fontSize: 14, color: "var(--tx-555)", flexShrink: 0 }}>{">"}</div>
                               </div>
                             );
                           })}
@@ -3528,19 +3662,19 @@ function App() {
 
         {activeTab === "progress" && (
           <div style={{ paddingTop: 24 }}>
-            <div style={{ fontSize: 10, letterSpacing: 3, color: "#555", marginBottom: 4 }}>ПРОГРЕСС ПО УПРАЖНЕНИЯМ</div>
-            <div style={{ fontSize: 10, color: "#555", marginBottom: 20 }}>максимальный вес за тренировку</div>
+            <div style={{ fontSize: 10, letterSpacing: 3, color: "var(--tx-555)", marginBottom: 4 }}>ПРОГРЕСС ПО УПРАЖНЕНИЯМ</div>
+            <div style={{ fontSize: 10, color: "var(--tx-555)", marginBottom: 20 }}>максимальный вес за тренировку</div>
 
             {/* Day selector */}
             <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
               {Object.entries(PROGRAM).map(([key, day]) => (
                 <button key={key} onClick={() => setActiveDay(key)}
                   style={{ flex: 1, padding: "8px 4px", borderRadius: 8, border: "1px solid",
-                    borderColor: activeDay === key ? day.color : "#1a1a22",
-                    background: activeDay === key ? day.color + "18" : "#0f0f12",
+                    borderColor: activeDay === key ? day.color : "var(--bd-1a1a22)",
+                    background: activeDay === key ? day.color + "18" : "var(--bg-0f0f12)",
                     cursor: "pointer", fontFamily: "inherit" }}>
-                  <div style={{ fontSize: 8, color: activeDay === key ? day.color : "#3a3a3a", letterSpacing: 2 }}>{day.label}</div>
-                  <div style={{ fontSize: 10, color: activeDay === key ? "#fff" : "#888", fontWeight: 600 }}>{day.name}</div>
+                  <div style={{ fontSize: 8, color: activeDay === key ? ink(day.color) : "var(--tx-3a3a3a)", letterSpacing: 2 }}>{day.label}</div>
+                  <div style={{ fontSize: 10, color: activeDay === key ? "var(--tx-fff)" : "var(--tx-888)", fontWeight: 600 }}>{day.name}</div>
                 </button>
               ))}
             </div>
@@ -3549,9 +3683,9 @@ function App() {
               const ex = getExercise(baseEx.id);
               const hist = getExHistory(ex.id, 8);
               if (hist.length === 0) return (
-                <div key={baseEx.id} style={{ background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "14px 16px", marginBottom: 8 }}>
-                  <div style={{ fontSize: 12, color: "#aaa", fontWeight: 600, marginBottom: 4 }}>{ex.name}</div>
-                  <div style={{ fontSize: 10, color: "#555" }}>Нет данных  -  заверши первую тренировку</div>
+                <div key={baseEx.id} style={{ background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "14px 16px", marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, color: "var(--tx-aaa)", fontWeight: 600, marginBottom: 4 }}>{ex.name}</div>
+                  <div style={{ fontSize: 10, color: "var(--tx-555)" }}>Нет данных  -  заверши первую тренировку</div>
                 </div>
               );
 
@@ -3561,35 +3695,35 @@ function App() {
               const delta = prev ? latest.maxW - prev.maxW : null;
 
               return (
-                <div key={baseEx.id} style={{ background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "14px 16px", marginBottom: 8 }}>
+                <div key={baseEx.id} style={{ background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "14px 16px", marginBottom: 8 }}>
                   {/* Title row */}
                   {data.resuming && (
-              <div style={{ display: "flex", alignItems: "center", gap: 12, background: "#1a1206", border: "1px solid #f7a84440", borderRadius: 12, padding: "14px 16px", marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, background: "var(--bg-1a1206)", border: "1px solid #f7a84440", borderRadius: 12, padding: "14px 16px", marginBottom: 14 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 9, letterSpacing: 2, color: "#f7a844", marginBottom: 4 }}>ДОПОЛНЕНИЕ</div>
-                  <div style={{ fontSize: 12, color: "#ddd" }}>
+                  <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-f7a844)", marginBottom: 4 }}>ДОПОЛНЕНИЕ</div>
+                  <div style={{ fontSize: 12, color: "var(--tx-ddd)" }}>
                     {data.resuming.name} от {new Date(data.resuming.date).toLocaleDateString("ru", { day: "numeric", month: "long" })}
                   </div>
-                  <div style={{ fontSize: 10, color: "#8a7550", marginTop: 3 }}>Завершение обновит эту запись</div>
+                  <div style={{ fontSize: 10, color: "var(--tx-8a7550)", marginTop: 3 }}>Завершение обновит эту запись</div>
                 </div>
                 <button onClick={cancelResume}
-                  style={{ padding: "10px 12px", minHeight: 44, borderRadius: 8, border: "1px solid #3a2a10", background: "#0c0c0f", color: "#a89060", fontSize: 9, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, lineHeight: 1.4, maxWidth: 96 }}>
+                  style={{ padding: "10px 12px", minHeight: 44, borderRadius: 8, border: "1px solid var(--bd-3a2a10)", background: "var(--bg-0c0c0f)", color: "var(--tx-a89060)", fontSize: 9, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", flexShrink: 0, lineHeight: 1.4, maxWidth: 96 }}>
                   ОТМЕНИТЬ<br />РЕДАКТИР.
                 </button>
               </div>
             )}
 
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                    <div style={{ fontSize: 12, color: "#ddd", fontWeight: 600 }}>{ex.name}</div>
+                    <div style={{ fontSize: 12, color: "var(--tx-ddd)", fontWeight: 600 }}>{ex.name}</div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       {delta !== null && (
-                        <span style={{ fontSize: 10, color: delta > 0 ? "#00d4aa" : delta < 0 ? "#ff6b6b" : "#444",
-                          background: delta > 0 ? "#00d4aa15" : delta < 0 ? "#ff4d4d15" : "#1a1a22",
+                        <span style={{ fontSize: 10, color: delta > 0 ? "var(--tx-00d4aa)" : delta < 0 ? "var(--tx-ff6b6b)" : "var(--tx-444)",
+                          background: delta > 0 ? "#00d4aa15" : delta < 0 ? "#ff4d4d15" : "var(--bg-1a1a22)",
                           padding: "2px 7px", borderRadius: 4 }}>
                           {delta > 0 ? "+" : ""}{delta} кг
                         </span>
                       )}
-                      <span style={{ fontSize: 13, fontWeight: 700, color: w.color }}>{latest.maxW} кг</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: ink(w.color) }}>{latest.maxW} кг</span>
                     </div>
                   </div>
 
@@ -3602,13 +3736,13 @@ function App() {
                       const label = (d.getDate()) + "." + String(d.getMonth()+1).padStart(2,"0");
                       return (
                         <div key={hi} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, justifyContent: "flex-end" }}>
-                          <div style={{ fontSize: 7, color: isLatest ? w.color : "#333", fontWeight: isLatest ? 700 : 400, whiteSpace: "nowrap" }}>
+                          <div style={{ fontSize: 7, color: isLatest ? ink(w.color) : "var(--tx-333)", fontWeight: isLatest ? 700 : 400, whiteSpace: "nowrap" }}>
                             {h.maxW}
                           </div>
                           <div style={{ width: "100%", height: barH, borderRadius: "3px 3px 0 0",
                             background: isLatest ? w.color : w.color + "30",
                             transition: "height 0.4s" }} />
-                          <div style={{ fontSize: 7, color: isLatest ? "#666" : "#222", whiteSpace: "nowrap" }}>
+                          <div style={{ fontSize: 7, color: isLatest ? "var(--tx-666)" : "var(--tx-222)", whiteSpace: "nowrap" }}>
                             {label}
                           </div>
                         </div>
@@ -3617,15 +3751,15 @@ function App() {
                   </div>
 
                   {/* Stats row */}
-                  <div style={{ display: "flex", gap: 8, marginTop: 10, paddingTop: 10, borderTop: "1px solid #111" }}>
+                  <div style={{ display: "flex", gap: 8, marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--bd-111)" }}>
                     {[
                       ["МАКС", maxEver + " кг"],
                       ["ПОСЛ", latest.maxW + " кг"],
                       ["СЕССИЙ", hist.length],
                     ].map(([lbl, val]) => (
                       <div key={lbl} style={{ flex: 1, textAlign: "center" }}>
-                        <div style={{ fontSize: 8, color: "#555", letterSpacing: 2, marginBottom: 3 }}>{lbl}</div>
-                        <div style={{ fontSize: 12, color: "#888", fontWeight: 600 }}>{val}</div>
+                        <div style={{ fontSize: 8, color: "var(--tx-555)", letterSpacing: 2, marginBottom: 3 }}>{lbl}</div>
+                        <div style={{ fontSize: 12, color: "var(--tx-888)", fontWeight: 600 }}>{val}</div>
                       </div>
                     ))}
                   </div>
@@ -3646,9 +3780,9 @@ function App() {
               <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
                 {[["ВСЕГО",ach.totalWorkouts,"трен"],["СТРИК",ach.weekStreak,"нед"],["PPL",ach.cycles,"цикл"]].map(function(item) {
                   return (
-                    <div key={item[0]} style={{ flex: 1, background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "12px 4px", textAlign: "center" }}>
-                      <div style={{ fontSize: 20, fontWeight: 700, color: "#ddd", marginBottom: 2 }}>{item[1]}</div>
-                      <div style={{ fontSize: 9, color: "#666", letterSpacing: 2 }}>{item[2]}</div>
+                    <div key={item[0]} style={{ flex: 1, background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "12px 4px", textAlign: "center" }}>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: "var(--tx-ddd)", marginBottom: 2 }}>{item[1]}</div>
+                      <div style={{ fontSize: 9, color: "var(--tx-666)", letterSpacing: 2 }}>{item[2]}</div>
                     </div>
                   );
                 })}
@@ -3657,11 +3791,11 @@ function App() {
                 {ACHIEVEMENTS.map(function(a) {
                   var done = ach.unlocked[a.id];
                   return (
-                    <div key={a.id} style={{ width: "calc(50% - 4px)", background: done ? "#0f1a14" : "#0a0a0c", border: "1px solid " + (done ? "#00d4aa25" : "#111"), borderRadius: 10, padding: "14px 12px", display: "flex", alignItems: "center", gap: 10, opacity: done ? 1 : 0.45 }}>
+                    <div key={a.id} style={{ width: "calc(50% - 4px)", background: done ? "var(--bg-0e1a13)" : "var(--bg-0a0a0c)", border: "1px solid " + (done ? "#00d4aa25" : "var(--bd-111)"), borderRadius: 10, padding: "14px 12px", display: "flex", alignItems: "center", gap: 10, opacity: done ? 1 : 0.45 }}>
                       <div style={{ fontSize: 22, filter: done ? "none" : "grayscale(1)" }}>{a.icon}</div>
                       <div>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: done ? "#ddd" : "#666" }}>{a.name}</div>
-                        {done && <div style={{ fontSize: 9, color: "#00d4aa", marginTop: 2 }}>ПОЛУЧЕНО</div>}
+                        <div style={{ fontSize: 11, fontWeight: 700, color: done ? "var(--tx-ddd)" : "var(--tx-666)" }}>{a.name}</div>
+                        {done && <div style={{ fontSize: 9, color: "var(--tx-00d4aa)", marginTop: 2 }}>ПОЛУЧЕНО</div>}
                       </div>
                     </div>
                   );
@@ -3673,19 +3807,19 @@ function App() {
 
         {activeTab === "principles" && (
           <div style={{ paddingTop: 24 }}>
-            <div style={{ fontSize: 10, letterSpacing: 3, color: "#555", marginBottom: 16 }}>РАСПИСАНИЕ НЕДЕЛИ</div>
+            <div style={{ fontSize: 10, letterSpacing: 3, color: "var(--tx-555)", marginBottom: 16 }}>РАСПИСАНИЕ НЕДЕЛИ</div>
             {[["ПН","push","ЖИМОВОЙ","Грудь  |  Плечи  |  Трицепс"],["ВТ",null,"ОТДЫХ","Лёгкое кардио 20-30 мин"],["СР","pull","ТЯГОВЫЙ","Спина  |  Бицепс  |  Задние дельты"],["ЧТ",null,"ОТДЫХ","Лёгкое кардио 20-30 мин"],["ПТ","legs","НОГИ","Квадрицепс  |  Ягодицы  |  ЗПБ"],["СБ",null,"ОТДЫХ","Полное восстановление"],["ВС",null,"ОТДЫХ","Полное восстановление"]].map(([day, wk, name, sub]) => (
-              <div key={day} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid #111" }}>
-                <div style={{ width: 32, fontSize: 11, color: wk ? "#ccc" : "#555", fontWeight: wk ? 700 : 400 }}>{day}</div>
-                <div style={{ width: 6, height: 6, borderRadius: "50%", background: wk ? PROGRAM[wk].color : "#1e1e28", flexShrink: 0 }} />
-                <div><div style={{ fontSize: 11, color: wk ? "#ccc" : "#3a3a3a", fontWeight: 600, marginBottom: 1 }}>{name}</div><div style={{ fontSize: 10, color: "#3a3a3a" }}>{sub}</div></div>
+              <div key={day} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--bd-111)" }}>
+                <div style={{ width: 32, fontSize: 11, color: wk ? "var(--tx-ccc)" : "var(--tx-555)", fontWeight: wk ? 700 : 400 }}>{day}</div>
+                <div style={{ width: 6, height: 6, borderRadius: "50%", background: wk ? PROGRAM[wk].color : "var(--bg-1e1e28)", flexShrink: 0 }} />
+                <div><div style={{ fontSize: 11, color: wk ? "var(--tx-ccc)" : "var(--tx-3a3a3a)", fontWeight: 600, marginBottom: 1 }}>{name}</div><div style={{ fontSize: 10, color: "var(--tx-3a3a3a)" }}>{sub}</div></div>
               </div>
             ))}
-            <div style={{ fontSize: 10, letterSpacing: 3, color: "#3a3a3a", margin: "28px 0 14px" }}>ПРИНЦИПЫ</div>
+            <div style={{ fontSize: 10, letterSpacing: 3, color: "var(--tx-3a3a3a)", margin: "28px 0 14px" }}>ПРИНЦИПЫ</div>
             {[["📈","Прогрессия","+2.5 кг/нед на ноги, +1.25-2.5 кг на верх. Не добиваешь минимум  -  вес не добавляй."],["🔥","Разминка","5-10 мин общая + 2-3 разминочных подхода на 50% и 70% от рабочего перед каждым базовым."],["🥩","Питание","2-2.5 г белка на кг веса. Профицит 200-300 ккал. Без профицита роста не будет."],["😴","Сон","8 часов  -  обязательное условие. Мышцы растут во сне."],["📊","Разгрузка","Каждые 8-12 недель лёгкая неделя: веса -40-50%. Предотвращает перетренированность."],["🩺","Боль vs усталость","Жжение в мышце  -  норма. Острая боль в суставе  -  немедленная остановка."]].map(([icon, title, text]) => (
-              <div key={title} style={{ background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "14px 16px", marginBottom: 8 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}><span style={{ fontSize: 18 }}>{icon}</span><span style={{ fontSize: 12, fontWeight: 700, color: "#ddd" }}>{title}</span></div>
-                <div style={{ fontSize: 11, color: "#444", lineHeight: 1.7 }}>{text}</div>
+              <div key={title} style={{ background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "14px 16px", marginBottom: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}><span style={{ fontSize: 18 }}>{icon}</span><span style={{ fontSize: 12, fontWeight: 700, color: "var(--tx-ddd)" }}>{title}</span></div>
+                <div style={{ fontSize: 11, color: "var(--tx-444)", lineHeight: 1.7 }}>{text}</div>
               </div>
             ))}
           </div>
@@ -3709,27 +3843,27 @@ function App() {
           filtered.forEach(e => { const g = e._group || "OTHER"; if (!groups[g]) groups[g] = []; groups[g].push(e); });
 
           return (
-            <div style={{ position: "fixed", inset: 0, background: "#0c0c0f", zIndex: 100, overflowY: "auto", WebkitOverflowScrolling: "touch", paddingTop: "env(safe-area-inset-top)", paddingBottom: "calc(40px + env(safe-area-inset-bottom))" }}>
+            <div style={{ position: "fixed", inset: 0, background: "var(--bg-0c0c0f)", zIndex: 100, overflowY: "auto", WebkitOverflowScrolling: "touch", paddingTop: "env(safe-area-inset-top)", paddingBottom: "calc(40px + env(safe-area-inset-bottom))" }}>
               <div style={{ maxWidth: 560, margin: "0 auto", padding: "20px 20px 0" }}>
                 {/* Header */}
                 <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-                  <button onClick={() => setPlanScreen("list")} style={{ background: "none", border: "none", color: "#666", fontSize: 20, cursor: "pointer", padding: "4px 8px 4px 0" }}>{"<"}</button>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>{editingId ? "РЕДАКТИРОВАТЬ" : "НОВАЯ ТРЕНИРОВКА"}</div>
+                  <button onClick={() => setPlanScreen("list")} style={{ background: "none", border: "none", color: "var(--tx-666)", fontSize: 20, cursor: "pointer", padding: "4px 8px 4px 0" }}>{"<"}</button>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "var(--tx-fff)" }}>{editingId ? "РЕДАКТИРОВАТЬ" : "НОВАЯ ТРЕНИРОВКА"}</div>
                 </div>
 
                 {/* Name + color */}
                 <div style={{ marginBottom: 16 }}>
-                  <div style={{ fontSize: 9, letterSpacing: 2, color: "#444", marginBottom: 6 }}>НАЗВАНИЕ</div>
+                  <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-444)", marginBottom: 6 }}>НАЗВАНИЕ</div>
                   <input value={builderName} onChange={e => setBuilderName(e.target.value)}
                     placeholder="например: ФУНКЦИОНАЛ"
-                    style={{ width: "100%", background: "#0f0f12", border: "1px solid #2a2a2a", borderRadius: 10, padding: "13px 14px", color: "#fff", fontSize: 16, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
+                    style={{ width: "100%", background: "var(--bg-0f0f12)", border: "1px solid var(--bd-2a2a2a)", borderRadius: 10, padding: "13px 14px", color: "var(--tx-fff)", fontSize: 16, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
                 </div>
                 <div style={{ marginBottom: 20 }}>
-                  <div style={{ fontSize: 9, letterSpacing: 2, color: "#444", marginBottom: 8 }}>ЦВЕТ</div>
+                  <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-444)", marginBottom: 8 }}>ЦВЕТ</div>
                   <div style={{ display: "flex", gap: 8 }}>
                     {COLORS.map(c => (
                       <div key={c} onClick={() => setBuilderColor(c)}
-                        style={{ width: 28, height: 28, borderRadius: "50%", background: c, cursor: "pointer", border: builderColor === c ? "3px solid #fff" : "3px solid transparent", boxSizing: "border-box" }} />
+                        style={{ width: 28, height: 28, borderRadius: "50%", background: c, cursor: "pointer", border: builderColor === c ? "3px solid var(--tx-fff)" : "3px solid transparent", boxSizing: "border-box" }} />
                     ))}
                   </div>
                 </div>
@@ -3737,27 +3871,27 @@ function App() {
                 {/* Selected exercises */}
                 {builderExercises.length > 0 && (
                   <div style={{ marginBottom: 20 }}>
-                    <div style={{ fontSize: 9, letterSpacing: 2, color: "#444", marginBottom: 8 }}>ВЫБРАННЫЕ ({builderExercises.length})</div>
+                    <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-444)", marginBottom: 8 }}>ВЫБРАННЫЕ ({builderExercises.length})</div>
                     {builderExercises.map((ex, idx) => (
-                      <div key={ex.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "#0f0f12", border: `1px solid ${builderColor}40`, borderRadius: 8, padding: "8px 12px", marginBottom: 6 }}>
+                      <div key={ex.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--bg-0f0f12)", border: `1px solid ${builderColor}40`, borderRadius: 8, padding: "8px 12px", marginBottom: 6 }}>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 12, color: "#fff", fontWeight: 600 }}>{ex.name}</div>
+                          <div style={{ fontSize: 12, color: "var(--tx-fff)", fontWeight: 600 }}>{ex.name}</div>
                           <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
                             <input type="number" value={ex.sets} onChange={e => updateBuilderExSets(ex.id, "sets", parseInt(e.target.value) || 1)}
-                              style={{ width: 48, background: "#1a1a22", border: "1px solid #2a2a2a", borderRadius: 6, padding: "8px 6px", color: "#fff", fontSize: 16, fontFamily: "inherit", textAlign: "center" }} />
-                            <span style={{ fontSize: 11, color: "#666" }}>x</span>
+                              style={{ width: 48, background: "var(--bg-1a1a22)", border: "1px solid var(--bd-2a2a2a)", borderRadius: 6, padding: "8px 6px", color: "var(--tx-fff)", fontSize: 16, fontFamily: "inherit", textAlign: "center" }} />
+                            <span style={{ fontSize: 11, color: "var(--tx-666)" }}>x</span>
                             <input value={ex.reps} onChange={e => updateBuilderExSets(ex.id, "reps", e.target.value)}
-                              style={{ width: 64, background: "#1a1a22", border: "1px solid #2a2a2a", borderRadius: 6, padding: "8px 6px", color: "#fff", fontSize: 16, fontFamily: "inherit", textAlign: "center" }} />
-                            <span style={{ fontSize: 11, color: "#666" }}>отд:</span>
+                              style={{ width: 64, background: "var(--bg-1a1a22)", border: "1px solid var(--bd-2a2a2a)", borderRadius: 6, padding: "8px 6px", color: "var(--tx-fff)", fontSize: 16, fontFamily: "inherit", textAlign: "center" }} />
+                            <span style={{ fontSize: 11, color: "var(--tx-666)" }}>отд:</span>
                             <input value={ex.rest} onChange={e => updateBuilderExSets(ex.id, "rest", e.target.value)}
-                              style={{ width: 76, background: "#1a1a22", border: "1px solid #2a2a2a", borderRadius: 6, padding: "8px 6px", color: "#fff", fontSize: 16, fontFamily: "inherit", textAlign: "center" }} />
+                              style={{ width: 76, background: "var(--bg-1a1a22)", border: "1px solid var(--bd-2a2a2a)", borderRadius: 6, padding: "8px 6px", color: "var(--tx-fff)", fontSize: 16, fontFamily: "inherit", textAlign: "center" }} />
                           </div>
                         </div>
                         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                          <button onClick={() => moveBuilderEx(idx, -1)} style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 6, color: "#999", cursor: "pointer", fontSize: 13, padding: "7px 11px", fontFamily: "inherit", minHeight: 32 }}>^</button>
-                          <button onClick={() => moveBuilderEx(idx, 1)} style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 6, color: "#999", cursor: "pointer", fontSize: 13, padding: "7px 11px", fontFamily: "inherit", minHeight: 32 }}>v</button>
+                          <button onClick={() => moveBuilderEx(idx, -1)} style={{ background: "var(--bg-111)", border: "1px solid var(--bd-2a2a2a)", borderRadius: 6, color: "var(--tx-999)", cursor: "pointer", fontSize: 13, padding: "7px 11px", fontFamily: "inherit", minHeight: 32 }}>^</button>
+                          <button onClick={() => moveBuilderEx(idx, 1)} style={{ background: "var(--bg-111)", border: "1px solid var(--bd-2a2a2a)", borderRadius: 6, color: "var(--tx-999)", cursor: "pointer", fontSize: 13, padding: "7px 11px", fontFamily: "inherit", minHeight: 32 }}>v</button>
                         </div>
-                        <button onClick={() => toggleBuilderExercise(ex)} style={{ background: "none", border: "none", color: "#ff5555", cursor: "pointer", fontSize: 20, padding: "8px 10px", fontFamily: "inherit", minWidth: 40, minHeight: 40 }}>x</button>
+                        <button onClick={() => toggleBuilderExercise(ex)} style={{ background: "none", border: "none", color: "var(--tx-ff5555)", cursor: "pointer", fontSize: 20, padding: "8px 10px", fontFamily: "inherit", minWidth: 40, minHeight: 40 }}>x</button>
                       </div>
                     ))}
                   </div>
@@ -3766,33 +3900,33 @@ function App() {
                 {/* Save button */}
                 <button onClick={() => saveBuilder(editingId)}
                   disabled={!builderName.trim() || builderExercises.length === 0}
-                  style={{ width: "100%", padding: 14, background: builderName.trim() && builderExercises.length > 0 ? builderColor : "#1a1a22", border: "none", borderRadius: 10, color: builderName.trim() && builderExercises.length > 0 ? "#000" : "#333", fontSize: 11, fontWeight: 700, letterSpacing: 3, cursor: "pointer", marginBottom: 20, fontFamily: "inherit" }}>
+                  style={{ width: "100%", padding: 14, background: builderName.trim() && builderExercises.length > 0 ? builderColor : "var(--bg-1a1a22)", border: "none", borderRadius: 10, color: builderName.trim() && builderExercises.length > 0 ? "#000" : "var(--tx-333)", fontSize: 11, fontWeight: 700, letterSpacing: 3, cursor: "pointer", marginBottom: 20, fontFamily: "inherit" }}>
                   {editingId ? "СОХРАНИТЬ ИЗМЕНЕНИЯ" : "СОЗДАТЬ ТРЕНИРОВКУ"}
                 </button>
 
                 {/* Search + exercise pool */}
-                <div style={{ fontSize: 9, letterSpacing: 2, color: "#444", marginBottom: 8 }}>ДОБАВИТЬ УПРАЖНЕНИЯ</div>
+                <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-444)", marginBottom: 8 }}>ДОБАВИТЬ УПРАЖНЕНИЯ</div>
                 <input value={builderSearch} onChange={e => setBuilderSearch(e.target.value)}
                   placeholder="Поиск..."
-                  style={{ width: "100%", background: "#0f0f12", border: "1px solid #2a2a2a", borderRadius: 10, padding: "12px 14px", color: "#fff", fontSize: 16, fontFamily: "inherit", outline: "none", marginBottom: 14, boxSizing: "border-box" }} />
+                  style={{ width: "100%", background: "var(--bg-0f0f12)", border: "1px solid var(--bd-2a2a2a)", borderRadius: 10, padding: "12px 14px", color: "var(--tx-fff)", fontSize: 16, fontFamily: "inherit", outline: "none", marginBottom: 14, boxSizing: "border-box" }} />
 
                 {Object.entries(groups).map(([group, exList]) => (
                   <div key={group} style={{ marginBottom: 20 }}>
-                    <div style={{ fontSize: 10, letterSpacing: 2, color: "#888", marginBottom: 8, paddingBottom: 6, borderBottom: "1px solid #1a1a22", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ fontSize: 10, letterSpacing: 2, color: "var(--tx-888)", marginBottom: 8, paddingBottom: 6, borderBottom: "1px solid var(--bd-1a1a22)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <span>{group.toUpperCase()}</span>
-                      <span style={{ fontSize: 9, color: "#444" }}>{exList.length}</span>
+                      <span style={{ fontSize: 9, color: "var(--tx-444)" }}>{exList.length}</span>
                     </div>
                     {exList.map(ex => {
                       const selected = builderExercises.some(e => e.id === ex.id);
                       return (
                         <div key={ex.id} onClick={() => toggleBuilderExercise(ex)}
-                          style={{ display: "flex", alignItems: "center", gap: 10, background: selected ? `${builderColor}12` : "#0f0f12", border: `1px solid ${selected ? builderColor + "60" : "#1a1a22"}`, borderRadius: 8, padding: "10px 12px", marginBottom: 5, cursor: "pointer" }}>
-                          <div style={{ width: 16, height: 16, borderRadius: 4, border: `1px solid ${selected ? builderColor : "#333"}`, background: selected ? builderColor : "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                          style={{ display: "flex", alignItems: "center", gap: 10, background: selected ? `${builderColor}12` : "var(--bg-0f0f12)", border: `1px solid ${selected ? builderColor + "60" : "var(--bd-1a1a22)"}`, borderRadius: 8, padding: "10px 12px", marginBottom: 5, cursor: "pointer" }}>
+                          <div style={{ width: 16, height: 16, borderRadius: 4, border: `1px solid ${selected ? builderColor : "var(--bd-333)"}`, background: selected ? builderColor : "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                             {selected && <span style={{ fontSize: 10, color: "#000", fontWeight: 700 }}>v</span>}
                           </div>
                           <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 12, color: selected ? "#fff" : "#ccc" }}>{ex.name}</div>
-                            <div style={{ fontSize: 9, color: "#555" }}>{ex.sets} x {ex.reps} | {ex.rest}{ex.warn ? "  !" : ""}</div>
+                            <div style={{ fontSize: 12, color: selected ? "var(--tx-fff)" : "var(--tx-ccc)" }}>{ex.name}</div>
+                            <div style={{ fontSize: 9, color: "var(--tx-555)" }}>{ex.sets} x {ex.reps} | {ex.rest}{ex.warn ? "  !" : ""}</div>
                           </div>
                         </div>
                       );
@@ -3806,17 +3940,17 @@ function App() {
 
         // List screen: choose template or create custom
         return (
-          <div style={{ position: "fixed", inset: 0, background: "#0c0c0f", zIndex: 100, overflowY: "auto", WebkitOverflowScrolling: "touch", paddingTop: "env(safe-area-inset-top)", paddingBottom: "calc(40px + env(safe-area-inset-bottom))" }}>
+          <div style={{ position: "fixed", inset: 0, background: "var(--bg-0c0c0f)", zIndex: 100, overflowY: "auto", WebkitOverflowScrolling: "touch", paddingTop: "env(safe-area-inset-top)", paddingBottom: "calc(40px + env(safe-area-inset-bottom))" }}>
             <div style={{ maxWidth: 560, margin: "0 auto", padding: "20px 20px 0" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
-                <button onClick={() => setPlanScreen(null)} style={{ background: "none", border: "none", color: "#666", fontSize: 20, cursor: "pointer", padding: "4px 8px 4px 0" }}>{"<"}</button>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>МОЙ ПЛАН</div>
+                <button onClick={() => setPlanScreen(null)} style={{ background: "none", border: "none", color: "var(--tx-666)", fontSize: 20, cursor: "pointer", padding: "4px 8px 4px 0" }}>{"<"}</button>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--tx-fff)" }}>МОЙ ПЛАН</div>
               </div>
 
               {/* Built-in templates */}
-              <div style={{ fontSize: 9, letterSpacing: 2, color: "#666", marginBottom: 10 }}>ВЕС ГАНТЕЛЕЙ</div>
-              <div style={{ background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "14px 14px", marginBottom: 24 }}>
-                <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6, marginBottom: 12 }}>
+              <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-666)", marginBottom: 10 }}>ВЕС ГАНТЕЛЕЙ</div>
+              <div style={{ background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "14px 14px", marginBottom: 24 }}>
+                <div style={{ fontSize: 11, color: "var(--tx-888)", lineHeight: 1.6, marginBottom: 12 }}>
                   Как ты записываешь вес в упражнениях с гантелями. Влияет только на подпись  -  число остаётся тем, что ты ввёл.
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
@@ -3824,18 +3958,40 @@ function App() {
                     const on = (data.dbMode || "single") === m[0];
                     return (
                       <button key={m[0]} onClick={() => setData(prev => ({ ...prev, dbMode: m[0] }))}
-                        style={{ flex: 1, padding: "12px 8px", borderRadius: 9, border: `1px solid ${on ? "#f7a84460" : "#2a2a2a"}`, background: on ? "#f7a84412" : "#0c0c0f", cursor: "pointer", fontFamily: "inherit", minHeight: 52 }}>
-                        <div style={{ fontSize: 10, color: on ? "#f7a844" : "#777", letterSpacing: 1, fontWeight: on ? 700 : 400, marginBottom: 3 }}>{m[1]}</div>
-                        <div style={{ fontSize: 9, color: on ? "#8a7550" : "#555" }}>{m[2]}</div>
+                        style={{ flex: 1, padding: "12px 8px", borderRadius: 9, border: `1px solid ${on ? "#f7a84460" : "var(--bd-2a2a2a)"}`, background: on ? "#f7a84412" : "var(--bg-0c0c0f)", cursor: "pointer", fontFamily: "inherit", minHeight: 52 }}>
+                        <div style={{ fontSize: 10, color: on ? "var(--tx-f7a844)" : "var(--tx-777)", letterSpacing: 1, fontWeight: on ? 700 : 400, marginBottom: 3 }}>{m[1]}</div>
+                        <div style={{ fontSize: 9, color: on ? "var(--tx-8a7550)" : "var(--tx-555)" }}>{m[2]}</div>
                       </button>
                     );
                   })}
                 </div>
               </div>
 
-              <div style={{ fontSize: 9, letterSpacing: 2, color: "#666", marginBottom: 10 }}>ЭКРАН</div>
-              <div style={{ background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "14px 14px", marginBottom: 24 }}>
-                <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6, marginBottom: 12 }}>
+              {APP_VARIANT !== "beta" && (
+                <>
+                  <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-666)", marginBottom: 10 }}>ТЕМА</div>
+                  <div style={{ background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "14px 14px", marginBottom: 24 }}>
+                    <div style={{ fontSize: 11, color: "var(--tx-888)", lineHeight: 1.6, marginBottom: 12 }}>
+                      Авто - как на телефоне: тёмная или светлая вместе с iOS. Выбор хранится только на этом телефоне.
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      {[["auto", "АВТО"], ["light", "СВЕТЛАЯ"], ["dark", "ТЁМНАЯ"]].map(m => {
+                        const on = themePref === m[0];
+                        return (
+                          <button key={m[0]} onClick={() => chooseTheme(m[0])}
+                            style={{ flex: 1, padding: "12px 4px", borderRadius: 9, border: `1px solid ${on ? "#f7a84460" : "var(--bd-2a2a2a)"}`, background: on ? "#f7a84412" : "var(--bg-0c0c0f)", color: on ? "var(--tx-f7a844)" : "var(--tx-777)", fontSize: 10, letterSpacing: 1, fontWeight: on ? 700 : 400, cursor: "pointer", fontFamily: "inherit", minHeight: 48 }}>
+                            {m[1]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-666)", marginBottom: 10 }}>ЭКРАН</div>
+              <div style={{ background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "14px 14px", marginBottom: 24 }}>
+                <div style={{ fontSize: 11, color: "var(--tx-888)", lineHeight: 1.6, marginBottom: 12 }}>
                   {typeof navigator !== "undefined" && navigator.wakeLock
                     ? "Не даём экрану гаснуть, пока открыта тренировка или разминка. Заряд расходуется быстрее."
                     : "На этом телефоне не поддерживается (нужен iOS 16.4 или новее). Экран будет гаснуть как обычно."}
@@ -3845,7 +4001,7 @@ function App() {
                     const on = keepAwake === m[0];
                     return (
                       <button key={m[1]} onClick={() => setData(prev => ({ ...prev, keepAwake: m[0] }))}
-                        style={{ flex: 1, padding: "12px 8px", borderRadius: 9, border: `1px solid ${on ? "#f7a84460" : "#2a2a2a"}`, background: on ? "#f7a84412" : "#0c0c0f", color: on ? "#f7a844" : "#777", fontSize: 10, letterSpacing: 1, fontWeight: on ? 700 : 400, cursor: "pointer", fontFamily: "inherit", minHeight: 48 }}>
+                        style={{ flex: 1, padding: "12px 8px", borderRadius: 9, border: `1px solid ${on ? "#f7a84460" : "var(--bd-2a2a2a)"}`, background: on ? "#f7a84412" : "var(--bg-0c0c0f)", color: on ? "var(--tx-f7a844)" : "var(--tx-777)", fontSize: 10, letterSpacing: 1, fontWeight: on ? 700 : 400, cursor: "pointer", fontFamily: "inherit", minHeight: 48 }}>
                         {m[1]}
                       </button>
                     );
@@ -3853,21 +4009,21 @@ function App() {
                 </div>
               </div>
 
-              <div style={{ fontSize: 9, letterSpacing: 2, color: "#666", marginBottom: 10 }}>РЕЗЕРВНАЯ КОПИЯ</div>
-              <div style={{ background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "14px 14px", marginBottom: 24 }}>
-                <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6, marginBottom: 10 }}>
+              <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-666)", marginBottom: 10 }}>РЕЗЕРВНАЯ КОПИЯ</div>
+              <div style={{ background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "14px 14px", marginBottom: 24 }}>
+                <div style={{ fontSize: 11, color: "var(--tx-888)", lineHeight: 1.6, marginBottom: 10 }}>
                   Все данные хранятся только на этом телефоне. Сохрани копию в Файлы  -  история переживёт сброс Safari и переустановку. Загрузка копии добавляет недостающие тренировки и ничего не стирает.
                 </div>
-                <div style={{ fontSize: 10, color: "#666", marginBottom: 12 }}>
+                <div style={{ fontSize: 10, color: "var(--tx-666)", marginBottom: 12 }}>
                   Последняя копия: {data.lastBackup ? new Date(data.lastBackup + "T12:00:00").toLocaleDateString("ru", { day: "numeric", month: "long" }) : "ещё не сохранялась"}
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={exportBackup}
-                    style={{ flex: 1, padding: "12px 8px", borderRadius: 9, border: "1px solid #f7a84460", background: "#f7a84412", color: "#f7a844", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", minHeight: 48 }}>
+                    style={{ flex: 1, padding: "12px 8px", borderRadius: 9, border: "1px solid #f7a84460", background: "#f7a84412", color: "var(--tx-f7a844)", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", minHeight: 48 }}>
                     СОХРАНИТЬ
                   </button>
                   <button onClick={() => importRef.current && importRef.current.click()}
-                    style={{ flex: 1, padding: "12px 8px", borderRadius: 9, border: "1px solid #2a2a2a", background: "#0c0c0f", color: "#999", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 48 }}>
+                    style={{ flex: 1, padding: "12px 8px", borderRadius: 9, border: "1px solid var(--bd-2a2a2a)", background: "var(--bg-0c0c0f)", color: "var(--tx-999)", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 48 }}>
                     ЗАГРУЗИТЬ
                   </button>
                 </div>
@@ -3875,8 +4031,8 @@ function App() {
                   onChange={e => { importBackup(e.target.files && e.target.files[0]); e.target.value = ""; }} />
               </div>
 
-              <div style={{ fontSize: 9, letterSpacing: 2, color: "#666", marginBottom: 10 }}>РАСПИСАНИЕ НЕДЕЛИ</div>
-              <div style={{ background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "14px 12px", marginBottom: 24 }}>
+              <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-666)", marginBottom: 10 }}>РАСПИСАНИЕ НЕДЕЛИ</div>
+              <div style={{ background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "14px 12px", marginBottom: 24 }}>
                 {["ПН","ВТ","СР","ЧТ","ПТ","СБ","ВС"].map((dayLabel, idx) => {
                   const sched = data.schedule || ["push",null,"pull",null,"legs",null,null];
                   const current = sched[idx];
@@ -3892,14 +4048,14 @@ function App() {
                   };
                   const wObj = current ? getWorkout(current) : null;
                   return (
-                    <div key={dayLabel} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: idx < 6 ? "1px solid #111" : "none" }}>
-                      <div style={{ fontSize: 12, color: "#666", width: 28, flexShrink: 0 }}>{dayLabel}</div>
-                      <div style={{ flex: 1, fontSize: 11, color: wObj ? "#ddd" : "#2a2a2a", fontWeight: wObj ? 600 : 400 }}>
+                    <div key={dayLabel} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: idx < 6 ? "1px solid var(--bd-111)" : "none" }}>
+                      <div style={{ fontSize: 12, color: "var(--tx-666)", width: 28, flexShrink: 0 }}>{dayLabel}</div>
+                      <div style={{ flex: 1, fontSize: 11, color: wObj ? "var(--tx-ddd)" : "var(--tx-2a2a2a)", fontWeight: wObj ? 600 : 400 }}>
                         {wObj ? wObj.name : "Отдых"}
                       </div>
                       {wObj && <div style={{ width: 6, height: 6, borderRadius: "50%", background: wObj.color, flexShrink: 0 }} />}
                       <button onClick={cycleNext}
-                        style={{ minWidth: 48, minHeight: 40, padding: "8px 12px", borderRadius: 8, border: "1px solid #2a2a2a", background: "#111", color: "#888", fontSize: 13, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+                        style={{ minWidth: 48, minHeight: 40, padding: "8px 12px", borderRadius: 8, border: "1px solid var(--bd-2a2a2a)", background: "var(--bg-111)", color: "var(--tx-888)", fontSize: 13, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
                         {"<>"}
                       </button>
                     </div>
@@ -3907,21 +4063,21 @@ function App() {
                 })}
               </div>
 
-              <div style={{ fontSize: 9, letterSpacing: 2, color: "#444", marginBottom: 10 }}>БАЗОВЫЕ ПРОГРАММЫ</div>
+              <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-444)", marginBottom: 10 }}>БАЗОВЫЕ ПРОГРАММЫ</div>
               {Object.entries(PROGRAM).map(([key, day]) => (
-                <div key={key} style={{ background: "#0f0f12", border: `1px solid #1a1a22`, borderLeft: `3px solid ${day.color}`, borderRadius: 10, padding: "14px 16px", marginBottom: 8 }}>
+                <div key={key} style={{ background: "var(--bg-0f0f12)", border: `1px solid var(--bd-1a1a22)`, borderLeft: `3px solid ${day.color}`, borderRadius: 10, padding: "14px 16px", marginBottom: 8 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 3 }}>{day.name}</div>
-                      <div style={{ fontSize: 10, color: "#444" }}>{day.sub}</div>
-                      <div style={{ fontSize: 9, color: "#666", marginTop: 4 }}>{day.exercises.length} упражнений</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "var(--tx-fff)", marginBottom: 3 }}>{day.name}</div>
+                      <div style={{ fontSize: 10, color: "var(--tx-444)" }}>{day.sub}</div>
+                      <div style={{ fontSize: 9, color: "var(--tx-666)", marginTop: 4 }}>{day.exercises.length} упражнений</div>
                     </div>
                     <button onClick={() => { setActiveDay(key); setPlanScreen(null); setActiveTab("workout"); }}
-                      style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${day.color}60`, background: `${day.color}15`, color: day.color, fontSize: 9, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+                      style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${day.color}60`, background: `${day.color}15`, color: ink(day.color), fontSize: 9, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
                       ОТКРЫТЬ
                     </button>
                     <button onClick={() => forkPreset(key)}
-                      style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #2a2a2a", background: "none", color: "#777", fontSize: 9, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+                      style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid var(--bd-2a2a2a)", background: "none", color: "var(--tx-777)", fontSize: 9, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
                       ИЗМЕНИТЬ
                     </button>
                   </div>
@@ -3931,20 +4087,20 @@ function App() {
               {/* Custom workouts */}
               {Object.keys(data.customWorkouts || {}).length > 0 && (
                 <>
-                  <div style={{ fontSize: 9, letterSpacing: 2, color: "#444", marginTop: 20, marginBottom: 10 }}>МОИ ТРЕНИРОВКИ</div>
+                  <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-444)", marginTop: 20, marginBottom: 10 }}>МОИ ТРЕНИРОВКИ</div>
                   {Object.entries(data.customWorkouts).map(([id, cw]) => (
-                    <div key={id} style={{ background: "#0f0f12", border: "1px solid #1a1a22", borderLeft: `3px solid ${cw.color}`, borderRadius: 10, padding: "14px 16px", marginBottom: 8 }}>
+                    <div key={id} style={{ background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderLeft: `3px solid ${cw.color}`, borderRadius: 10, padding: "14px 16px", marginBottom: 8 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 3 }}>{cw.name}</div>
-                          <div style={{ fontSize: 9, color: "#666" }}>{cw.exercises.length} упражнений</div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--tx-fff)", marginBottom: 3 }}>{cw.name}</div>
+                          <div style={{ fontSize: 9, color: "var(--tx-666)" }}>{cw.exercises.length} упражнений</div>
                         </div>
                         <button onClick={() => { setActiveDay(id); setPlanScreen(null); setActiveTab("workout"); }}
-                          style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${cw.color}60`, background: `${cw.color}15`, color: cw.color, fontSize: 9, cursor: "pointer", fontFamily: "inherit" }}>ОТКРЫТЬ</button>
+                          style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${cw.color}60`, background: `${cw.color}15`, color: ink(cw.color), fontSize: 9, cursor: "pointer", fontFamily: "inherit" }}>ОТКРЫТЬ</button>
                         <button onClick={() => startBuilder(id)}
-                          style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #2a2a2a", background: "none", color: "#555", fontSize: 9, cursor: "pointer", fontFamily: "inherit" }}>ИЗМЕНИТЬ</button>
+                          style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid var(--bd-2a2a2a)", background: "none", color: "var(--tx-555)", fontSize: 9, cursor: "pointer", fontFamily: "inherit" }}>ИЗМЕНИТЬ</button>
                         <button onClick={() => deleteCustomWorkout(id)}
-                          style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #3a1a1a", background: "none", color: "#883333", fontSize: 9, cursor: "pointer", fontFamily: "inherit" }}>УДАЛИТЬ</button>
+                          style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid var(--bd-3a1a1a)", background: "none", color: "var(--tx-883333)", fontSize: 9, cursor: "pointer", fontFamily: "inherit" }}>УДАЛИТЬ</button>
                       </div>
                     </div>
                   ))}
@@ -3953,9 +4109,9 @@ function App() {
 
               {/* Create new */}
               <div style={{ marginTop: 24 }}>
-                <div style={{ fontSize: 9, letterSpacing: 2, color: "#444", marginBottom: 10 }}>СОЗДАТЬ СВОЮ</div>
+                <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-444)", marginBottom: 10 }}>СОЗДАТЬ СВОЮ</div>
                 <button onClick={() => startBuilder(null)}
-                  style={{ width: "100%", padding: 16, background: "none", border: "1px dashed #2a2a2a", borderRadius: 10, color: "#555", fontSize: 11, letterSpacing: 2, cursor: "pointer", fontFamily: "inherit" }}>
+                  style={{ width: "100%", padding: 16, background: "none", border: "1px dashed var(--bd-2a2a2a)", borderRadius: 10, color: "var(--tx-555)", fontSize: 11, letterSpacing: 2, cursor: "pointer", fontFamily: "inherit" }}>
                   + НОВАЯ ТРЕНИРОВКА
                 </button>
               </div>
@@ -3974,34 +4130,34 @@ function App() {
         const groups = {};
         filtered.forEach(e => { const g = e._group || "Другое"; if (!groups[g]) groups[g] = []; groups[g].push(e); });
         return (
-          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center" }}
+          <div style={{ position: "fixed", inset: 0, background: "var(--scrim)", zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center" }}
             onClick={() => setAddExModal(false)}>
             <div onClick={e => e.stopPropagation()}
-              style={{ background: "#111", borderRadius: "16px 16px 0 0", padding: "20px 20px calc(30px + env(safe-area-inset-bottom))", width: "100%", maxWidth: 560, maxHeight: "85vh", overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
+              style={{ background: "var(--bg-111)", borderRadius: "16px 16px 0 0", padding: "20px 20px calc(30px + env(safe-area-inset-bottom))", width: "100%", maxWidth: 560, maxHeight: "85vh", overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>ДОБАВИТЬ УПРАЖНЕНИЕ</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--tx-fff)" }}>ДОБАВИТЬ УПРАЖНЕНИЕ</div>
                 <button onClick={() => setAddExModal(false)}
-                  style={{ width: 40, height: 40, borderRadius: 10, border: "1px solid #2a2a2a", background: "#0c0c0f", color: "#888", fontSize: 18, cursor: "pointer", fontFamily: "inherit" }}>x</button>
+                  style={{ width: 40, height: 40, borderRadius: 10, border: "1px solid var(--bd-2a2a2a)", background: "var(--bg-0c0c0f)", color: "var(--tx-888)", fontSize: 18, cursor: "pointer", fontFamily: "inherit" }}>x</button>
               </div>
               <input value={addExSearch} onChange={e => setAddExSearch(e.target.value)}
                 placeholder="Поиск по названию или группе..."
-                style={{ width: "100%", background: "#0c0c0f", border: "1px solid #2a2a2a", borderRadius: 10, padding: "12px 14px", color: "#fff", fontSize: 16, fontFamily: "inherit", outline: "none", marginBottom: 16, boxSizing: "border-box" }} />
+                style={{ width: "100%", background: "var(--bg-0c0c0f)", border: "1px solid var(--bd-2a2a2a)", borderRadius: 10, padding: "12px 14px", color: "var(--tx-fff)", fontSize: 16, fontFamily: "inherit", outline: "none", marginBottom: 16, boxSizing: "border-box" }} />
               {Object.entries(groups).map(([group, list]) => (
                 <div key={group} style={{ marginBottom: 18 }}>
-                  <div style={{ fontSize: 10, letterSpacing: 2, color: "#888", marginBottom: 8, paddingBottom: 6, borderBottom: "1px solid #1a1a22", display: "flex", justifyContent: "space-between" }}>
+                  <div style={{ fontSize: 10, letterSpacing: 2, color: "var(--tx-888)", marginBottom: 8, paddingBottom: 6, borderBottom: "1px solid var(--bd-1a1a22)", display: "flex", justifyContent: "space-between" }}>
                     <span>{group.toUpperCase()}</span>
-                    <span style={{ color: "#555" }}>{list.length}</span>
+                    <span style={{ color: "var(--tx-555)" }}>{list.length}</span>
                   </div>
                   {list.map(ex => {
                     const already = inSession.indexOf(ex.id) >= 0;
                     return (
                       <div key={ex.id} onClick={() => { if (!already) { addExerciseToSession(ex); setAddExModal(false); } }}
-                        style={{ display: "flex", alignItems: "center", gap: 10, background: already ? "#0a0a0c" : "#0f0f12", border: `1px solid ${already ? "#161620" : "#1a1a22"}`, borderRadius: 10, padding: "12px 14px", marginBottom: 6, cursor: already ? "default" : "pointer", opacity: already ? 0.45 : 1 }}>
+                        style={{ display: "flex", alignItems: "center", gap: 10, background: already ? "var(--bg-0a0a0c)" : "var(--bg-0f0f12)", border: `1px solid ${already ? "var(--bd-161620)" : "var(--bd-1a1a22)"}`, borderRadius: 10, padding: "12px 14px", marginBottom: 6, cursor: already ? "default" : "pointer", opacity: already ? 0.45 : 1 }}>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, color: already ? "#666" : "#fff", fontWeight: 600 }}>{ex.name}</div>
-                          <div style={{ fontSize: 10, color: "#666", marginTop: 3 }}>{ex.sets} x {ex.reps} | {ex.rest}{ex.warn ? "  !" : ""}</div>
+                          <div style={{ fontSize: 13, color: already ? "var(--tx-666)" : "var(--tx-fff)", fontWeight: 600 }}>{ex.name}</div>
+                          <div style={{ fontSize: 10, color: "var(--tx-666)", marginTop: 3 }}>{ex.sets} x {ex.reps} | {ex.rest}{ex.warn ? "  !" : ""}</div>
                         </div>
-                        <div style={{ fontSize: 18, color: already ? "#444" : w.color, flexShrink: 0 }}>{already ? "v" : "+"}</div>
+                        <div style={{ fontSize: 18, color: already ? "var(--tx-444)" : ink(w.color), flexShrink: 0 }}>{already ? "v" : "+"}</div>
                       </div>
                     );
                   })}
@@ -4016,18 +4172,18 @@ function App() {
       {typeof BetaOverlay === "function" && <BetaOverlay data={data} setData={setData} showToast={showToast} />}
 
       {savePrompt && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: "0 0 calc(40px + env(safe-area-inset-bottom))" }}
+        <div style={{ position: "fixed", inset: 0, background: "var(--scrim-lite)", zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: "0 0 calc(40px + env(safe-area-inset-bottom))" }}
           onClick={() => setSavePrompt(false)}>
           <div onClick={e => e.stopPropagation()}
-            style={{ width: "100%", maxWidth: 480, background: "#111116", border: "1px solid #2a2a2a", borderRadius: 16, padding: "24px 20px", margin: "0 16px" }}>
-            <div style={{ fontSize: 11, color: "#555", letterSpacing: 2, marginBottom: 8 }}>ТРЕНИРОВКА</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: "#fff", marginBottom: 6 }}>Сохранить тренировку?</div>
-            <div style={{ fontSize: 12, color: "#3a3a3a", marginBottom: 24, lineHeight: 1.5 }}>
+            style={{ width: "100%", maxWidth: 480, background: "var(--bg-111)", border: "1px solid var(--bd-2a2a2a)", borderRadius: 16, padding: "24px 20px", margin: "0 16px" }}>
+            <div style={{ fontSize: 11, color: "var(--tx-555)", letterSpacing: 2, marginBottom: 8 }}>ТРЕНИРОВКА</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "var(--tx-fff)", marginBottom: 6 }}>Сохранить тренировку?</div>
+            <div style={{ fontSize: 12, color: "var(--tx-3a3a3a)", marginBottom: 24, lineHeight: 1.5 }}>
               {getDayProgress().exDone} упражнений выполнено. Можно продолжить или сохранить прогресс.
             </div>
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={() => setSavePrompt(false)}
-                style={{ flex: 1, padding: 14, background: "none", border: "1px solid #222", borderRadius: 10, color: "#555", fontSize: 11, letterSpacing: 2, cursor: "pointer", fontFamily: "inherit" }}>
+                style={{ flex: 1, padding: 14, background: "none", border: "1px solid var(--bd-222)", borderRadius: 10, color: "var(--tx-555)", fontSize: 11, letterSpacing: 2, cursor: "pointer", fontFamily: "inherit" }}>
                 ПРОДОЛЖИТЬ
               </button>
               <button onClick={() => { finishWorkout(); setSavePrompt(false); }}
@@ -4044,48 +4200,48 @@ function App() {
         const currentSwap = (data.swaps && data.swaps[sessionKey] && data.swaps[sessionKey][swapModal]);
         const alts = ALTERNATIVES[swapModal] || [];
         return (
-          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center" }}
+          <div style={{ position: "fixed", inset: 0, background: "var(--scrim)", zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center" }}
             onClick={() => setSwapModal(null)}>
             <div onClick={e => e.stopPropagation()}
-              style={{ background: "#111", borderRadius: "16px 16px 0 0", padding: "24px 20px calc(40px + env(safe-area-inset-bottom))", width: "100%", maxWidth: 560, maxHeight: "80vh", overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
-              <div style={{ fontSize: 9, letterSpacing: 3, color: "#444", marginBottom: 6 }}>ВЫБЕРИ УПРАЖНЕНИЕ</div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: "#fff", marginBottom: 20 }}>{baseEx.name}</div>
+              style={{ background: "var(--bg-111)", borderRadius: "16px 16px 0 0", padding: "24px 20px calc(40px + env(safe-area-inset-bottom))", width: "100%", maxWidth: 560, maxHeight: "80vh", overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
+              <div style={{ fontSize: 9, letterSpacing: 3, color: "var(--tx-444)", marginBottom: 6 }}>ВЫБЕРИ УПРАЖНЕНИЕ</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "var(--tx-fff)", marginBottom: 20 }}>{baseEx.name}</div>
 
               {/* Оригинал */}
               <div onClick={() => swapExercise(swapModal, swapModal)}
-                style={{ padding: "14px 16px", borderRadius: 10, border: `1px solid ${!currentSwap ? w.color : "#2a2a2a"}`, background: !currentSwap ? `${w.color}15` : "#0c0c0f", marginBottom: 8, cursor: "pointer" }}>
+                style={{ padding: "14px 16px", borderRadius: 10, border: `1px solid ${!currentSwap ? w.color : "var(--bd-2a2a2a)"}`, background: !currentSwap ? `${w.color}15` : "var(--bg-0c0c0f)", marginBottom: 8, cursor: "pointer" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: !currentSwap ? w.color : "#333", flexShrink: 0 }} />
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: !currentSwap ? w.color : "var(--bg-333)", flexShrink: 0 }} />
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, color: !currentSwap ? "#fff" : "#888", fontWeight: 600, marginBottom: 2 }}>{baseEx.name}</div>
-                    <div style={{ fontSize: 10, color: "#3a3a3a" }}>{baseEx.sets} x {baseEx.reps}  |  оригинал</div>
+                    <div style={{ fontSize: 13, color: !currentSwap ? "var(--tx-fff)" : "var(--tx-888)", fontWeight: 600, marginBottom: 2 }}>{baseEx.name}</div>
+                    <div style={{ fontSize: 10, color: "var(--tx-3a3a3a)" }}>{baseEx.sets} x {baseEx.reps}  |  оригинал</div>
                   </div>
-                  {!currentSwap && <div style={{ fontSize: 10, color: w.color }}>+</div>}
+                  {!currentSwap && <div style={{ fontSize: 10, color: ink(w.color) }}>+</div>}
                 </div>
               </div>
 
               {/* Альтернативы */}
-              <div style={{ fontSize: 9, letterSpacing: 2, color: "#444", margin: "16px 0 8px" }}>АЛЬТЕРНАТИВЫ</div>
+              <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-444)", margin: "16px 0 8px" }}>АЛЬТЕРНАТИВЫ</div>
               {alts.map(alt => {
                 const isActive = currentSwap === alt.id;
                 return (
                   <div key={alt.id} onClick={() => swapExercise(swapModal, alt.id)}
-                    style={{ padding: "14px 16px", borderRadius: 10, border: `1px solid ${isActive ? w.color : "#1a1a22"}`, background: isActive ? `${w.color}15` : "#0c0c0f", marginBottom: 8, cursor: "pointer" }}>
+                    style={{ padding: "14px 16px", borderRadius: 10, border: `1px solid ${isActive ? w.color : "var(--bd-1a1a22)"}`, background: isActive ? `${w.color}15` : "var(--bg-0c0c0f)", marginBottom: 8, cursor: "pointer" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: isActive ? w.color : "#2a2a2a", flexShrink: 0 }} />
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: isActive ? w.color : "var(--bg-2a2a2a)", flexShrink: 0 }} />
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 13, color: isActive ? "#fff" : "#bbb", fontWeight: 600, marginBottom: 2 }}>{alt.name}</div>
-                        <div style={{ fontSize: 10, color: "#3a3a3a" }}>{alt.sets} x {alt.reps}  |  {alt.rest}</div>
-                        {alt.steps[0] && <div style={{ fontSize: 11, color: "#555", marginTop: 4 }}>{alt.steps[0]}</div>}
+                        <div style={{ fontSize: 13, color: isActive ? "var(--tx-fff)" : "var(--tx-bbb)", fontWeight: 600, marginBottom: 2 }}>{alt.name}</div>
+                        <div style={{ fontSize: 10, color: "var(--tx-3a3a3a)" }}>{alt.sets} x {alt.reps}  |  {alt.rest}</div>
+                        {alt.steps[0] && <div style={{ fontSize: 11, color: "var(--tx-555)", marginTop: 4 }}>{alt.steps[0]}</div>}
                       </div>
-                      {isActive && <div style={{ fontSize: 10, color: w.color }}>+</div>}
+                      {isActive && <div style={{ fontSize: 10, color: ink(w.color) }}>+</div>}
                     </div>
                   </div>
                 );
               })}
 
               <button onClick={() => setSwapModal(null)}
-                style={{ width: "100%", padding: 14, background: "#1a1a22", border: "1px solid #2a2a2a", borderRadius: 10, color: "#666", fontSize: 12, cursor: "pointer", marginTop: 8, fontFamily: "inherit" }}>
+                style={{ width: "100%", padding: 14, background: "var(--bg-1a1a22)", border: "1px solid var(--bd-2a2a2a)", borderRadius: 10, color: "var(--tx-666)", fontSize: 12, cursor: "pointer", marginTop: 8, fontFamily: "inherit" }}>
                 ЗАКРЫТЬ
               </button>
             </div>
@@ -4102,15 +4258,15 @@ function App() {
         const circumference = 2 * Math.PI * 26;
         return (
           <div style={{ position: "fixed", bottom: "calc(24px + env(safe-area-inset-bottom))", left: "50%", transform: "translateX(-50%)", zIndex: 500, display: "flex", alignItems: "center", gap: 14,
-            background: done ? "#0f1a0f" : "#111118", border: `1px solid ${done ? "#00d4aa50" : "#2a2a35"}`,
-            borderRadius: 20, padding: "12px 20px 12px 14px", boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+            background: done ? "var(--bg-0e1a13)" : "var(--bg-111)", border: `1px solid ${done ? "#00d4aa50" : "var(--bd-2a2a35)"}`,
+            borderRadius: 20, padding: "12px 20px 12px 14px", boxShadow: "var(--shadow-pop)",
             minWidth: 260, transition: "border-color 0.3s" }}>
             {/* Ring */}
             <div style={{ position: "relative", width: 56, height: 56, flexShrink: 0 }}>
               <svg width="56" height="56" style={{ transform: "rotate(-90deg)" }}>
-                <circle cx="28" cy="28" r="26" fill="none" stroke="#1a1a22" strokeWidth="3" />
+                <circle cx="28" cy="28" r="26" fill="none" strokeWidth="3" style={{ stroke: "var(--bd-1a1a22)" }} />
                 <circle cx="28" cy="28" r="26" fill="none"
-                  stroke={done ? "#00d4aa" : w.color}
+                  stroke={ink(done ? "#00d4aa" : w.color)}
                   strokeWidth="3"
                   strokeDasharray={circumference}
                   strokeDashoffset={circumference * (1 - pct / 100)}
@@ -4120,32 +4276,32 @@ function App() {
               <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 {done
                   ? <span style={{ fontSize: 20 }}>💪</span>
-                  : <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: "monospace" }}>
+                  : <span style={{ fontSize: 13, fontWeight: 700, color: "var(--tx-fff)", fontFamily: "monospace" }}>
                       {mins > 0 ? `${mins}:${String(secs).padStart(2,"0")}` : secs}
                     </span>}
               </div>
             </div>
             {/* Text */}
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 11, color: done ? "#00d4aa" : "#888", marginBottom: 3, letterSpacing: 1 }}>
+              <div style={{ fontSize: 11, color: done ? "var(--tx-00d4aa)" : "var(--tx-888)", marginBottom: 3, letterSpacing: 1 }}>
                 {done ? "ОТДЫХ ОКОНЧЕН" : "ОТДЫХ"}
               </div>
               {!done && (
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                  <button onClick={() => addTime(30)} style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #2a2a35", background: "#1a1a22", color: "#888", fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>+30с</button>
-                  <button onClick={() => addTime(60)} style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #2a2a35", background: "#1a1a22", color: "#888", fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>+1мин</button>
+                  <button onClick={() => addTime(30)} style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid var(--bd-2a2a35)", background: "var(--bg-1a1a22)", color: "var(--tx-888)", fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>+30с</button>
+                  <button onClick={() => addTime(60)} style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid var(--bd-2a2a35)", background: "var(--bg-1a1a22)", color: "var(--tx-888)", fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>+1мин</button>
                   {"Notification" in window && Notification.permission !== "denied" && (
                     notifEnabled
                       ? <span title="Уведомления включены" style={{ fontSize: 12, opacity: 0.5 }}>🔔</span>
-                      : <button onClick={requestNotifPermission} title="Включить уведомления" style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #33334a", background: "#1a1a2e", color: "#7788dd", fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>🔔 уведомить</button>
+                      : <button onClick={requestNotifPermission} title="Включить уведомления" style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid var(--bd-33334a)", background: "var(--bg-1a1a2e)", color: "var(--tx-7788dd)", fontSize: 10, cursor: "pointer", fontFamily: "inherit" }}>🔔 уведомить</button>
                   )}
                 </div>
               )}
             </div>
             {/* Skip */}
             <button onClick={stopTimer}
-              style={{ background: done ? "#00d4aa" : "#1a1a22", border: `1px solid ${done ? "#00d4aa" : "#2a2a35"}`, borderRadius: 10,
-                padding: done ? "6px 14px" : "6px 10px", color: done ? "#000" : "#555",
+              style={{ background: done ? "#00d4aa" : "var(--bg-1a1a22)", border: `1px solid ${done ? "#00d4aa" : "var(--bd-2a2a35)"}`, borderRadius: 10,
+                padding: done ? "6px 14px" : "6px 10px", color: done ? "#000" : "var(--tx-555)",
                 fontSize: done ? 11 : 10, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
                 letterSpacing: done ? 1 : 0, whiteSpace: "nowrap" }}>
               {done ? "ГОТОВ" : "x"}
@@ -4155,7 +4311,7 @@ function App() {
       })()}
 
       {toast && (
-        <div style={{ position: "fixed", bottom: timer ? "calc(130px + env(safe-area-inset-bottom))" : "calc(50px + env(safe-area-inset-bottom))", left: "50%", transform: "translateX(-50%)", background: "#1a1a22", border: "1px solid #2a2a2a", borderRadius: 8, padding: "10px 20px", fontSize: 11, color: "#ccc", letterSpacing: 1, zIndex: 999, pointerEvents: "none" }}>
+        <div style={{ position: "fixed", bottom: timer ? "calc(130px + env(safe-area-inset-bottom))" : "calc(50px + env(safe-area-inset-bottom))", left: "50%", transform: "translateX(-50%)", background: "var(--bg-1a1a22)", border: "1px solid var(--bd-2a2a2a)", borderRadius: 8, padding: "10px 20px", fontSize: 11, color: "var(--tx-ccc)", letterSpacing: 1, zIndex: 999, pointerEvents: "none" }}>
           {toast}
         </div>
       )}
