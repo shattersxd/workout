@@ -70,6 +70,18 @@
        пропали бы. Поэтому в светлой теме полоса под статус-баром остаётся тёмной (в Safari
        без установки на экран высота полосы 0). */
     :root[data-theme="light"] body::before{content:"";position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top);background:#0c0c0f;z-index:3000;pointer-events:none}
+    /* Анимации приложения. Всё, что движется, помечено классом app-anim: у людей с включённым "уменьшить
+       движение" в iOS анимаций нет (тест проверяет правило). */
+    @keyframes menuFade{from{opacity:0}to{opacity:1}}
+    @keyframes menuSlide{from{transform:translateX(100%)}to{transform:none}}
+    @keyframes achIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+    @keyframes achCard{from{opacity:0;transform:scale(.85) translateY(24px)}to{opacity:1;transform:none}}
+    @keyframes achPop{0%{opacity:0;transform:scale(.2) rotate(-25deg)}55%{opacity:1;transform:scale(1.25) rotate(8deg)}100%{opacity:1;transform:none}}
+    @keyframes achRing{from{opacity:.8;transform:scale(.7)}to{opacity:0;transform:scale(2)}}
+    @keyframes achConf{0%{opacity:1;transform:translate(0,0) rotate(0)}100%{opacity:0;transform:translate(var(--dx),380px) rotate(var(--rot))}}
+    @keyframes achQ{0%,55%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(.3) rotate(90deg)}}
+    @keyframes achText{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+    @media (prefers-reduced-motion: reduce){.app-anim,.app-anim *{animation:none!important}}
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
     html{height:100%;background:var(--bg-0c0c0f)}
     body{min-height:100%;background:var(--bg-0c0c0f);max-width:100vw}
@@ -1390,19 +1402,52 @@ const PROGRAM = {
     ]
   },
 };
+// Ачивки. Получена, когда показатель achStats(...)[type] не меньше req (см. блок "Ачивки: подсчёт" ниже).
+// group - раздел на вкладке (ACH_GROUPS), secret - в списке знак вопроса, пока не получена. id старых
+// двенадцати (ACH_LEGACY) менять нельзя: по ним хранится data.achSeen. Иконки - эмодзи без селекторов
+// вариации и склейки (в строках разрешены только кириллица, градус и эмодзи).
 const ACHIEVEMENTS = [
-  { id: "w1",     icon: "💪", name: "Первый шаг",     req: 1,  type: "workouts" },
-  { id: "w5",     icon: "🔥", name: "5 тренировок",   req: 5,  type: "workouts" },
-  { id: "w10",    icon: "⚡", name: "10 тренировок",  req: 10, type: "workouts" },
-  { id: "w25",    icon: "🏆", name: "25 тренировок",  req: 25, type: "workouts" },
-  { id: "w50",    icon: "👑", name: "50 тренировок",  req: 50, type: "workouts" },
-  { id: "w100",   icon: "🔱", name: "100 тренировок", req: 100,type: "workouts" },
-  { id: "str2",   icon: "📅", name: "2 недели",        req: 2,  type: "weeks" },
-  { id: "str4",   icon: "📆", name: "Месяц",           req: 4,  type: "weeks" },
-  { id: "str8",   icon: "🗓", name: "2 месяца",        req: 8,  type: "weeks" },
-  { id: "str12",  icon: "🌟", name: "3 месяца",        req: 12, type: "weeks" },
-  { id: "ppl1",   icon: "✅", name: "Первый PPL цикл", req: 1,  type: "cycles" },
-  { id: "ppl4",   icon: "🎯", name: "4 PPL цикла",    req: 4,  type: "cycles" },
+  // ПОСТОЯНСТВО
+  { id: "w1",     group: "consistency", icon: "💪", name: "Первый шаг",       req: 1,   type: "workouts", desc: "Заверши первую тренировку." },
+  { id: "w5",     group: "consistency", icon: "🔥", name: "5 тренировок",     req: 5,   type: "workouts", desc: "Заверши 5 тренировок." },
+  { id: "w10",    group: "consistency", icon: "⚡", name: "10 тренировок",    req: 10,  type: "workouts", desc: "Заверши 10 тренировок." },
+  { id: "w25",    group: "consistency", icon: "🏆", name: "25 тренировок",    req: 25,  type: "workouts", desc: "Заверши 25 тренировок." },
+  { id: "w50",    group: "consistency", icon: "👑", name: "50 тренировок",    req: 50,  type: "workouts", desc: "Заверши 50 тренировок." },
+  { id: "w100",   group: "consistency", icon: "🔱", name: "100 тренировок",   req: 100, type: "workouts", desc: "Заверши 100 тренировок. Это уже привычка." },
+  { id: "str2",   group: "consistency", icon: "📅", name: "2 недели",         req: 2,   type: "weeks",    desc: "2 недели подряд с полным циклом: в каждой Push, Pull и Legs." },
+  { id: "str4",   group: "consistency", icon: "📆", name: "Месяц",            req: 4,   type: "weeks",    desc: "4 недели подряд с полным циклом Push, Pull, Legs." },
+  { id: "str8",   group: "consistency", icon: "🗓", name: "2 месяца",         req: 8,   type: "weeks",    desc: "8 недель подряд с полным циклом." },
+  { id: "str12",  group: "consistency", icon: "🌟", name: "3 месяца",         req: 12,  type: "weeks",    desc: "12 недель подряд с полным циклом. Дисциплина на уровне." },
+  { id: "ppl1",   group: "consistency", icon: "✅", name: "Первый PPL цикл",  req: 1,   type: "cycles",   desc: "Заверши Push, Pull и Legs за одну неделю." },
+  { id: "ppl4",   group: "consistency", icon: "🎯", name: "4 PPL цикла",      req: 4,   type: "cycles",   desc: "Набери 4 недели с полным циклом, не обязательно подряд." },
+  { id: "half",   group: "consistency", icon: "🌱", name: "Полгода в строю",  req: 180, type: "span",     desc: "Прошло 180 дней с первой тренировки, и ты не пропадал надолго." },
+  { id: "year",   group: "consistency", icon: "🌳", name: "Год в строю",      req: 365, type: "span",     desc: "Целый год с приложением: 365 дней с первой тренировки без долгих пауз." },
+  // СИЛА И ОБЪЁМ
+  { id: "vol1",   group: "power",       icon: "🧱", name: "Первая тонна",     req: 1000,   type: "volume", desc: "Суммарный объём (сумма весов отмеченных подходов) достиг 1 тонны." },
+  { id: "vol10",  group: "power",       icon: "🚚", name: "10 тонн",          req: 10000,  type: "volume", desc: "Суммарный объём достиг 10 тонн." },
+  { id: "vol50",  group: "power",       icon: "🚀", name: "50 тонн",          req: 50000,  type: "volume", desc: "Суммарный объём достиг 50 тонн." },
+  { id: "vol100", group: "power",       icon: "🌋", name: "100 тонн",         req: 100000, type: "volume", desc: "Суммарный объём достиг 100 тонн. Серьёзная работа." },
+  { id: "max100", group: "power",       icon: "💯", name: "Клуб 100",         req: 100, type: "maxw", desc: "Подход с весом 100 кг и больше в любом упражнении." },
+  { id: "max150", group: "power",       icon: "🦍", name: "Клуб 150",         req: 150, type: "maxw", desc: "Подход с весом 150 кг и больше." },
+  { id: "max200", group: "power",       icon: "🐘", name: "Клуб 200",         req: 200, type: "maxw", desc: "Подход с весом 200 кг и больше." },
+  { id: "rec1",   group: "power",       icon: "📈", name: "Новый рекорд",     req: 1,   type: "records", desc: "Побей свой максимум в упражнении: вес выше, чем когда-либо раньше." },
+  { id: "rec10",  group: "power",       icon: "🥇", name: "10 рекордов",      req: 10,  type: "records", desc: "Поставь 10 личных рекордов в упражнениях." },
+  { id: "rec50",  group: "power",       icon: "🏅", name: "50 рекордов",      req: 50,  type: "records", desc: "Поставь 50 личных рекордов. Прогресс не остановить." },
+  // ДИСЦИПЛИНА
+  { id: "week4",  group: "discipline",  icon: "💥", name: "Неутомимый",       req: 4,   type: "perweek", desc: "4 тренировки за одну неделю." },
+  { id: "perf10", group: "discipline",  icon: "💎", name: "Без пропусков",    req: 10,  type: "perfect", desc: "10 тренировок, в которых отмечены все подходы." },
+  { id: "prun5",  group: "discipline",  icon: "🔗", name: "Цепочка",          req: 5,   type: "prun",    desc: "5 идеальных тренировок подряд: все подходы отмечены." },
+  { id: "var15",  group: "discipline",  icon: "🧭", name: "Исследователь",    req: 15,  type: "variety", desc: "Выполни 15 разных упражнений." },
+  { id: "var30",  group: "discipline",  icon: "🌍", name: "Энциклопедия",     req: 30,  type: "variety", desc: "Выполни 30 разных упражнений." },
+  { id: "own1",   group: "discipline",  icon: "🧩", name: "Свой путь",        req: 1,   type: "custom",  desc: "Создай свою тренировку в конструкторе." },
+  { id: "save1",  group: "discipline",  icon: "💾", name: "Страховка",        req: 1,   type: "backup",  desc: "Сохрани резервную копию в Файлы: история переживёт любой сброс." },
+  // СЕКРЕТНЫЕ
+  { id: "night",  group: "secret", secret: true, icon: "🦉", name: "Ночная смена",      req: 1, type: "night",    desc: "Заверши тренировку между полуночью и 5 утра." },
+  { id: "early",  group: "secret", secret: true, icon: "🌅", name: "Ранняя пташка",     req: 1, type: "early",    desc: "Заверши тренировку между 5 и 7 утра." },
+  { id: "twice",  group: "secret", secret: true, icon: "🥊", name: "Двойной удар",      req: 1, type: "double",   desc: "Проведи две разные тренировки в один день." },
+  { id: "ny",     group: "secret", secret: true, icon: "🎄", name: "Новогодний подход", req: 1, type: "newyear",  desc: "Потренируйся 31 декабря или 1 января." },
+  { id: "fri13",  group: "secret", secret: true, icon: "🃏", name: "Пятница, 13-е",     req: 1, type: "friday13", desc: "Потренируйся в пятницу, 13 числа." },
+  { id: "back",   group: "secret", secret: true, icon: "🔁", name: "Возвращение",       req: 1, type: "comeback", desc: "Вернись к тренировкам после перерыва в 14 дней и больше." },
 ];
 
 const WEEK_SCHEDULE = [
@@ -1616,6 +1661,153 @@ function formatVolume(kg) {
   return { value: (Math.round(v / 100) / 10).toFixed(1).replace(".", ","), unit: "ТОНН" };
 }
 
+// ---- Ачивки: подсчёт ----
+// Всё считается по журналу (data.history) и паре полей data. Показатель с именем a.type не меньше
+// a.req - ачивка получена (булевы показатели - 0 или 1). Журнал режется до HISTORY_LIMIT записей на
+// день, поэтому показатели - "по сохранившимся записям". Это чистая функция, без обращений к DOM и
+// localStorage: её исполняют тесты на синтетических журналах.
+const ACH_GROUPS = [
+  { id: "consistency", title: "ПОСТОЯНСТВО" },
+  { id: "power", title: "СИЛА И ОБЪЁМ" },
+  { id: "discipline", title: "ДИСЦИПЛИНА" },
+  { id: "secret", title: "СЕКРЕТНЫЕ" },
+];
+// Двенадцать ачивок, которые были до расширения: у кого они уже получены, тем праздник не устраиваем
+const ACH_LEGACY = ["w1", "w5", "w10", "w25", "w50", "w100", "str2", "str4", "str8", "str12", "ppl1", "ppl4"];
+// Больше новых ачивок за раз (после загрузки копии, например) - не праздник, а одна строка в тосте
+const ACH_BATCH_MAX = 4;
+
+function achDay(key) {
+  const p = String(key).split("-");
+  return Math.floor(Date.UTC(+p[0], +p[1] - 1, +p[2]) / 86400000);
+}
+
+// today нужен только для текущего стрика недель; без него берём сегодняшнюю дату
+function achStats(data, today) {
+  const hist = data.history || {};
+  const all = [];
+  Object.keys(hist).forEach(function (k) {
+    (hist[k] || []).forEach(function (e) { if (e && e.date) all.push(e); });
+  });
+  // по порядку: дата, затем время сохранения
+  all.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : (a.ts || 0) - (b.ts || 0); });
+
+  const st = {
+    workouts: all.length, weeks: 0, curStreak: 0, cycles: 0, perweek: 0, span: 0,
+    perfect: 0, prun: 0, variety: 0, volume: 0, maxw: 0, records: 0,
+    custom: Object.keys(data.customWorkouts || {}).length, backup: data.lastBackup ? 1 : 0,
+    night: 0, early: 0, double: 0, newyear: 0, friday13: 0, comeback: 0,
+  };
+  if (!all.length) return st;
+
+  // Недели считаем от понедельника 2024-01-01: номер недели = целое число недель с этой даты
+  const base = achDay("2024-01-01");
+  const weekOf = function (date) { return Math.floor((achDay(date) - base) / 7); };
+  const byWeek = {};
+  const perDate = {};
+  all.forEach(function (e) {
+    const w = weekOf(e.date);
+    if (!byWeek[w]) byWeek[w] = { days: {}, count: 0 };
+    byWeek[w].days[e.workout] = true;
+    byWeek[w].count++;
+    perDate[e.date] = (perDate[e.date] || 0) + 1;
+  });
+  const full = {};
+  Object.keys(byWeek).forEach(function (w) {
+    const d = byWeek[w].days;
+    if (d.push && d.pull && d.legs) full[w] = true;
+    if (byWeek[w].count > st.perweek) st.perweek = byWeek[w].count;
+  });
+  const fullWeeks = Object.keys(full).map(Number).sort(function (a, b) { return a - b; });
+  st.cycles = fullWeeks.length;
+  // лучшая серия подряд идущих полных недель: по ней дают ачивки, поэтому она не пропадает посреди недели
+  let run = 0;
+  fullWeeks.forEach(function (w, i) {
+    run = i > 0 && fullWeeks[i - 1] === w - 1 ? run + 1 : 1;
+    if (run > st.weeks) st.weeks = run;
+  });
+  // текущая серия (для карточки СТРИК): неполная текущая неделя ещё не обрывает серию
+  const nowWeek = weekOf(today || todayKey());
+  let wk = full[nowWeek] ? nowWeek : nowWeek - 1;
+  while (full[wk]) { st.curStreak++; wk--; }
+
+  // охват: дней между первой и последней записью, но только если тренировки шли, а не одна давно и одна сейчас
+  const span = achDay(all[all.length - 1].date) - achDay(all[0].date);
+  st.span = all.length >= span / 10 ? span : 0;
+
+  // идеальные тренировки (все подходы отмечены) и самая длинная цепочка таких подряд
+  let pr = 0;
+  all.forEach(function (e) {
+    if (e.total > 0 && e.done >= e.total) { st.perfect++; pr++; if (pr > st.prun) st.prun = pr; }
+    else pr = 0;
+  });
+
+  // подходы: объём, максимальный вес, разные упражнения, личные рекорды (вес выше всех прежних; первое
+  // выполнение упражнения рекордом не считается)
+  const best = {};
+  const seenEx = {};
+  all.forEach(function (e) {
+    (e.detail || []).forEach(function (ex) {
+      if (!ex || !ex.sets) return;
+      let m = 0, any = false;
+      ex.sets.forEach(function (s) {
+        if (!s || !s.done) return;
+        any = true;
+        const w = parseFloat(s.w) || 0;
+        st.volume += w;
+        if (w > m) m = w;
+      });
+      if (any) seenEx[ex.id] = true;
+      if (m > st.maxw) st.maxw = m;
+      if (m > 0) {
+        if (best[ex.id] !== undefined && m > best[ex.id]) st.records++;
+        if (best[ex.id] === undefined || m > best[ex.id]) best[ex.id] = m;
+      }
+    });
+  });
+  st.volume = Math.round(st.volume);
+  st.variety = Object.keys(seenEx).length;
+
+  // время суток - только у записей, сохранённых вручную (у остальных ts может быть полуночью даты)
+  all.forEach(function (e) {
+    if (e.src !== "manual" || typeof e.ts !== "number") return;
+    const h = new Date(e.ts).getHours();
+    if (h < 5) st.night++;
+    else if (h < 7) st.early++;
+  });
+
+  // даты: две тренировки в один день, праздники, пятница 13-е, перерыв в две недели и больше
+  const dates = Object.keys(perDate).sort();
+  dates.forEach(function (d, i) {
+    if (perDate[d] >= 2) st.double = 1;
+    if (/-(12-31|01-01)$/.test(d)) st.newyear = 1;
+    const p = d.split("-");
+    if (+p[2] === 13 && new Date(Date.UTC(+p[0], +p[1] - 1, 13)).getUTCDay() === 5) st.friday13 = 1;
+    if (i > 0 && achDay(d) - achDay(dates[i - 1]) >= 14) st.comeback = 1;
+  });
+  return st;
+}
+
+function achUnlocked(st) {
+  return ACHIEVEMENTS.filter(function (a) { return (st[a.type] || 0) >= a.req; }).map(function (a) { return a.id; });
+}
+
+// Что делать с ачивками сейчас. seen - карта "id -> дата праздника" ("" - получена до появления праздников),
+// fresh - получены, но праздника ещё не было. Первый запуск после обновления (data.achSeen нет): старые
+// двенадцать запоминаем молча, а новые из них, что уже выполнены, празднуем.
+function achPlan(data, today) {
+  const unlocked = achUnlocked(achStats(data, today));
+  let seen = data.achSeen;
+  let migrate = false;
+  if (!seen) {
+    seen = {};
+    unlocked.forEach(function (id) { if (ACH_LEGACY.indexOf(id) >= 0) seen[id] = ""; });
+    migrate = true;
+  }
+  const fresh = unlocked.filter(function (id) { return !Object.prototype.hasOwnProperty.call(seen, id); });
+  return { seen: seen, migrate: migrate, fresh: fresh, bulk: fresh.length > ACH_BATCH_MAX };
+}
+
 function App() {
   const [data, setData] = useState(loadData);
   const [activeDay, setActiveDay] = useState(() => {
@@ -1644,9 +1836,9 @@ function App() {
   const lastPromptedExDone = useRef(0);
   const [toast, setToast] = useState(null);
   const [editMode, setEditMode] = useState(false);
-  // planScreen: null | "list" | "settings" (только в тестовой версии, из меню) | "builder" | {editing: id}
+  // planScreen: null | "list" | "settings" (оба открываются из меню) | "builder" | {editing: id}
   const [planScreen, setPlanScreen] = useState(null);
-  const [menuOpen, setMenuOpen] = useState(false);   // меню в шапке: есть только в тестовой версии
+  const [menuOpen, setMenuOpen] = useState(false);   // боковое меню в шапке
   const [builderName, setBuilderName] = useState("");
   const [builderColor, setBuilderColor] = useState("#4488ff");
   const [builderExercises, setBuilderExercises] = useState([]);
@@ -1687,9 +1879,38 @@ function App() {
     try { localStorage.setItem(THEME_KEY, p); } catch (e) {}
   };
 
+  // Ачивки: праздник при получении. achSeen - карта "id -> дата праздника"; achPlan решает, что празднуем,
+  // а что запоминаем молча (первый запуск после обновления, загрузка копии с кучей новых ачивок).
+  const [achQueue, setAchQueue] = useState([]);   // id ачивок, ждущих праздника
+  useEffect(() => {
+    const plan = achPlan(data, todayKey());
+    if (plan.migrate) {
+      setData(prev => (prev.achSeen ? prev : { ...prev, achSeen: plan.seen }));
+      return;
+    }
+    if (plan.bulk) {
+      const add = {};
+      plan.fresh.forEach(id => { add[id] = todayKey(); });
+      setData(prev => ({ ...prev, achSeen: { ...(prev.achSeen || {}), ...add } }));
+      showToast("Новых ачивок: " + plan.fresh.length + ". Смотри во вкладке АЧИВКИ");
+      return;
+    }
+    if (!plan.fresh.length) return;
+    // пауза, чтобы успел показаться тост "Тренировка сохранена!"
+    const t = setTimeout(() => setAchQueue(q => q.concat(plan.fresh.filter(id => q.indexOf(id) < 0))), 900);
+    return () => clearTimeout(t);
+  }, [data.history, data.customWorkouts, data.lastBackup, data.achSeen]);
+  function dismissAch() {
+    const id = achQueue[0];
+    if (!id) return;
+    setAchQueue(q => q.slice(1));
+    setData(prev => ({ ...prev, achSeen: { ...(prev.achSeen || {}), [id]: todayKey() } }));
+  }
+  const achNow = achQueue.length ? ACHIEVEMENTS.find(a => a.id === achQueue[0]) : null;
+
   // Экран не гаснет, пока открыта тренировка или разминка (Screen Wake Lock, iOS 16.4+).
   // Система снимает замок при сворачивании приложения - берём его заново, когда вернулись.
-  // Нет поддержки или отказ - молча живём как раньше. Выключается в "Мой план".
+  // Нет поддержки или отказ - молча живём как раньше. Выключается в "Настройки" (меню).
   const keepAwake = data.keepAwake !== false;
   const wakeRef = useRef(null);
   useEffect(() => {
@@ -2720,42 +2941,6 @@ function App() {
     return out;
   }
 
-  function computeAch() {
-    const allHistory = Object.values(data.history || {}).flat();
-    const totalWorkouts = allHistory.length;
-
-    // Complete PPL cycles (all 3 days in any week)
-    const byWeek = {};
-    allHistory.forEach(function(e) {
-      var d = new Date(e.date);
-      var week = Math.floor((d - new Date("2024-01-01")) / 604800000);
-      if (!byWeek[week]) byWeek[week] = {};
-      byWeek[week][e.workout] = true;
-    });
-    var cycles = Object.values(byWeek).filter(function(w) {
-      return w["push"] && w["pull"] && w["legs"];
-    }).length;
-
-    // Week streak of full cycles
-    var weekNums = Object.keys(byWeek).map(Number).sort(function(a,b){return b-a;});
-    var weekStreak = 0;
-    for (var i = 0; i < weekNums.length; i++) {
-      var w = byWeek[weekNums[i]];
-      if (w["push"] && w["pull"] && w["legs"]) {
-        if (i === 0 || weekNums[i-1] === weekNums[i] + 1) { weekStreak++; }
-        else { break; }
-      } else { break; }
-    }
-
-    var unlocked = {};
-    ACHIEVEMENTS.forEach(function(a) {
-      if (a.type === "workouts") unlocked[a.id] = totalWorkouts >= a.req;
-      else if (a.type === "weeks") unlocked[a.id] = weekStreak >= a.req;
-      else if (a.type === "cycles") unlocked[a.id] = cycles >= a.req;
-    });
-    return { totalWorkouts: totalWorkouts, weekStreak: weekStreak, cycles: cycles, unlocked: unlocked };
-  }
-
   function showToast(msg) { setToast(msg); setTimeout(() => setToast(null), 2500); }
   // Прошлые подходы упражнения в этом дне, новые -> старые: [{date, ws: ["60", "62.5"]}].
   // Два источника: журнал (detail) и сырые сессии. finishWorkout удаляет сессию после
@@ -2845,9 +3030,8 @@ function App() {
   const w = getWorkout(activeDay) || PROGRAM.push;
   const hasAlts = (id) => (ALTERNATIVES[id] || []).length > 0;
 
-  // Настройки одним блоком. В основной версии он стоит внутри "Мой план", в тестовой (есть меню,
-  // см. src/beta/menu.jsx) - на отдельном экране "Настройки", а "Мой план" остаётся про тренировки.
-  const hasMenu = typeof BetaMenu === "function";
+  // Настройки одним блоком: свой экран "Настройки" в меню (planScreen === "settings"), а "Мой план"
+  // остаётся про тренировки.
   const settingsSections = (
     <>
               <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-666)", marginBottom: 10 }}>ВЕС ГАНТЕЛЕЙ</div>
@@ -2964,13 +3148,7 @@ function App() {
                 <div style={{ fontSize: 10, color: "var(--tx-777)", marginBottom: 2 }}>сегодня</div>
                 <div style={{ fontSize: 13, color: "var(--tx-999)" }}>{new Date().toLocaleDateString("ru", { day: "numeric", month: "short" })}</div>
               </div>
-              {hasMenu ? <BetaMenuButton onClick={() => setMenuOpen(true)} /> : (
-                <button onClick={() => setPlanScreen("list")}
-                  style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "6px 10px", borderRadius: 8, border: "1px solid var(--bd-2a2a2a)", background: "var(--bg-0f0f12)", cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
-                  <span style={{ fontSize: 14, color: "var(--tx-666)", lineHeight: 1 }}>+</span>
-                  <span style={{ fontSize: 7, color: "var(--tx-777)", letterSpacing: 0.5 }}>ПЛАН</span>
-                </button>
-              )}
+              <MenuButton onClick={() => setMenuOpen(true)} />
             </div>
           </div>
           <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
@@ -3877,11 +4055,13 @@ function App() {
         {activeTab === "beta" && typeof BetaTab === "function" && <BetaTab data={data} setData={setData} showToast={showToast} />}
 
         {activeTab === "achievements" && (() => {
-          var ach = computeAch();
+          const st = achStats(data, todayKey());
+          const got = achUnlocked(st).length;
+          const total = ACHIEVEMENTS.length;
           return (
             <div style={{ paddingTop: 20 }}>
-              <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
-                {[["ВСЕГО",ach.totalWorkouts,"трен"],["СТРИК",ach.weekStreak,"нед"],["PPL",ach.cycles,"цикл"]].map(function(item) {
+              <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                {[["ВСЕГО", st.workouts, "трен"], ["СТРИК", st.curStreak, "нед"], ["PPL", st.cycles, "цикл"]].map(function(item) {
                   return (
                     <div key={item[0]} style={{ flex: 1, background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "12px 4px", textAlign: "center" }}>
                       <div style={{ fontSize: 20, fontWeight: 700, color: "var(--tx-ddd)", marginBottom: 2 }}>{item[1]}</div>
@@ -3890,20 +4070,43 @@ function App() {
                   );
                 })}
               </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {ACHIEVEMENTS.map(function(a) {
-                  var done = ach.unlocked[a.id];
-                  return (
-                    <div key={a.id} style={{ width: "calc(50% - 4px)", background: done ? "var(--bg-0e1a13)" : "var(--bg-0a0a0c)", border: "1px solid " + (done ? "#00d4aa25" : "var(--bd-111)"), borderRadius: 10, padding: "14px 12px", display: "flex", alignItems: "center", gap: 10, opacity: done ? 1 : 0.45 }}>
-                      <div style={{ fontSize: 22, filter: done ? "none" : "grayscale(1)" }}>{a.icon}</div>
-                      <div>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: done ? "var(--tx-ddd)" : "var(--tx-666)" }}>{a.name}</div>
-                        {done && <div style={{ fontSize: 9, color: "var(--tx-00d4aa)", marginTop: 2 }}>ПОЛУЧЕНО</div>}
-                      </div>
-                    </div>
-                  );
-                })}
+
+              <div style={{ marginBottom: 6 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, letterSpacing: 2, color: "var(--tx-666)", marginBottom: 8 }}>
+                  <span>ПОЛУЧЕНО</span><span>{got} / {total}</span>
+                </div>
+                <div style={{ height: 4, borderRadius: 2, background: "var(--bg-1a1a22)", overflow: "hidden" }}>
+                  <div style={{ width: (got / total * 100) + "%", height: "100%", borderRadius: 2, background: "#00d4aa" }} />
+                </div>
               </div>
+
+              {ACH_GROUPS.map(function(g) {
+                const list = ACHIEVEMENTS.filter(function(a) { return a.group === g.id; });
+                const gotG = list.filter(function(a) { return (st[a.type] || 0) >= a.req; }).length;
+                return (
+                  <div key={g.id}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, letterSpacing: 2, color: "var(--tx-666)", margin: "22px 0 10px" }}>
+                      <span>{g.title}</span><span>{gotG} / {list.length}</span>
+                    </div>
+                    {list.map(function(a, i) {
+                      const done = (st[a.type] || 0) >= a.req;
+                      const hidden = a.secret && !done;          // секретная и ещё не получена: знак вопроса
+                      const when = done && data.achSeen && data.achSeen[a.id] ? new Date(data.achSeen[a.id] + "T12:00:00").toLocaleDateString("ru", { day: "numeric", month: "short" }) : "";
+                      return (
+                        <div key={a.id} className="app-anim"
+                          style={{ display: "flex", alignItems: "center", gap: 12, background: done ? "var(--bg-0e1a13)" : "var(--bg-0a0a0c)", border: hidden ? "1px dashed var(--bd-2a2a2a)" : "1px solid " + (done ? "#00d4aa25" : "var(--bd-111)"), borderRadius: 10, padding: "12px 14px", marginBottom: 8, animation: "achIn 0.35s ease-out " + (Math.min(i, 10) * 0.04) + "s both" }}>
+                          <div style={{ width: 44, height: 44, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 12, background: done ? "#00d4aa15" : "var(--bg-111)", fontSize: hidden ? 24 : 26, fontWeight: 700, color: "var(--tx-555)", filter: done ? "none" : "grayscale(1)" }}>{hidden ? "?" : a.icon}</div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: done ? "var(--tx-ddd)" : "var(--tx-999)", marginBottom: 3 }}>{hidden ? "???" : a.name}</div>
+                            <div style={{ fontSize: 10, lineHeight: 1.5, color: done ? "var(--tx-999)" : "var(--tx-777)" }}>{hidden ? "Секретная ачивка. Что нужно сделать, узнаешь, когда получишь." : a.desc}</div>
+                            {done && <div style={{ fontSize: 9, letterSpacing: 1, color: "var(--tx-00d4aa)", marginTop: 5 }}>ПОЛУЧЕНО{a.secret ? " | СЕКРЕТНАЯ" : ""}{when ? " | " + when : ""}</div>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
             </div>
           );
         })()}
@@ -4041,7 +4244,7 @@ function App() {
           );
         }
 
-        // Экран "Настройки": открывается из меню, которое есть только в тестовой версии
+        // Экран "Настройки": открывается из меню
         if (planScreen === "settings") {
           return (
             <div style={{ position: "fixed", inset: 0, background: "var(--bg-0c0c0f)", zIndex: 100, overflowY: "auto", WebkitOverflowScrolling: "touch", paddingTop: "env(safe-area-inset-top)", paddingBottom: "calc(40px + env(safe-area-inset-bottom))" }}>
@@ -4064,8 +4267,6 @@ function App() {
                 <button onClick={() => setPlanScreen(null)} style={{ background: "none", border: "none", color: "var(--tx-666)", fontSize: 20, cursor: "pointer", padding: "4px 8px 4px 0" }}>{"<"}</button>
                 <div style={{ fontSize: 14, fontWeight: 700, color: "var(--tx-fff)" }}>МОЙ ПЛАН</div>
               </div>
-
-              {!hasMenu && settingsSections}
 
               <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-666)", marginBottom: 10 }}>РАСПИСАНИЕ НЕДЕЛИ</div>
               <div style={{ background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "14px 12px", marginBottom: 24 }}>
@@ -4156,9 +4357,12 @@ function App() {
         );
       })()}
 
-      {/* Меню в шапке: BetaMenu и betaMenuItems есть только в тестовой сборке (src/beta/menu.jsx) */}
-      {hasMenu && menuOpen && (
-        <BetaMenu items={betaMenuItems()} onClose={() => setMenuOpen(false)}
+      {/* Праздник при получении ачивки */}
+      {achNow && <AchCelebration ach={achNow} left={achQueue.length - 1} onClose={dismissAch} />}
+
+      {/* Меню в шапке */}
+      {menuOpen && (
+        <MenuDrawer items={menuItems()} onClose={() => setMenuOpen(false)}
           onSelect={item => { setMenuOpen(false); setPlanScreen(item.screen); }} />
       )}
 
@@ -4364,6 +4568,110 @@ function App() {
         input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
         input[type=number] { -moz-appearance: textfield; }
       `}</style>
+    </div>
+  );
+}
+
+// ---- Меню в шапке ----
+// Кнопка в шапке и боковая панель справа. Пункты - данные (menuItems), а что открыть, решает App по
+// item.screen (значение planScreen: "list" - Мой план, "settings" - Настройки). Цвета - только токены
+// темы. Анимации (menuFade, menuSlide) и отключение движения лежат в head.html.
+const MENU_SCREENS = ["list", "settings"];
+
+function menuItems() {
+  return [
+    { id: "plan", screen: "list", title: "МОЙ ПЛАН", sub: "Расписание недели, программы, свои тренировки" },
+    { id: "settings", screen: "settings", title: "НАСТРОЙКИ", sub: "Тема, экран, вес гантелей, резервная копия" },
+  ];
+}
+
+// Три полоски вместо значка из шрифта: символы вне кириллицы и эмодзи в строках запрещены (CLAUDE.md)
+function MenuButton(props) {
+  const bar = { display: "block", width: 18, height: 2, borderRadius: 1, background: "var(--tx-888)" };
+  return (
+    <button onClick={props.onClick} aria-label="Меню" aria-haspopup="dialog"
+      style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, width: 44, height: 44, padding: 0, borderRadius: 8, border: "1px solid var(--bd-2a2a2a)", background: "var(--bg-0f0f12)", cursor: "pointer", flexShrink: 0 }}>
+      <span style={bar} /><span style={bar} /><span style={bar} />
+    </button>
+  );
+}
+
+function MenuDrawer(props) {
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Меню" onClick={props.onClose} className="app-anim"
+      style={{ position: "fixed", inset: 0, background: "var(--scrim-lite)", zIndex: 600, display: "flex", justifyContent: "flex-end", animation: "menuFade 0.18s ease-out" }}>
+      <div className="app-anim" onClick={e => e.stopPropagation()}
+        style={{ width: "min(84vw, 340px)", height: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column", background: "var(--bg-0c0c0f)", borderLeft: "1px solid var(--bd-2a2a2a)", padding: "calc(16px + env(safe-area-inset-top)) 16px calc(20px + env(safe-area-inset-bottom))", overflowY: "auto", WebkitOverflowScrolling: "touch", animation: "menuSlide 0.22s ease-out" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+          <div style={{ fontSize: 10, letterSpacing: 4, color: "var(--tx-777)" }}>МЕНЮ</div>
+          <button onClick={props.onClose} aria-label="Закрыть меню"
+            style={{ width: 44, height: 44, borderRadius: 10, border: "1px solid var(--bd-2a2a2a)", background: "var(--bg-0f0f12)", color: "var(--tx-888)", fontSize: 18, cursor: "pointer", fontFamily: "inherit" }}>x</button>
+        </div>
+
+        {props.items.map(it => (
+          <button key={it.id} onClick={() => props.onSelect(it)}
+            style={{ width: "100%", minHeight: 60, display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", marginBottom: 8, borderRadius: 10, border: "1px solid var(--bd-1a1a22)", background: "var(--bg-0f0f12)", textAlign: "left", cursor: "pointer", fontFamily: "inherit" }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 1, color: "var(--tx-fff)", marginBottom: 3 }}>{it.title}</div>
+              <div style={{ fontSize: 10, color: "var(--tx-666)", lineHeight: 1.5 }}>{it.sub}</div>
+            </div>
+            <div style={{ fontSize: 16, color: "var(--tx-555)", flexShrink: 0 }}>{">"}</div>
+          </button>
+        ))}
+
+        {APP_VARIANT === "beta" && (
+          <div style={{ marginTop: "auto", paddingTop: 20 }}>
+            <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-f7a844)", marginBottom: 4 }}>ТЕСТОВАЯ ВЕРСИЯ</div>
+            <div style={{ fontSize: 10, color: "var(--tx-666)", lineHeight: 1.6 }}>
+              Данные здесь хранятся отдельно от основной версии.
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---- Ачивки: праздник ----
+// Окно при получении ачивки: карточка выезжает, значок "всплывает" с кольцами, падает конфетти. У секретной
+// сначала "?", он переворачивается и открывает значок. Ключевые кадры (ach*) лежат в head.html, а
+// естественный (без анимации) вид окна - итоговый, поэтому при "уменьшить движение" всё видно сразу.
+// Конфетти без Math.random: положение зависит от номера, перерисовка ничего не двигает.
+const ACH_CONFETTI = ["#ff6b35", "#00d4aa", "#c084fc", "#4488ff", "#f7c948", "#ff4d88"];
+
+function AchCelebration(props) {
+  const a = props.ach;
+  const secret = !!a.secret;
+  const pieces = [];
+  for (let i = 0; i < 22; i++) {
+    pieces.push(
+      <div key={i} className="app-anim"
+        style={{ position: "absolute", top: -12, left: ((i * 37 + 11) % 96) + "%", width: 6 + (i % 3) * 2, height: 9 + (i % 2) * 5, borderRadius: i % 3 === 0 ? 5 : 2, background: ACH_CONFETTI[i % ACH_CONFETTI.length], opacity: 0, pointerEvents: "none", "--dx": (((i * 29) % 70) - 35) + "px", "--rot": (360 + (i * 47) % 360) + "deg", animation: "achConf " + (1.9 + (i % 5) * 0.3) + "s ease-in " + (0.15 + (i % 7) * 0.1) + "s both" }} />
+    );
+  }
+  const revealAt = secret ? 1 : 0.15;   // у секретной значок появляется после переворота "?"
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Новая ачивка" onClick={props.onClose} className="app-anim"
+      style={{ position: "fixed", inset: 0, zIndex: 700, background: "var(--scrim)", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 24px", animation: "menuFade 0.25s ease-out" }}>
+      <div className="app-anim" onClick={e => e.stopPropagation()}
+        style={{ position: "relative", width: "100%", maxWidth: 340, boxSizing: "border-box", textAlign: "center", background: "var(--bg-111)", border: "1px solid var(--bd-2a2a2a)", borderRadius: 20, padding: "30px 22px 22px", overflow: "hidden", animation: "achCard 0.5s cubic-bezier(0.2, 1.3, 0.4, 1) both" }}>
+        {pieces}
+        <div style={{ fontSize: 9, letterSpacing: 3, color: "var(--tx-00d4aa)", marginBottom: 20 }}>{secret ? "СЕКРЕТНАЯ АЧИВКА ОТКРЫТА" : "НОВАЯ АЧИВКА"}</div>
+        <div style={{ position: "relative", width: 96, height: 96, margin: "0 auto 18px" }}>
+          <div className="app-anim" style={{ position: "absolute", inset: 0, borderRadius: "50%", border: "2px solid #00d4aa", opacity: 0, animation: "achRing 1.6s ease-out " + (revealAt + 0.1) + "s 2 both" }} />
+          <div className="app-anim" style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "50%", background: "#00d4aa15", border: "1px solid #00d4aa40", fontSize: 50, animation: "achPop 0.8s ease-out " + revealAt + "s both" }}>{a.icon}</div>
+          {secret && (
+            <div className="app-anim" style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "50%", background: "var(--bg-1a1a22)", border: "1px dashed var(--bd-2a2a2a)", fontSize: 44, fontWeight: 700, color: "var(--tx-777)", opacity: 0, animation: "achQ 1s ease-in both" }}>?</div>
+          )}
+        </div>
+        <div className="app-anim" style={{ fontSize: 18, fontWeight: 700, color: "var(--tx-fff)", marginBottom: 8, animation: "achText 0.5s ease-out " + (revealAt + 0.45) + "s both" }}>{a.name}</div>
+        <div className="app-anim" style={{ fontSize: 11, lineHeight: 1.6, color: "var(--tx-999)", marginBottom: 22, animation: "achText 0.5s ease-out " + (revealAt + 0.6) + "s both" }}>{a.desc}</div>
+        <button onClick={props.onClose}
+          style={{ width: "100%", minHeight: 48, borderRadius: 10, border: "1px solid #00d4aa60", background: "#00d4aa15", color: "var(--tx-00d4aa)", fontSize: 11, letterSpacing: 2, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+          {props.left > 0 ? "ДАЛЬШЕ" : "ОТЛИЧНО"}
+        </button>
+        {props.left > 0 && <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-666)", marginTop: 12 }}>ЕЩЁ {props.left}</div>}
+      </div>
     </div>
   );
 }

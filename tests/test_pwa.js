@@ -742,12 +742,12 @@ test('custom workout CRUD: save, delete, getWorkout handles custom key', () => {
   assert(src.includes('data.customWorkouts && data.customWorkouts[dayKey]'), 'getWorkout handles custom key');
 });
 
-test('computeAch: counts workouts, week streak, PPL cycles', () => {
-  assert(src.includes('function computeAch()'), 'computeAch present');
-  assert(src.includes('totalWorkouts'), 'computeAch counts total workouts');
-  assert(src.includes('weekStreak'), 'computeAch computes week streak');
-  assert(src.includes('cycles'), 'computeAch counts PPL cycles');
-  assert(src.includes('w["push"] && w["pull"] && w["legs"]'), 'computeAch checks full PPL week');
+test('achStats: counts workouts, week streak, PPL cycles (replaced computeAch)', () => {
+  assert(src.includes('function achStats(data, today)'), 'achStats present');
+  assert(!src.includes('function computeAch'), 'the old computeAch must be gone: one source of truth for achievements');
+  assert(src.includes('st.workouts = ') || src.includes('workouts: all.length'), 'achStats counts total workouts');
+  assert(src.includes('st.weeks') && src.includes('st.curStreak'), 'achStats computes the best and the current week streak');
+  assert(src.includes('d.push && d.pull && d.legs'), 'achStats checks a full PPL week');
 });
 
 test('getDayProgress: counts fully completed exercises (all sets done)', () => {
@@ -923,27 +923,25 @@ test('WARMUP: every day key exists in PROGRAM (selector would render blank)', ()
   info(`${wuKeys.length} WARMUP days all map to PROGRAM days`);
 });
 
-test('ACHIEVEMENTS array: all 12 items have id, icon, name, req, type', () => {
+test('ACHIEVEMENTS array: every item has id, icon, name, desc, req, type, group', () => {
   const achStart = src.indexOf('const ACHIEVEMENTS');
   const achEnd   = src.indexOf('const WEEK_SCHEDULE');
   const block    = src.slice(achStart, achEnd);
   const items    = [...block.matchAll(/\{[^{}]+\}/g)].map(m => m[0]);
-  assert(items.length >= 12, `Expected >=12 achievements, got ${items.length}`);
-  const required = ['id:', 'icon:', 'name:', 'req:', 'type:'];
+  assert(items.length >= 30, `Expected >=30 achievements, got ${items.length}`);
+  const required = ['id:', 'icon:', 'name:', 'desc:', 'req:', 'type:', 'group:'];
   items.forEach((item, i) => {
     required.forEach(f => assert(item.includes(f), `Achievement #${i} missing ${f}`));
   });
   info(`${items.length} achievements all have required fields`);
 });
 
-test('ACHIEVEMENTS: all type values are valid (workouts|weeks|cycles)', () => {
-  const achStart = src.indexOf('const ACHIEVEMENTS');
-  const achEnd   = src.indexOf('const WEEK_SCHEDULE');
-  const types    = [...src.slice(achStart, achEnd).matchAll(/type:\s*"([^"]+)"/g)].map(m => m[1]);
-  const valid    = new Set(['workouts', 'weeks', 'cycles']);
-  const bad      = types.filter(t => !valid.has(t));
-  assert(bad.length === 0, `Invalid achievement types: ${bad.join(', ')}`);
-  info(`${types.length} achievement types all valid`);
+test('ACHIEVEMENTS: every type is a statistic that achStats really produces', () => {
+  const { ACHIEVEMENTS, achStats } = loadAch();
+  const keys = Object.keys(achStats({ history: {} }, '2026-10-07'));
+  const bad = ACHIEVEMENTS.filter(a => !keys.includes(a.type)).map(a => a.id + ':' + a.type);
+  assert(bad.length === 0, `Achievements with an unknown type: ${bad.join(', ')}`);
+  info(`${new Set(ACHIEVEMENTS.map(a => a.type)).size} achievement types all valid`);
 });
 
 test('WEEK_SCHEDULE has exactly 7 entries with day and workout fields', () => {
@@ -1076,7 +1074,7 @@ test('getDayProgress returns exDone, done, total, pct', () => {
 });
 
 test('finishWorkout resets session and prompt after save', () => {
-  const fn = src.slice(src.indexOf('function finishWorkout'), src.indexOf('function computeAch'));
+  const fn = src.slice(src.indexOf('function finishWorkout'), src.indexOf('function showToast'));
   assert(fn.includes('delete sessions[sessionKey]'), 'finishWorkout must delete session after save');
   assert(fn.includes('lastPromptedExDone.current = 0'), 'finishWorkout must reset prompt counter');
   assert(fn.includes('setSavePrompt(false)'), 'finishWorkout must close save prompt');
@@ -1314,59 +1312,34 @@ test('finishWorkout dedup: same date replaces, new date prepends', () => {
   info('finishWorkout dedup logic: all cases correct');
 });
 
-// ── computeAch logic ─────────────────────────────────────────────────────────
-test('computeAch logic: correctly counts workouts, cycles, streak', () => {
-  // Replicate computeAch logic
-  function computeAch(data) {
-    const allHistory = Object.values(data.history || {}).flat();
-    const totalWorkouts = allHistory.length;
-    const byWeek = {};
-    allHistory.forEach(function(e) {
-      var d = new Date(e.date);
-      var week = Math.floor((d - new Date("2024-01-01")) / 604800000);
-      if (!byWeek[week]) byWeek[week] = {};
-      byWeek[week][e.workout] = true;
-    });
-    var cycles = Object.values(byWeek).filter(function(w) {
-      return w["push"] && w["pull"] && w["legs"];
-    }).length;
-    var weekNums = Object.keys(byWeek).map(Number).sort(function(a,b){return b-a;});
-    var weekStreak = 0;
-    for (var i = 0; i < weekNums.length; i++) {
-      var w = byWeek[weekNums[i]];
-      if (w["push"] && w["pull"] && w["legs"]) {
-        if (i === 0 || weekNums[i-1] === weekNums[i] + 1) { weekStreak++; }
-        else { break; }
-      } else { break; }
-    }
-    return { totalWorkouts, weekStreak, cycles };
-  }
-
-  // Empty data
-  const r0 = computeAch({ history: {} });
-  assert(r0.totalWorkouts === 0, 'Empty: 0 workouts');
-  assert(r0.cycles === 0, 'Empty: 0 cycles');
-  assert(r0.weekStreak === 0, 'Empty: 0 streak');
+// ── achStats logic (executes the real code) ─────────────────────────────────
+function loadAch(todayKey) {
+  const data = src.slice(src.indexOf('const ACHIEVEMENTS = ['), src.indexOf('const WEEK_SCHEDULE'));
+  const helpers = src.slice(src.indexOf('// ---- Ачивки: подсчёт'), src.indexOf('export default function App'));
+  return new Function(data + helpers + '; function todayKey() { return ' + JSON.stringify(todayKey || '2026-10-07') + '; } return { ACHIEVEMENTS, ACH_GROUPS, ACH_LEGACY, ACH_BATCH_MAX, achStats, achUnlocked, achPlan };')();
+}
+test('achStats logic: correctly counts workouts, cycles, streak', () => {
+  const { achStats } = loadAch();
+  const r0 = achStats({ history: {} }, '2025-01-10');
+  assert(r0.workouts === 0 && r0.cycles === 0 && r0.weeks === 0 && r0.curStreak === 0, 'Empty journal: everything 0');
 
   // One full PPL cycle (Mon/Wed/Fri same week)
-  const r1 = computeAch({ history: {
+  const r1 = achStats({ history: {
     push: [{ date: '2025-01-06', workout: 'push', ts: 1 }],
     pull: [{ date: '2025-01-08', workout: 'pull', ts: 2 }],
     legs: [{ date: '2025-01-10', workout: 'legs', ts: 3 }],
-  }});
-  assert(r1.totalWorkouts === 3, `Expected 3 workouts, got ${r1.totalWorkouts}`);
+  } }, '2025-01-10');
+  assert(r1.workouts === 3, `Expected 3 workouts, got ${r1.workouts}`);
   assert(r1.cycles === 1, `Expected 1 cycle, got ${r1.cycles}`);
-  assert(r1.weekStreak === 1, `Expected streak 1, got ${r1.weekStreak}`);
+  assert(r1.weeks === 1 && r1.curStreak === 1, `Expected streak 1, got ${r1.weeks}/${r1.curStreak}`);
 
   // Incomplete week (only push and pull, no legs)
-  const r2 = computeAch({ history: {
+  const r2 = achStats({ history: {
     push: [{ date: '2025-01-06', workout: 'push', ts: 1 }],
     pull: [{ date: '2025-01-08', workout: 'pull', ts: 2 }],
-  }});
-  assert(r2.cycles === 0, `Incomplete week should give 0 cycles, got ${r2.cycles}`);
-  assert(r2.weekStreak === 0, `Broken streak should be 0, got ${r2.weekStreak}`);
-
-  info('computeAch logic: all cases correct');
+  } }, '2025-01-10');
+  assert(r2.cycles === 0 && r2.weeks === 0 && r2.curStreak === 0, 'An incomplete week gives no cycle and no streak');
+  info('achStats: cases from the old computeAch test all hold');
 });
 
 // ── toggleSkip / isSkipped logic ─────────────────────────────────────────────
@@ -1746,7 +1719,7 @@ test('removeAddedExercise removes only from current session', () => {
 });
 
 test('finishWorkout records per-exercise detail (id, name, reps, sets)', () => {
-  const fn = src.slice(src.indexOf('function finishWorkout'), src.indexOf('function computeAch'));
+  const fn = src.slice(src.indexOf('function finishWorkout'), src.indexOf('function showToast'));
   assert(fn.includes('const detail = getSessionExercises()'), 'finishWorkout must build detail array');
   assert(fn.includes('sets.push({ w: sd.weight'), 'detail must capture per-set weight');
   assert(fn.includes('detail: detail'), 'entry must carry detail');
@@ -2051,7 +2024,7 @@ test('Journal reads the exact same history source the old History tab used', () 
 });
 
 test('All history consumers read from data.history (no separate store to migrate)', () => {
-  ['getAllHistoryDetailed', 'computeAch', 'collectExerciseData', 'deleteHistoryEntry']
+  ['getAllHistoryDetailed', 'achStats', 'collectExerciseData', 'deleteHistoryEntry']
     .forEach(name => {
       const i = src.indexOf('function ' + name);
       assert(i >= 0, `${name} not found`);
@@ -2079,7 +2052,7 @@ test('resumeSession marks which entry is being completed', () => {
 });
 
 test('finishWorkout updates the resumed entry instead of creating a duplicate', () => {
-  const fn = src.slice(src.indexOf('function finishWorkout'), src.indexOf('function computeAch'));
+  const fn = src.slice(src.indexOf('function finishWorkout'), src.indexOf('function showToast'));
   assert(fn.includes('const res = data.resuming'), 'finishWorkout must check resuming');
   assert(fn.includes('findIndex(e => e.ts === res.ts)'), 'must locate the original entry by ts');
   assert(fn.includes('date: res.date, ts: res.ts'), 'must preserve original date and ts');
@@ -2126,7 +2099,7 @@ test('Dumbbell mode only relabels — it never rewrites the stored number', () =
 
 
 test('Entries record how they were saved (manual finish vs autosave)', () => {
-  const fw = src.slice(src.indexOf('function finishWorkout'), src.indexOf('function computeAch'));
+  const fw = src.slice(src.indexOf('function finishWorkout'), src.indexOf('function showToast'));
   assert(fw.includes('src: "manual"'), 'finishWorkout must tag the entry as manual');
   const as = src.slice(src.indexOf('function autoSave'), src.indexOf('function autoSave') + 2000);
   assert(as.includes('src: "auto"'), 'autoSave must tag the entry as auto');
@@ -2248,7 +2221,7 @@ test('Week-over-week delta available per exercise', () => {
 });
 
 test('Progression list groups exercises by workout', () => {
-  const fn = src.slice(src.indexOf('function groupTrackedByWorkout'), src.indexOf('function computeAch'));
+  const fn = src.slice(src.indexOf('function groupTrackedByWorkout'), src.indexOf('function showToast'));
   assert(fn.includes('m.workouts[w] > m.workouts[best]'), 'exercise must land in the workout it appears in most');
   assert(fn.includes('getScheduledDayKeys()'), 'groups must follow the schedule order');
   assert(fn.includes('"ДРУГИЕ"'), 'exercises outside the program need a fallback group');
@@ -4193,7 +4166,8 @@ test('Theme: every var(--token) is defined, and no token is left unused', () => 
   const tail = headSrc.replace(/:root\{[\s\S]*?\}\s*:root\[data-theme="light"\]\{[\s\S]*?\}/, '');
   const used = new Set();
   for (const text of [src, tail]) for (const m of text.matchAll(/var\(--([a-z0-9-]+)\)/g)) used.add(m[1]);
-  const undef = [...used].filter(k => !(k in DARK));
+  const LOCAL = ['dx', 'rot'];   // переменные конфетти: задаются на каждой частице и читаются в @keyframes achConf, к палитре не относятся
+  const undef = [...used].filter(k => !(k in DARK) && !LOCAL.includes(k));
   const dead = Object.keys(DARK).filter(k => !used.has(k));
   assert(undef.length === 0, 'used but not defined: ' + undef.join(', '));
   assert(dead.length === 0, 'defined but never used (delete or use): ' + dead.join(', '));
@@ -4360,7 +4334,7 @@ test('Theme: themeInk darkens day colours for light backgrounds and leaves every
 });
 
 test('Theme: the choice is saved under its own key, never in data or in a backup', () => {
-  const fn = src.slice(src.indexOf('const chooseTheme'), src.indexOf('// Экран не гаснет,'));
+  const fn = src.slice(src.indexOf('const chooseTheme'), src.indexOf('  // Ачивки: праздник при получении'));
   assert(fn.includes('localStorage.setItem(THEME_KEY, p)') && !fn.includes('setData'), 'chooseTheme must only write THEME_KEY');
   assert(!/data\.(theme|themePref)/.test(src), 'the theme must not live in data (it would travel inside backups)');
   const { buildBackup } = loadBackupFns();
@@ -4388,99 +4362,292 @@ test('Theme: in the light theme the iPhone status-bar strip stays dark (the bar 
   info('Dark strip under the status bar, no flash of the wrong theme');
 });
 
-// ── SECTION 25: MENU & SETTINGS SCREEN (test version) ───────────────────────
-section('25 · MENU & SETTINGS (beta)');
+// ── SECTION 25: MENU & SETTINGS SCREEN ──────────────────────────────────────
+section('25 · MENU & SETTINGS');
 
-const menuSrc = fs.readFileSync(path.join(BETA_SRC_DIR, 'menu.jsx'), 'utf8');
+// Компоненты стоят в конце файла, после App (чистые функции - до App, их исполняют тесты)
+const menuSrc = src.slice(src.indexOf('// ---- Меню в шапке ----'));
+// сам компонент меню: до блока ачивок (он стоит после него)
+const achMark = src.indexOf('// ---- Ачивки: праздник');
+const drawerSrc = achMark > 0 ? src.slice(src.indexOf('// ---- Меню в шапке ----'), achMark) : menuSrc;
 function loadMenu() {
-  const data = menuSrc.slice(menuSrc.indexOf('const BETA_MENU_SCREENS'), menuSrc.indexOf('// Три полоски'));
-  return new Function(data + '; return { betaMenuItems, BETA_MENU_SCREENS };')();
+  const data = menuSrc.slice(menuSrc.indexOf('const MENU_SCREENS'), menuSrc.indexOf('// Три полоски'));
+  return new Function(data + '; return { menuItems, MENU_SCREENS };')();
 }
 
-test('Menu: the code exists only in the test version, and production never reaches it', () => {
-  assert(/function BetaMenu\(/.test(betaApp) && /function BetaMenuButton\(/.test(betaApp) && /function betaMenuItems\(/.test(betaApp), 'menu components must be in the beta page');
-  assert(!/function BetaMenu|function betaMenuItems/.test(app), 'production page must not contain the menu code');
-  assert(src.includes('const hasMenu = typeof BetaMenu === "function";'), 'a single guard decides whether the menu exists');
-  // каждое обращение к функциям меню стоит под hasMenu
-  const bad = [];
-  for (const m of src.matchAll(/<BetaMenuButton|<BetaMenu |betaMenuItems\(\)/g)) {
-    if (!src.slice(Math.max(0, m.index - 160), m.index).includes('hasMenu')) bad.push(src.slice(m.index, m.index + 30));
-  }
-  assert(bad.length === 0, 'menu function used outside the hasMenu guard (ReferenceError in production): ' + bad.join(' | '));
-  assert(!src.includes('setPlanScreen("settings")'), 'the settings screen is opened only through the menu item data, never directly');
-  info('Guarded by hasMenu; absent from the production page');
+test('Menu: part of the main app (no longer a beta feature), no beta module and no guard left', () => {
+  assert(/function MenuDrawer\(/.test(app) && /function MenuButton\(/.test(app) && /function menuItems\(/.test(app), 'menu must be in the production page');
+  assert(/function MenuDrawer\(/.test(betaApp), 'and in the test page too: it is the same code');
+  assert(!fs.existsSync(path.join(BETA_SRC_DIR, 'menu.jsx')), 'src/beta/menu.jsx must be gone: the menu lives in the main source');
+  assert(!/hasMenu|BetaMenu|betaMenuItems/.test(src), 'beta guard and names must be removed');
+  assert(src.indexOf('// ---- Меню в шапке ----') > src.indexOf('export default function App'), 'JSX components stay after App: tests execute the code before it as plain JS');
+  info('Menu is in index.html and beta/index.html');
 });
 
 test('Menu: items are plain data that point only at screens the app really has', () => {
-  const { betaMenuItems, BETA_MENU_SCREENS } = loadMenu();
-  const items = betaMenuItems();
+  const { menuItems, MENU_SCREENS } = loadMenu();
+  const items = menuItems();
   assert(items.length >= 2, 'at least plan and settings');
   assert(new Set(items.map(i => i.id)).size === items.length, 'item ids must be unique');
   items.forEach(i => {
-    assert(BETA_MENU_SCREENS.includes(i.screen), i.id + ' points to an unknown screen ' + i.screen);
+    assert(MENU_SCREENS.includes(i.screen), i.id + ' points to an unknown screen ' + i.screen);
     assert(/[А-Яа-я]/.test(i.title) && /[А-Яа-я]/.test(i.sub), i.id + ' needs a Russian title and description');
   });
   assert(items.some(i => i.screen === 'list') && items.some(i => i.screen === 'settings'), 'plan and settings are both in the menu');
   assert(src.includes('planScreen === "settings"') && src.includes('// List screen: choose template or create custom'), 'App renders both screens');
+  assert(!src.includes('setPlanScreen("settings")'), 'the settings screen is opened only through the menu item data');
   info(items.map(i => i.id + ' -> ' + i.screen).join(', '));
 });
 
-test('Menu: settings live on their own screen in the test version and stay inside "My plan" in production', () => {
+test('Menu: settings have their own screen and "My plan" is only about training', () => {
   assert((src.match(/const settingsSections = \(/g) || []).length === 1, 'the settings block is defined once');
   const listStart = src.indexOf('// List screen: choose template or create custom');
   const listEnd = src.indexOf('{addExModal && (() => {');
   const list = src.slice(listStart, listEnd);
-  assert(list.includes('{!hasMenu && settingsSections}'), 'plan list shows the settings only when there is no menu (production)');
-  ['ВЕС ГАНТЕЛЕЙ', 'ЭКРАН', 'РЕЗЕРВНАЯ КОПИЯ', '>ТЕМА<'].forEach(t => assert(!list.includes(t), t + ' must not be duplicated in the plan list'));
+  assert(!list.includes('settingsSections'), 'plan list must not render the settings');
+  ['ВЕС ГАНТЕЛЕЙ', 'ЭКРАН', 'РЕЗЕРВНАЯ КОПИЯ', '>ТЕМА<'].forEach(t => assert(!list.includes(t), t + ' must not be in the plan list'));
+  ['РАСПИСАНИЕ НЕДЕЛИ', 'БАЗОВЫЕ ПРОГРАММЫ', 'СОЗДАТЬ СВОЮ'].forEach(t => assert(list.includes(t), t + ' stays in the plan list'));
   const settingsScreen = src.slice(src.indexOf('if (planScreen === "settings")'), listStart);
   assert(settingsScreen.includes('НАСТРОЙКИ') && settingsScreen.includes('{settingsSections}'), 'settings screen renders the shared block');
   const block = src.slice(src.indexOf('const settingsSections = ('), src.indexOf('  return (\n    <div style={{ minHeight: "100vh"'));
   ['ВЕС ГАНТЕЛЕЙ', 'ЭКРАН', 'РЕЗЕРВНАЯ КОПИЯ'].forEach(t => assert((block.match(new RegExp('>' + t + '<', 'g')) || []).length === 1, t + ' appears once in the block'));
   assert((block.match(/>ТЕМА</g) || []).length === 2, 'theme: the switch (production) and the explanation (beta)');
-  assert(block.includes('exportBackup') && block.includes('importBackup') && block.includes('keepAwake') && block.includes('dbMode'), 'all four settings are in the block');
-  info('One block, two homes: production plan list / beta settings screen');
+  assert(block.includes('exportBackup') && block.includes('importBackup') && block.includes('keepAwake') && block.includes('dbMode') && block.includes('chooseTheme'), 'all settings are in the block');
+  info('Settings: own screen; plan list: schedule, programs, own workouts');
 });
 
-test('Menu: the header button replaces "+PLAN" in beta only and keeps its position', () => {
-  const head = src.slice(src.indexOf('{hasMenu ? <BetaMenuButton'), src.indexOf('{/* ===== WORKOUT ===== */}') > 0 ? src.indexOf('<div style={{ display: "flex", gap: 4, marginBottom: 16 }}>') : 0);
-  assert(head.includes('<BetaMenuButton onClick={() => setMenuOpen(true)} />'), 'menu button opens the menu');
-  assert(head.includes('onClick={() => setPlanScreen("list")}') && head.includes('>ПЛАН</span>'), 'production keeps the "+ПЛАН" button as before');
-  assert(html.includes('setPlanScreen("list")') && !app.includes('BetaMenuButton />'), 'production page still has the old button and no menu button');
-  info('Beta: menu button; production: unchanged');
+test('Menu: the header button replaces the old "+PLAN" button', () => {
+  const head = src.slice(src.indexOf('<div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>'), src.indexOf('<div style={{ display: "flex", gap: 4, marginBottom: 16 }}>'));
+  assert(head.includes('<MenuButton onClick={() => setMenuOpen(true)} />'), 'menu button opens the menu');
+  assert(!head.includes('>ПЛАН</span>') && !head.includes('setPlanScreen("list")'), 'the old "+ПЛАН" button is gone from the header');
+  assert(/\{menuOpen && \(\s*<MenuDrawer items=\{menuItems\(\)\}/.test(src), 'drawer is rendered while open');
+  info('Header: menu button instead of "+ПЛАН"');
 });
 
 test('Menu: closes by scrim, close button and choosing an item; the panel does not close itself', () => {
   assert(src.includes('onSelect={item => { setMenuOpen(false); setPlanScreen(item.screen); }}'), 'choosing an item closes the menu and opens the screen');
   assert(src.includes('onClose={() => setMenuOpen(false)}'), 'App closes the menu on request');
-  assert(/aria-modal="true"[\s\S]{0,40}onClick=\{props\.onClose\}/.test(menuSrc), 'tapping the dimmed area closes the menu');
+  assert(/aria-modal="true" aria-label="Меню" onClick=\{props\.onClose\}/.test(menuSrc), 'tapping the dimmed area closes the menu');
   assert(menuSrc.includes('onClick={e => e.stopPropagation()}'), 'tapping the panel must not close it');
   assert(/onClick=\{props\.onClose\} aria-label="Закрыть меню"/.test(menuSrc), 'explicit close button');
   assert(menuSrc.includes('onClick={() => props.onSelect(it)}'), 'items report the chosen item');
   info('Scrim, button and item all close the menu');
 });
 
-test('Menu: tap targets are at least 44pt, safe areas are respected, motion can be turned off', () => {
-  const sizes = [...menuSrc.matchAll(/(?:width|height|minHeight): (\d+)/g)].map(m => +m[1]);
-  assert(/width: 44, height: 44, padding: 0/.test(menuSrc), 'menu button is 44x44');
-  assert(/width: 44, height: 44, borderRadius: 10/.test(menuSrc), 'close button is 44x44');
-  assert(/minHeight: 60/.test(menuSrc), 'menu rows are tall enough');
-  assert(menuSrc.includes('env(safe-area-inset-top)') && menuSrc.includes('env(safe-area-inset-bottom)'), 'panel keeps clear of the status bar and the home indicator');
-  assert(menuSrc.includes('prefers-reduced-motion: reduce'), 'respect reduced motion');
-  assert(menuSrc.includes('zIndex: 600'), 'panel must sit above the rest timer (500) and the other windows (200)');
-  assert(menuSrc.includes('role="dialog"') && menuSrc.includes('aria-label="Меню"'), 'screen readers see a dialog');
-  info('44pt targets, safe areas, reduced motion');
+test('Menu: tap targets are at least 44pt, safe areas are respected, layers are in order', () => {
+  const drawer = drawerSrc;
+  assert(/width: 44, height: 44, padding: 0/.test(drawer), 'menu button is 44x44');
+  assert(/width: 44, height: 44, borderRadius: 10/.test(drawer), 'close button is 44x44');
+  assert(/minHeight: 60/.test(drawer), 'menu rows are tall enough');
+  assert(drawer.includes('env(safe-area-inset-top)') && drawer.includes('env(safe-area-inset-bottom)'), 'panel keeps clear of the status bar and the home indicator');
+  assert(drawer.includes('zIndex: 600'), 'panel must sit above the rest timer (500) and the other windows (200)');
+  assert(drawer.includes('role="dialog"') && drawer.includes('aria-label="Меню"'), 'screen readers see a dialog');
+  info('44pt targets, safe areas, z-index 600');
 });
 
-test('Menu: only theme tokens, no raw colours, and the code follows the platform rules', () => {
-  assert(!/#[0-9a-fA-F]{3,8}\b/.test(menuSrc.replace(/\/\/.*$/gm, '')), 'menu.jsx must use var(--...) tokens, not hex');
-  const used = new Set([...menuSrc.matchAll(/var\(--([a-z0-9-]+)\)/g)].map(m => m[1]));
-  const undef = [...used].filter(k => !(k in DARK));
-  assert(undef.length === 0, 'unknown tokens: ' + undef.join(', '));
-  assert(!/\?\.|\?\?/.test(menuSrc.replace(/\/\/.*$/gm, '')), 'no optional chaining / nullish coalescing (iOS Babel)');
-  const strings = [...menuSrc.replace(/\/\/.*$/gm, '').matchAll(/"([^"\n]*)"/g)].map(m => m[1]);
-  const badChars = strings.filter(s => [...s].some(c => c.charCodeAt(0) > 127 && !/[Ѐ-ӿ°]/.test(c) && c.codePointAt(0) < 0x1F000));
-  assert(badChars.length === 0, 'non-ASCII outside Cyrillic in strings: ' + badChars.join(' | '));
-  info(used.size + ' tokens, ASCII-safe strings');
+test('Menu: only theme tokens, beta footer only in beta, animations are declared and can be switched off', () => {
+  const drawer = drawerSrc;
+  assert(!/#[0-9a-fA-F]{3,8}\b/.test(drawer.replace(/\/\/.*$/gm, '')), 'menu must use var(--...) tokens, not hex');
+  assert(/\{APP_VARIANT === "beta" && \(\s*<div style=\{\{ marginTop: "auto"/.test(drawer) && drawer.includes('ТЕСТОВАЯ ВЕРСИЯ'), 'the "test version" footer exists only in beta');
+  // каждая анимация из кода объявлена в head, и у движущихся элементов есть класс app-anim
+  const names = [...src.matchAll(/animation: "([A-Za-z0-9]+) /g)].map(m => m[1]);
+  assert(names.length >= 2, 'animations expected');
+  names.forEach(n => assert(headSrc.includes('@keyframes ' + n + '{'), '@keyframes ' + n + ' is not declared in head.html'));
+  assert(/@media \(prefers-reduced-motion: reduce\)\{\.app-anim,\.app-anim \*\{animation:none!important\}\}/.test(headSrc), 'reduced-motion rule for .app-anim');
+  assert((drawer.match(/className="app-anim"/g) || []).length >= 2, 'moving menu elements carry app-anim');
+  info(names.length + ' animations, all declared; reduced motion respected');
+});
+
+// ── SECTION 26: ACHIEVEMENTS ────────────────────────────────────────────────
+section('26 · ACHIEVEMENTS');
+
+const addDays = (date, n) => new Date(Date.UTC(+date.slice(0, 4), +date.slice(5, 7) - 1, +date.slice(8, 10) + n)).toISOString().slice(0, 10);
+const aE = (date, workout, extra) => Object.assign({ date, workout, ts: Date.parse(date + 'T12:00:00'), done: 3, total: 3, src: 'manual', detail: [] }, extra || {});
+const aD = (id, ws) => ({ id, name: id, sets: ws.map(w => w === null ? { w: '', done: false } : { w: String(w), done: true }) });
+const aHist = list => { const h = {}; list.forEach(e => { (h[e.workout] = h[e.workout] || []).push(e); }); return { history: h }; };
+// недели полного цикла с понедельника 2025-01-06; пропуск - номера недель, которых нет
+const fullWeeks = (weeks) => { const out = []; weeks.forEach(k => { const mon = addDays('2025-01-06', 7 * k); out.push(aE(mon, 'push'), aE(addDays(mon, 2), 'pull'), aE(addDays(mon, 4), 'legs')); }); return out; };
+
+test('Achievements: data is complete, ids and icons are safe, old ids are kept', () => {
+  const { ACHIEVEMENTS, ACH_GROUPS, ACH_LEGACY } = loadAch();
+  assert(ACHIEVEMENTS.length >= 35, 'expected a rich list, got ' + ACHIEVEMENTS.length);
+  const ids = ACHIEVEMENTS.map(a => a.id);
+  assert(new Set(ids).size === ids.length, 'ids must be unique');
+  assert(new Set(ACHIEVEMENTS.map(a => a.name)).size === ACHIEVEMENTS.length, 'names must be unique');
+  const groups = ACH_GROUPS.map(g => g.id);
+  ACHIEVEMENTS.forEach(a => {
+    assert(groups.includes(a.group), a.id + ': unknown group ' + a.group);
+    assert(a.req > 0 && Number.isFinite(a.req), a.id + ': req must be a positive number');
+    assert(/[А-Яа-я]{4}/.test(a.desc) && a.desc.length >= 20, a.id + ': needs a real Russian description');
+    assert(/[А-Яа-я]/.test(a.name), a.id + ': name in Russian');
+    // одна точка кода: без селекторов вариации (U+FE0F) и склейки (ZWJ), иначе Babel на iOS спотыкается
+    const cps = [...a.icon];
+    assert(cps.length === 1, a.id + ': icon must be a single code point, got ' + cps.length);
+    const cp = cps[0].codePointAt(0);
+    assert(cp >= 0x1F000 || ['⚡', '✅'].includes(a.icon), a.id + ': icon must be an emoji from U+1F000 (or a known old one)');
+  });
+  groups.filter(g => g !== 'secret').forEach(g => assert(ACHIEVEMENTS.filter(a => a.group === g).length >= 5, g + ' needs at least 5 achievements'));
+  const secret = ACHIEVEMENTS.filter(a => a.secret);
+  assert(secret.length >= 5, 'at least 5 secret achievements, got ' + secret.length);
+  assert(secret.every(a => a.group === 'secret') && ACHIEVEMENTS.filter(a => a.group === 'secret').every(a => a.secret === true), 'secret flag and the secret group must match');
+  // старые двенадцать с теми же условиями: по id хранится data.achSeen, у людей уже получены
+  const old = { w1: ['workouts', 1], w5: ['workouts', 5], w10: ['workouts', 10], w25: ['workouts', 25], w50: ['workouts', 50], w100: ['workouts', 100],
+    str2: ['weeks', 2], str4: ['weeks', 4], str8: ['weeks', 8], str12: ['weeks', 12], ppl1: ['cycles', 1], ppl4: ['cycles', 4] };
+  assert(ACH_LEGACY.join() === Object.keys(old).join(), 'ACH_LEGACY must list the original twelve');
+  Object.keys(old).forEach(id => { const a = ACHIEVEMENTS.find(x => x.id === id); assert(a && a.type === old[id][0] && a.req === old[id][1], 'legacy achievement changed: ' + id); });
+  info(ACHIEVEMENTS.length + ' achievements, ' + secret.length + ' secret, 12 legacy ids intact');
+});
+
+test('Achievements: journal statistics are computed right (volume, max weight, records, variety)', () => {
+  const { achStats } = loadAch();
+  const st = achStats(aHist([
+    aE('2025-03-03', 'push', { detail: [aD('bench', [60, 62.5]), aD('ohp', [40])] }),
+    aE('2025-03-10', 'push', { detail: [aD('bench', [62.5, 65]), aD('ohp', [40])] }),       // жим 65 - рекорд (раньше макс 62.5), ohp ровно как раньше - нет
+    aE('2025-03-17', 'push', { detail: [aD('bench', [70]), aD('ohp', [42.5]), aD('squat', [100])] }),   // два рекорда; присед впервые - не рекорд
+    aE('2025-03-24', 'push', { detail: [aD('bench', [null, null]), aD('ohp', [42.5])] }),    // неотмеченные подходы не считаются
+  ]), '2025-03-30');
+  assert(st.records === 3, 'records: ' + st.records);
+  assert(st.maxw === 100, 'max weight: ' + st.maxw);
+  assert(st.volume === 585, 'volume (sum of marked weights): ' + st.volume);
+  assert(st.variety === 3, 'different exercises: ' + st.variety);
+  assert(st.workouts === 4, 'workouts: ' + st.workouts);
+  // повреждённые и старые записи (без detail, без ts, пустые веса) не роняют подсчёт
+  const weird = achStats({ history: { push: [null, { date: '2025-01-01' }, { workout: 'x' }, aE('2025-01-02', 'push', { detail: [null, { id: 'a' }, { id: 'b', sets: [null, { w: '', done: true }, { w: 'abc', done: true }] }] })] }, customWorkouts: null }, '2025-01-05');
+  assert(weird.workouts === 2 && weird.volume === 0 && weird.records === 0, 'garbage must be ignored, not thrown: ' + JSON.stringify(weird));
+  assert(achStats({}, '2025-01-05').workouts === 0, 'no history at all');
+  info('records 3, max 100, volume 585, 3 exercises; garbage entries tolerated');
+});
+
+test('Achievements: week streaks - the best run counts for achievements, the current run is for the card', () => {
+  const { achStats } = loadAch();
+  const four = aHist(fullWeeks([0, 1, 2, 3]));
+  const a = achStats(four, '2025-02-03');          // понедельник следующей недели: она ещё пуста, это не обрыв
+  assert(a.weeks === 4 && a.cycles === 4 && a.curStreak === 4, 'monday after: ' + JSON.stringify([a.weeks, a.cycles, a.curStreak]));
+  assert(achStats(four, '2025-01-31').curStreak === 4, 'in the last full week');
+  const late = achStats(four, '2025-02-10');
+  assert(late.curStreak === 0 && late.weeks === 4, 'a missed week ends the current run, but the best run stays: ' + JSON.stringify([late.weeks, late.curStreak]));
+  const gap = achStats(aHist(fullWeeks([0, 1, 3])), '2025-02-01');
+  assert(gap.weeks === 2 && gap.curStreak === 1 && gap.cycles === 3, 'a gap splits the run: ' + JSON.stringify([gap.weeks, gap.curStreak, gap.cycles]));
+  const mid = achStats(aHist(fullWeeks([0, 1, 2]).concat([aE('2025-01-27', 'push')])), '2025-01-28');
+  assert(mid.curStreak === 3 && mid.weeks === 3, 'an unfinished current week must not reset the streak mid-week: ' + JSON.stringify([mid.weeks, mid.curStreak]));
+  info('best run 4, current run follows the calendar, a half-done week does not break it');
+});
+
+test('Achievements: discipline statistics (workouts per week, perfect runs, span)', () => {
+  const { achStats } = loadAch();
+  const wk = achStats(aHist([aE('2025-01-06', 'push'), aE('2025-01-07', 'pull'), aE('2025-01-09', 'legs'), aE('2025-01-11', 'push'), aE('2025-01-13', 'pull')]), '2025-01-14');
+  assert(wk.perweek === 4, 'four workouts in one week: ' + wk.perweek);
+  const flags = [[3, 3], [3, 3], [2, 3], [3, 3], [3, 3], [3, 3], [0, 0]];
+  const pr = achStats(aHist(flags.map((f, i) => aE(addDays('2025-02-03', 7 * i), 'push', { done: f[0], total: f[1] }))), '2025-04-01');
+  assert(pr.perfect === 5 && pr.prun === 3, 'perfect: ' + pr.perfect + ', longest run: ' + pr.prun + ' (total 0 is not perfect)');
+  const sparse = achStats(aHist([aE('2025-01-06', 'push'), aE('2025-07-10', 'push')]), '2025-07-11');
+  assert(sparse.span === 0, 'two workouts half a year apart are not "half a year in the ranks"');
+  const steady = achStats(aHist(Array.from({ length: 28 }, (_, i) => aE(addDays('2025-01-06', 7 * i), 'push'))), '2025-07-20');
+  assert(steady.span === 189, 'weekly training for 28 weeks spans 189 days: ' + steady.span);
+  info('perweek 4, perfect 5 / run 3, span only counts steady training');
+});
+
+test('Achievements: secret statistics (time of day, double day, holidays, Friday 13th, comeback)', () => {
+  const { achStats } = loadAch();
+  const at = (y, m, d, h) => new Date(y, m, d, h, 30).getTime();
+  const t = achStats(aHist([aE('2026-01-05', 'push', { ts: at(2026, 0, 5, 3) }), aE('2026-01-07', 'pull', { ts: at(2026, 0, 7, 6) })]), '2026-01-08');
+  assert(t.night === 1 && t.early === 1, 'night/early: ' + t.night + '/' + t.early);
+  const auto = achStats(aHist([aE('2026-01-05', 'push', { ts: at(2026, 0, 5, 3), src: 'auto' }), aE('2026-01-06', 'pull', { ts: at(2026, 0, 6, 12) }), aE('2026-01-07', 'legs', { ts: at(2026, 0, 7, 7) }), aE('2026-01-08', 'push', { ts: undefined })]), '2026-01-09');
+  assert(auto.night === 0 && auto.early === 0, 'autosaves, noon, 07:00 and entries without ts must not count');
+  assert(achStats(aHist([aE('2026-02-03', 'push'), aE('2026-02-03', 'pull')]), '2026-02-04').double === 1, 'two workouts in a day');
+  assert(achStats(aHist([aE('2026-02-03', 'push'), aE('2026-02-04', 'pull')]), '2026-02-05').double === 0, 'one a day is not a double');
+  assert(achStats(aHist([aE('2025-12-31', 'push')]), '2026-01-02').newyear === 1 && achStats(aHist([aE('2026-01-01', 'push')]), '2026-01-02').newyear === 1, 'both holiday dates');
+  assert(achStats(aHist([aE('2025-12-30', 'push'), aE('2026-01-02', 'pull')]), '2026-01-03').newyear === 0, 'the days around do not count');
+  assert(achStats(aHist([aE('2026-02-13', 'push')]), '2026-02-14').friday13 === 1, '2026-02-13 is a Friday');
+  assert(achStats(aHist([aE('2026-01-13', 'push'), aE('2026-02-12', 'pull'), aE('2026-02-20', 'legs')]), '2026-02-21').friday13 === 0, '13th on another weekday / Friday on another date');
+  assert(achStats(aHist([aE('2026-01-05', 'push'), aE('2026-01-19', 'pull')]), '2026-01-20').comeback === 1, 'a 14 day gap');
+  assert(achStats(aHist([aE('2026-01-05', 'push'), aE('2026-01-18', 'pull')]), '2026-01-20').comeback === 0, 'a 13 day gap is not a break');
+  const own = achStats({ history: {}, customWorkouts: { c1: { name: 'X' } }, lastBackup: '2026-01-01' }, '2026-01-02');
+  assert(own.custom === 1 && own.backup === 1, 'custom workout and backup');
+  info('night, early, double, new year, Friday 13th, comeback, custom, backup');
+});
+
+test('Achievements: unlocking follows the thresholds, secret ones included', () => {
+  const { achUnlocked, achStats, ACHIEVEMENTS } = loadAch();
+  const none = achUnlocked(achStats({ history: {} }, '2026-01-01'));
+  assert(none.length === 0, 'an empty journal unlocks nothing');
+  const data = Object.assign(aHist([aE('2026-02-13', 'push', { detail: [aD('squat', [100])] })]), { lastBackup: '2026-02-14' });
+  const ids = achUnlocked(achStats(data, '2026-02-14'));
+  ['w1', 'max100', 'fri13', 'save1'].forEach(id => assert(ids.includes(id), id + ' should be unlocked'));
+  ['w5', 'max150', 'vol1', 'night', 'rec1'].forEach(id => assert(!ids.includes(id), id + ' should stay locked'));
+  assert(achUnlocked({ workouts: 1e9, weeks: 1e9, cycles: 1e9, volume: 1e9, maxw: 1e9, records: 1e9, perweek: 1e9, perfect: 1e9, prun: 1e9, variety: 1e9, span: 1e9, custom: 1, backup: 1, night: 1, early: 1, double: 1, newyear: 1, friday13: 1, comeback: 1 }).length === ACHIEVEMENTS.length, 'every achievement is reachable');
+  info('thresholds respected, all ' + ACHIEVEMENTS.length + ' reachable');
+});
+
+test('Achievements: the celebration plan (first launch after the update, normal unlock, bulk import)', () => {
+  const { achPlan, ACH_LEGACY, ACH_BATCH_MAX } = loadAch();
+  const fresh = achPlan({ history: {} }, '2026-01-01');
+  assert(fresh.migrate && fresh.fresh.length === 0 && Object.keys(fresh.seen).length === 0 && !fresh.bulk, 'a new user: silent start, nothing to celebrate');
+  // человек с историей: старые ачивки запоминаем молча, новые, что уже выполнены, празднуем
+  const base = aHist(fullWeeks([0, 1, 2, 3]).map(e => Object.assign(e, { detail: [aD('bench', [60, 60, 60, 60, 60, 60])] })));   // 12 тренировок по 360 кг
+  const mig = achPlan(Object.assign({}, base, { lastBackup: '2025-02-01' }), '2025-02-03');
+  assert(mig.migrate, 'no achSeen yet means migration');
+  ACH_LEGACY.filter(id => ['w1', 'w5', 'w10', 'str2', 'str4', 'ppl1', 'ppl4'].includes(id)).forEach(id => assert(mig.seen[id] === '', 'legacy ' + id + ' is remembered silently'));
+  assert(mig.fresh.includes('save1') && mig.fresh.includes('vol1') && !mig.fresh.includes('w5'), 'new ones are celebrated, old ones are not: ' + mig.fresh.join(','));
+  assert(!mig.bulk && mig.fresh.length <= ACH_BATCH_MAX, 'a couple of new ones is a celebration, not a bulk');
+  // уже праздновали: свежих нет, второй вызов тот же
+  const celebrated = Object.assign({}, mig.seen); mig.fresh.forEach(id => { celebrated[id] = '2025-02-02'; });
+  const seen = achPlan(Object.assign({}, base, { lastBackup: '2025-02-01', achSeen: celebrated }), '2025-02-03');
+  assert(!seen.migrate && seen.fresh.length === 0, 'celebrated ones never come back: ' + seen.fresh.join(','));
+  // много новых сразу (загрузка копии): без праздника
+  const big = fullWeeks([0, 1, 2, 3]).map(e => Object.assign(e, { detail: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].map(i => aD('ex' + i, [120])) }));
+  const bulk = achPlan(Object.assign(aHist(big), { lastBackup: '2025-02-01', customWorkouts: { c: {} } }), '2025-02-03');
+  assert(bulk.bulk && bulk.fresh.length > ACH_BATCH_MAX, 'a pile of new achievements is a bulk: ' + bulk.fresh.length);
+  const input = JSON.stringify(base);
+  achPlan(base, '2025-02-03');
+  assert(JSON.stringify(base) === input, 'the plan must not modify the data');
+  info('migration silent for the old twelve, bulk over ' + ACH_BATCH_MAX + ' goes to a toast');
+});
+
+test('Achievements tab: groups, descriptions, secret ones hidden behind "?" until unlocked', () => {
+  const tab = src.slice(src.indexOf('{activeTab === "achievements" && (() => {'), src.indexOf('{activeTab === "principles" && ('));
+  assert(tab.includes('ACH_GROUPS.map(') && tab.includes('a.group === g.id'), 'sections by group');
+  assert(tab.includes(': a.desc}') && tab.includes('hidden ? "Секретная ачивка.'), 'description shown, secret ones get a generic text');
+  assert(tab.includes('const hidden = a.secret && !done;') && tab.includes('hidden ? "???" : a.name') && tab.includes('hidden ? "?" : a.icon'), 'name and icon of a locked secret are masked');
+  // название и описание ачивки выводятся только через маскирующие выражения: нигде не выводятся напрямую
+  assert((tab.match(/a\.name/g) || []).length === 1 && (tab.match(/a\.desc/g) || []).length === 1 && (tab.match(/a\.icon/g) || []).length === 1, 'no other place may print the name, description or icon of an achievement');
+  assert(tab.includes('1px dashed'), 'locked secrets have a dashed frame like in games');
+  assert(tab.includes('st.curStreak') && !tab.includes('st.weeks'), 'the STREAK card shows the current run, not the best one');
+  assert(tab.includes('ПОЛУЧЕНО') && tab.includes('{got} / {total}'), 'overall counter');
+  assert(tab.includes('data.achSeen[a.id]') && tab.includes('"T12:00:00"'), 'the date of the unlock is shown when known (local noon, no UTC shift)');
+  assert(/className="app-anim"[\s\S]*animation: "achIn /.test(tab) && tab.includes('Math.min(i, 10)'), 'cards appear one after another, the delay is capped');
+  info('Groups, descriptions, "???" for locked secrets');
+});
+
+test('Achievements: the celebration - queued, delayed, remembered, dismissable, with decorative layers hidden when motion is off', () => {
+  const fx = src.slice(src.indexOf('  // Ачивки: праздник при получении'), src.indexOf('  // Экран не гаснет, пока открыта'));
+  assert(fx.includes('achPlan(data, todayKey())') && fx.includes('plan.migrate') && fx.includes('plan.bulk'), 'uses the plan');
+  assert(fx.includes('showToast("Новых ачивок: "'), 'bulk is announced in a toast');
+  assert(/setTimeout\(\(\) => setAchQueue\(q => q\.concat\(plan\.fresh\.filter\(id => q\.indexOf\(id\) < 0\)\)\), 900\)/.test(fx) && fx.includes('return () => clearTimeout(t);'), 'queued after the "saved" toast, no duplicates, timer cleaned');
+  assert(fx.includes('[data.history, data.customWorkouts, data.lastBackup, data.achSeen]'), 'recomputed when the journal, custom workouts, backup date or the seen map change');
+  assert(/achSeen: \{ \.\.\.\(prev\.achSeen \|\| \{\}\), \[id\]: todayKey\(\) \}/.test(fx) && fx.includes('setAchQueue(q => q.slice(1))'), 'dismissing remembers the id with the date and moves on');
+  assert(src.includes('{achNow && <AchCelebration ach={achNow} left={achQueue.length - 1} onClose={dismissAch} />}'), 'rendered from the queue head');
+  const comp = src.slice(src.indexOf('// ---- Ачивки: праздник ----'));
+  assert(comp.includes('zIndex: 700') && drawerSrc.includes('zIndex: 600'), 'celebration above the menu (600)');
+  assert(comp.includes('role="dialog"') && comp.includes('onClick={e => e.stopPropagation()}') && comp.includes('onClick={props.onClose}'), 'dialog, the card does not close itself, the scrim does');
+  assert(comp.includes('props.left > 0 ? "ДАЛЬШЕ" : "ОТЛИЧНО"') && comp.includes('minHeight: 48'), 'button text follows the queue; 44pt+');
+  assert(comp.includes('СЕКРЕТНАЯ АЧИВКА ОТКРЫТА') && comp.includes('animation: "achQ 1s ease-in both"') && comp.includes('const revealAt = secret ? 1 : 0.15'), 'secret ones flip a question mark first');
+  assert(!/Math\.random/.test(comp.replace(/\/\/.*$/gm, '')) && !/Math\.random/.test(fx.replace(/\/\/.*$/gm, '')), 'confetti must be deterministic: no flicker on re-render');
+  assert(comp.includes('i < 22') && comp.includes('"--dx"') && comp.includes('"--rot"'), 'confetti pieces are positioned by index');
+  // без анимаций (reduce motion) слои украшений должны быть невидимы сами по себе, а текст и значок - видны
+  assert((comp.match(/opacity: 0, /g) || []).length >= 3 || (comp.match(/opacity: 0,/g) || []).length >= 3, 'confetti, ring and "?" are invisible by default');
+  ['achIn', 'achCard', 'achPop', 'achRing', 'achConf', 'achQ', 'achText'].forEach(n => {
+    assert(headSrc.includes('@keyframes ' + n + '{'), n + ' keyframes missing in head.html');
+    assert(src.includes('animation: "' + n + ' '), n + ' is declared but never used');
+  });
+  info('Queue, delay, memory, dismiss, secret flip, deterministic confetti, 7 keyframes');
+});
+
+test('Achievements: the seen-map is per device and is not merged from backups', () => {
+  const merge = src.slice(src.indexOf('function mergeBackup'), src.indexOf('function dayNum'));
+  assert(!/achSeen/.test(merge), 'mergeBackup must not import achSeen (a restored device runs its own silent migration)');
+  assert(src.includes('const ACH_BATCH_MAX = 4;'), 'bulk threshold constant');
+  info('A restored device starts its own silent migration');
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
