@@ -997,9 +997,12 @@ test('sessionKey uses todayKey() and activeDay (correct format)', () => {
 });
 
 test('activeTab default is "workout"', () => {
-  const match = src.match(/activeTab.*?useState\("(\w+)"\)/);
+  // По умолчанию "workout"; единственное исключение - тестовая сборка, которая после входа в Spotify
+  // возвращает на вкладку БЕТА (betaInitialTab есть только там, в боевой странице его нет)
+  const match = src.match(/\[activeTab, setActiveTab\] = useState\(typeof betaInitialTab === "function" \? betaInitialTab\(\) : "(\w+)"\)/);
   assert(match && match[1] === 'workout', `activeTab default should be "workout", got: ${match && match[1]}`);
-  info('activeTab defaults to "workout"');
+  assertNot(/function betaInitialTab/.test(app), 'betaInitialTab must not exist in the production page');
+  info('activeTab defaults to "workout" (BETA seam only in the test build)');
 });
 
 test('localStorage keys are consistent (ppl_tracker_v4 and sila_timer)', () => {
@@ -2997,6 +3000,176 @@ test('Coach: advice is ordered, capped, never mutates data, and can be snoozed f
   assert(vis({ a: '2026-09-30' }, TODAY) === 'abc', 'snoozed 7 days ago -> back');
   assert(vis(undefined, TODAY) === 'abc', 'no dismissals -> all visible');
   info('Sorted, capped at 6, pure, snooze = 7 days');
+});
+
+// ── Spotify: настоящий код src/beta/spotify.jsx на заглушках ──────────────────
+function loadSpotify(env) {
+  const code = fs.readFileSync(path.join(BETA_SRC_DIR, 'spotify.jsx'), 'utf8');
+  const body = code.slice(0, code.indexOf('function SpotifyPanel'));
+  const mem = (env && env.mem) || {};
+  const localStorage = { getItem: k => (k in mem ? mem[k] : null), setItem: (k, v) => { mem[k] = String(v); }, removeItem: k => { delete mem[k]; } };
+  const location = (env && env.location) || { origin: 'https://shattersxd.github.io', pathname: '/workout/beta/', search: '', href: '' };
+  const calls = [];
+  const history = { replaceState: (a, b, url) => calls.push(['replaceState', url]) };
+  const fetchStub = (env && env.fetch) || (() => Promise.reject(new Error('no fetch expected')));
+  const api = new Function('localStorage', 'location', 'history', 'fetch',
+    body + '; return { SPOTIFY_STORAGE_KEY, SPOTIFY_BOOT, spBase64Url, spRandomString, spChallenge, spRedirectUri, spAuthUrl, spParseCallback, spExchange, spRefresh, spCall, spPlayerView, spErrorText, spLoad, spSave, spStartLogin, betaInitialTab };'
+  )(localStorage, location, history, fetchStub);
+  return Object.assign(api, { mem, calls, location });
+}
+const jsonRes = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => { if (body === undefined) throw new Error('no body'); return body; } });
+const bodyOf = init => Object.fromEntries(new URLSearchParams(init.body));
+
+testAsync('Spotify: PKCE challenge matches the RFC 7636 test vector, verifiers are random and URL-safe', async () => {
+  const sp = loadSpotify();
+  const ch = await sp.spChallenge('dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk');
+  assert(ch === 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM', 'S256 challenge differs from the RFC vector, got ' + ch);
+  const a = sp.spRandomString(96), b = sp.spRandomString(96);
+  assert(a.length === 96 && a !== b, 'verifier must be 96 chars and differ between calls');
+  assert(/^[A-Za-z0-9\-._~]+$/.test(a), 'verifier may only use unreserved URL characters');
+  assert(sp.spBase64Url(new Uint8Array([251, 255, 254])) === '-__-', 'base64url must use - and _ and drop padding, got ' + sp.spBase64Url(new Uint8Array([251, 255, 254])));
+  info('RFC 7636 vector OK');
+});
+
+test('Spotify: redirect URI and authorize URL are exact and fully encoded', () => {
+  const sp = loadSpotify();
+  assert(sp.spRedirectUri() === 'https://shattersxd.github.io/workout/beta/', 'redirect URI, got ' + sp.spRedirectUri());
+  const idx = loadSpotify({ location: { origin: 'https://shattersxd.github.io', pathname: '/workout/beta/index.html', search: '' } });
+  assert(idx.spRedirectUri() === 'https://shattersxd.github.io/workout/beta/', 'index.html must be stripped, got ' + idx.spRedirectUri());
+  const u = new URL(sp.spAuthUrl('CLIENT123', sp.spRedirectUri(), 'CHAL', 'STATE'));
+  assert(u.origin + u.pathname === 'https://accounts.spotify.com/authorize', 'authorize endpoint, got ' + u.origin + u.pathname);
+  const q = Object.fromEntries(u.searchParams);
+  assert(q.response_type === 'code' && q.client_id === 'CLIENT123' && q.state === 'STATE', 'basic params: ' + JSON.stringify(q));
+  assert(q.code_challenge === 'CHAL' && q.code_challenge_method === 'S256', 'PKCE params: ' + JSON.stringify(q));
+  assert(q.redirect_uri === 'https://shattersxd.github.io/workout/beta/', 'redirect_uri must survive encoding, got ' + q.redirect_uri);
+  assert(q.scope.split(' ').sort().join() === 'user-modify-playback-state,user-read-currently-playing,user-read-playback-state', 'scopes: ' + q.scope);
+  assertNot(/[?&]client_secret=/.test(u.href), 'a public client must never send a secret');
+  info('Authorize URL is exact');
+});
+
+test('Spotify: callback parsing', () => {
+  const sp = loadSpotify();
+  assert(JSON.stringify(sp.spParseCallback('?code=abc&state=xyz')) === '{"code":"abc","state":"xyz"}', 'code + state');
+  assert(sp.spParseCallback('?error=access_denied&state=xyz').error === 'access_denied', 'error callback');
+  assert(sp.spParseCallback('') === null && sp.spParseCallback('?foo=1') === null && sp.spParseCallback('?code=abc') === null, 'anything else is not a callback (a code without state must be ignored)');
+  info('code+state, error, and non-callbacks');
+});
+
+testAsync('Spotify: code exchange sends the verifier, stores tokens, and refuses a foreign state without a request', async () => {
+  const reqs = [];
+  const fetchOk = async (url, init) => { reqs.push([url, init]); return jsonRes(200, { access_token: 'AT', refresh_token: 'RT', expires_in: 3600 }); };
+  const sp = loadSpotify({ fetch: fetchOk });
+  const store = { clientId: 'CID', pending: { verifier: 'VERIFIER', state: 'S1', redirect: 'https://shattersxd.github.io/workout/beta/' } };
+  const r = await sp.spExchange({ code: 'CODE', state: 'S1' }, store, fetchOk, 1000);
+  assert(r.store && r.store.access === 'AT' && r.store.refresh === 'RT' && r.store.expiresAt === 1000 + 3600000 && r.store.clientId === 'CID', 'tokens stored: ' + JSON.stringify(r));
+  assert(!('pending' in r.store), 'the one-time verifier must not stay in the store');
+  assert(reqs.length === 1 && reqs[0][0] === 'https://accounts.spotify.com/api/token' && reqs[0][1].method === 'POST', 'POST to the token endpoint');
+  assert(reqs[0][1].headers['Content-Type'] === 'application/x-www-form-urlencoded', 'form encoding required by Spotify');
+  const b = bodyOf(reqs[0][1]);
+  assert(b.grant_type === 'authorization_code' && b.code === 'CODE' && b.client_id === 'CID' && b.code_verifier === 'VERIFIER' && b.redirect_uri === 'https://shattersxd.github.io/workout/beta/', 'token request body: ' + JSON.stringify(b));
+  assert(!('client_secret' in b), 'no client secret');
+  // чужой state: ни одного запроса
+  reqs.length = 0;
+  const bad = await sp.spExchange({ code: 'CODE', state: 'OTHER' }, store, fetchOk, 1000);
+  assert(bad.error && !bad.store && reqs.length === 0, 'a mismatched state must be rejected before any request');
+  const none = await sp.spExchange({ code: 'CODE', state: 'S1' }, { clientId: 'CID' }, fetchOk, 1000);
+  assert(none.error && reqs.length === 0, 'no pending login (callback opened in another context) -> clear message, no request');
+  // ошибка Spotify
+  const failing = async () => jsonRes(400, { error: 'invalid_grant', error_description: 'Invalid authorization code' });
+  const e = await sp.spExchange({ code: 'CODE', state: 'S1' }, store, failing, 1000);
+  assert(e.error === 'Invalid authorization code', 'Spotify error text is passed on, got ' + JSON.stringify(e));
+  info('Verifier sent, tokens stored, foreign state rejected');
+});
+
+testAsync('Spotify: API calls refresh the token ahead of expiry and once after a 401', async () => {
+  const seen = [];
+  let apiStatuses = [200];
+  const fetchFn = async (url, init) => {
+    seen.push({ url, method: init.method, auth: init.headers && init.headers.Authorization, body: init.body && bodyOf(init) });
+    if (url.indexOf('/api/token') >= 0) return jsonRes(200, { access_token: 'NEW' + seen.length, expires_in: 3600 });   // refresh_token не вернули - старый сохраняется
+    const st = apiStatuses.length > 1 ? apiStatuses.shift() : apiStatuses[0];
+    return st === 204 ? jsonRes(204) : jsonRes(st, { is_playing: true });
+  };
+  const sp = loadSpotify({ fetch: fetchFn });
+  const fresh = { clientId: 'CID', access: 'AT', refresh: 'RT', expiresAt: 10 * 60 * 1000 };
+  let r = await sp.spCall(fresh, fetchFn, 'GET', '/me/player', 0);
+  assert(r.status === 200 && seen.length === 1 && seen[0].auth === 'Bearer AT' && seen[0].url === 'https://api.spotify.com/v1/me/player', 'a fresh token is used as is: ' + JSON.stringify(seen));
+  assert(r.store === fresh, 'an unchanged store must be returned as the same object (no needless writes)');
+  // истекает через 30 секунд: обновляем заранее
+  seen.length = 0;
+  r = await sp.spCall({ clientId: 'CID', access: 'AT', refresh: 'RT', expiresAt: 30000 }, fetchFn, 'PUT', '/me/player/pause', 0);
+  assert(seen.length === 2 && seen[0].url.indexOf('/api/token') >= 0 && seen[0].body.grant_type === 'refresh_token' && seen[0].body.refresh_token === 'RT', 'refresh first: ' + JSON.stringify(seen[0]));
+  assert(seen[1].auth === 'Bearer NEW1' && r.store.access === 'NEW1' && r.store.refresh === 'RT', 'the new token is used and the old refresh token is kept');
+  // 401 -> один refresh и повтор
+  seen.length = 0; apiStatuses = [401, 200];
+  r = await sp.spCall({ clientId: 'CID', access: 'OLD', refresh: 'RT', expiresAt: 10 * 60 * 1000 }, fetchFn, 'GET', '/me/player', 0);
+  assert(r.status === 200 && seen.length === 3 && seen[2].auth.startsWith('Bearer NEW'), '401 -> refresh -> retry: ' + seen.map(s => s.url.split('/').pop()).join(','));
+  // 204 без тела
+  seen.length = 0; apiStatuses = [204];
+  r = await sp.spCall(fresh, fetchFn, 'GET', '/me/player', 0);
+  assert(r.status === 204 && r.json === null, '204 has no body');
+  // не подключён - без запросов
+  seen.length = 0;
+  r = await sp.spCall({ clientId: 'CID' }, fetchFn, 'GET', '/me/player', 0);
+  assert(r.status === 401 && seen.length === 0, 'without a refresh token nothing is sent');
+  // refresh отозван -> expired
+  const revoked = async (url) => url.indexOf('/api/token') >= 0 ? jsonRes(400, { error: 'invalid_grant', error_description: 'Refresh token revoked' }) : jsonRes(200, {});
+  r = await sp.spCall({ clientId: 'CID', access: 'AT', refresh: 'RT', expiresAt: 0 }, revoked, 'GET', '/me/player', 0);
+  assert(r.status === 401 && r.expired === true && r.error === 'Refresh token revoked', 'a revoked grant must ask to log in again: ' + JSON.stringify(r));
+  info('Proactive refresh, one retry on 401, rotation-safe, revoked grant detected');
+});
+
+test('Spotify: player view and error messages', () => {
+  const sp = loadSpotify();
+  const v = sp.spPlayerView(200, { is_playing: true, item: { name: 'Song', artists: [{ name: 'A' }, { name: 'B' }] }, device: { name: 'iPhone' } });
+  assert(v.playing === true && v.title === 'Song' && v.artist === 'A, B' && v.device === 'iPhone', 'view: ' + JSON.stringify(v));
+  assert(sp.spPlayerView(204, null).none === true && sp.spPlayerView(404, {}).none === true, 'no active device -> none');
+  assert(sp.spPlayerView(200, { is_playing: false, item: null }).title === '', 'an ad or empty item must not crash');
+  assert(sp.spErrorText(204) === null && sp.spErrorText(200) === null, 'success has no message');
+  assert(sp.spErrorText(403, { error: { reason: 'PREMIUM_REQUIRED' } }).includes('Premium'), 'Premium message');
+  assert(sp.spErrorText(404, { error: { reason: 'NO_ACTIVE_DEVICE' } }).includes('активного устройства'), 'no-device message');
+  assert(sp.spErrorText(429).includes('подождать') && sp.spErrorText(500).includes('500'), '429 and generic');
+  info('View and messages');
+});
+
+testAsync('Spotify: finishing a login on page load saves tokens, cleans the URL, reports errors', async () => {
+  const mem = { ppl_spotify_beta: JSON.stringify({ clientId: 'CID', pending: { verifier: 'V', state: 'S1', redirect: 'https://shattersxd.github.io/workout/beta/' } }) };
+  const fetchOk = async () => jsonRes(200, { access_token: 'AT', refresh_token: 'RT', expires_in: 3600 });
+  const loc = { origin: 'https://shattersxd.github.io', pathname: '/workout/beta/', search: '?code=CODE&state=S1' };
+  let sp = loadSpotify({ mem, location: loc, fetch: fetchOk });
+  for (let i = 0; i < 50 && !sp.SPOTIFY_BOOT.done; i++) await new Promise(r => setTimeout(r, 10));
+  assert(sp.SPOTIFY_BOOT.done && !sp.SPOTIFY_BOOT.error, 'boot must finish without error, got ' + sp.SPOTIFY_BOOT.error);
+  const saved = JSON.parse(mem.ppl_spotify_beta);
+  assert(saved.access === 'AT' && saved.refresh === 'RT' && saved.clientId === 'CID' && !saved.pending, 'tokens saved, verifier dropped: ' + JSON.stringify(saved));
+  assert(sp.calls.some(c => c[0] === 'replaceState' && c[1] === 'https://shattersxd.github.io/workout/beta/'), 'the one-time code must be removed from the address bar');
+  assert(sp.betaInitialTab() === 'workout' || true, 'initial tab helper is callable');
+  // отмена входа
+  sp = loadSpotify({ mem: {}, location: { origin: 'https://x.test', pathname: '/b/', search: '?error=access_denied&state=S1' } });
+  for (let i = 0; i < 50 && !sp.SPOTIFY_BOOT.done; i++) await new Promise(r => setTimeout(r, 10));
+  assert(sp.SPOTIFY_BOOT.error === 'Вход отменён', 'denied login message, got ' + sp.SPOTIFY_BOOT.error);
+  // обычный запуск ничего не трогает
+  sp = loadSpotify({ mem: {}, location: { origin: 'https://x.test', pathname: '/b/', search: '' } });
+  for (let i = 0; i < 50 && !sp.SPOTIFY_BOOT.done; i++) await new Promise(r => setTimeout(r, 10));
+  assert(sp.SPOTIFY_BOOT.done && !sp.SPOTIFY_BOOT.error && sp.calls.length === 0, 'a normal start must change nothing');
+  // initial tab: после возврата со Spotify - БЕТА
+  assert(loadSpotify({ location: { origin: 'x', pathname: '/', search: '?code=1&state=2' } }).betaInitialTab() === 'beta', 'after Spotify returns, open the BETA tab');
+  assert(loadSpotify({ location: { origin: 'x', pathname: '/', search: '' } }).betaInitialTab() === 'workout', 'normally open the workout tab');
+  info('Boot: tokens saved, URL cleaned, denied/normal start handled');
+});
+
+test('Spotify: tokens stay out of the app data and the backup file, UI is wired and tappable', () => {
+  const sp = fs.readFileSync(path.join(BETA_SRC_DIR, 'spotify.jsx'), 'utf8');
+  assert(sp.includes('const SPOTIFY_STORAGE_KEY = "ppl_spotify_beta"'), 'tokens need their own key');
+  assertNot(/setData|props\.data|data\./.test(sp.slice(sp.indexOf('function SpotifyPanel'))), 'SpotifyPanel must not touch app data: tokens would end up in the backup file');
+  assert(!sp.includes('client_secret'), 'no secret anywhere');
+  assert(betaSrc.includes('typeof SpotifyPanel === "function" && <SpotifyPanel'), 'BetaTab must render SpotifyPanel');
+  const panel = sp.slice(sp.indexOf('function SpotifyPanel'));
+  assert(panel.includes('spotify://'), 'a shortcut to open the Spotify app');
+  assert((panel.match(/minHeight: 4[48]/g) || []).length >= 4, 'inputs, the login button and the shared button style need a 44pt+ target');
+  assert(/const btn = \{[^}]*minHeight: 48/.test(panel), 'the shared button style used by all five controls must be 48 high');
+  assert(/function SpotifyPanel|function spCall/.test(betaApp) && !/function SpotifyPanel|spStartLogin|accounts\.spotify\.com/.test(app), 'Spotify code exists in beta and never in production');
+  assert(betaSrc.includes('const SPOTIFY_BOOT') && /\nspBoot\(\);/.test(sp), 'the callback is processed at startup, not only when the tab opens');
+  info('Isolated storage, no secret, no leak into production');
 });
 
 test('Coach UI: panel is wired into the beta tab and its dismiss button is a 44pt target', () => {

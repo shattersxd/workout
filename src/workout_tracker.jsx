@@ -1345,7 +1345,8 @@ export default function App() {
       return sched[schedIdx] || "push";
     } catch { return "push"; }
   });
-  const [activeTab, setActiveTab] = useState("workout");
+  // betaInitialTab есть только в тестовой сборке: после входа в Spotify возвращаемся на вкладку БЕТА
+  const [activeTab, setActiveTab] = useState(typeof betaInitialTab === "function" ? betaInitialTab() : "workout");
   const [expandedEx, setExpandedEx] = useState(null);
   const [swapModal, setSwapModal] = useState(null);
   const [savePrompt, setSavePrompt] = useState(false);
