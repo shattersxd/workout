@@ -3445,6 +3445,237 @@ test('Social: nothing leaves the phone, the panel is wired and explained, the de
   info('No network in social.jsx; doc covers backends, auth, privacy, roadmap');
 });
 
+// ── Соревнования сейчас и боты ────────────────────────────────────────────────
+function loadCompete() {
+  const dnFrom = src.indexOf('function dayNum');
+  const dnSrc = src.slice(dnFrom, src.indexOf('function backupAgeDays', dnFrom));
+  const read = f => fs.readFileSync(path.join(BETA_SRC_DIR, f), 'utf8');
+  const cut = (s, marker) => s.slice(0, s.indexOf(marker));
+  const profPure = cut(read('profile.jsx'), '// ---- Интерфейс ----');
+  const coachPure = cut(read('coach.jsx'), 'const COACH_KIND_STYLE');
+  const socPure = cut(read('social.jsx'), 'function SocialPanel');
+  const compPure = cut(read('compete.jsx'), '// ---- Интерфейс: демо-комната с ботами ----');
+  return new Function(dnSrc + profPure + coachPure + socPure + compPure +
+    '; return { SOCIAL_FORMATS, SOCIAL_ROOM_METHODS, socialPlannedSets, socialRecordsToday, socialLiveProgress, socialLivePayload, socialCompScore, socialCompRank, socialTeamProgress, socialHash, socialBot, socialBotTimeline, socialReferencePace, socialBotLive, socialRoomBoard, socialLocalRooms };')();
+}
+const PROGS = { push: { exercises: [{ id: 'bench', sets: 4 }, { id: 'ohp', sets: 4 }, { id: 'dips', sets: 3 }] } };
+const T = '2026-10-07';
+const SK = T + '_push';
+const sess = (o) => ({ [SK]: o });
+const setsOf = (arr) => Object.fromEntries(arr.map((s, i) => [i, s]));   // [{weight, done}] -> {0:..,1:..}
+const dn = (n) => new Date(Date.UTC(2026, 9, 7) - n * 86400000).toISOString().slice(0, 10);
+const histEntry = (n, id, kg) => ({ date: dn(n), ts: n, workout: 'push', detail: [{ id, name: id, sets: [{ w: String(kg), done: true }] }] });
+
+test('Live competition: planned sets respect custom set counts, skips, added exercises and custom days', () => {
+  const c = loadCompete();
+  assert(c.socialPlannedSets({}, 'push', SK, PROGS) === 11, 'base program: 4+4+3');
+  assert(c.socialPlannedSets({ customSets: { [SK]: { bench: 2 } } }, 'push', SK, PROGS) === 9, 'a changed set count overrides the program');
+  assert(c.socialPlannedSets({ skipped: { [SK]: ['dips'] } }, 'push', SK, PROGS) === 8, 'a skipped exercise is not planned');
+  assert(c.socialPlannedSets({ addedEx: { [SK]: [{ id: 'curl', sets: 3 }] } }, 'push', SK, PROGS) === 14, 'an added exercise counts');
+  assert(c.socialPlannedSets({ customWorkouts: { mine: { exercises: [{ id: 'x', sets: 5 }] } } }, 'mine', T + '_mine', PROGS) === 5, 'a custom day is read from customWorkouts');
+  assert(c.socialPlannedSets({}, 'nope', T + '_nope', PROGS) === 0, 'an unknown day plans nothing, no crash');
+  info('11 planned; overrides, skips, additions, custom days');
+});
+
+test('Live competition: a record is only a beat of your OWN earlier maximum', () => {
+  const c = loadCompete();
+  const base = { history: { push: [histEntry(7, 'bench', 70), histEntry(14, 'bench', 65)] } };
+  const rec = (sessions, extra) => c.socialRecordsToday(Object.assign({}, base, { sessions }, extra || {}), T);
+  assert(rec(sess({ bench: setsOf([{ weight: '72.5', done: true }]) })) === 1, 'above the earlier best: a record');
+  assert(rec(sess({ bench: setsOf([{ weight: '70', done: true }]) })) === 0, 'equal is not a record');
+  assert(rec(sess({ bench: setsOf([{ weight: '80', done: false }]) })) === 0, 'an unmarked set does not count');
+  assert(rec(sess({ curl: setsOf([{ weight: '30', done: true }]) })) === 0, 'a first-ever exercise is not a record');
+  assert(rec(sess({ bench: setsOf([{ weight: '90', done: true }]) }), { skipped: { [SK]: ['bench'] } }) === 0, 'a skipped exercise does not count');
+  assert(rec({ ['2026-10-06_push']: { bench: setsOf([{ weight: '99', done: true }]) } }) === 0, 'yesterday\'s session is not today');
+  // сегодняшняя завершённая запись не должна поднимать "прошлый максимум" и обнулять рекорд
+  const withToday = { history: { push: [histEntry(0, 'bench', 75), histEntry(7, 'bench', 70)] }, sessions: sess({ bench: setsOf([{ weight: '75', done: true }]) }) };
+  assert(c.socialRecordsToday(withToday, T) === 1, 'today\'s own history entry is excluded from the earlier maximum');
+  info('Beating your own earlier best counts; ties, undone, skipped, first-time and other days do not');
+});
+
+test('Live competition: progress is built from marked sets only, and the live packet carries no weights', () => {
+  const c = loadCompete();
+  const d = { history: {}, identity: { userId: 'u1' }, social: { displayName: 'Ник' }, sessions: {
+    [SK]: { bench: setsOf([{ weight: '999', done: true }, { weight: '999', done: true }, { weight: '999', done: false }]), ohp: setsOf([{ weight: '40', done: true }]) },
+    '2026-10-06_push': { bench: setsOf([{ weight: '50', done: true }]) } } };
+  const p = c.socialLiveProgress(d, T, PROGS);
+  assert(p.setsDone === 3 && p.setsPlanned === 11 && p.pct === 27, 'progress: ' + JSON.stringify(p));
+  assert(c.socialLiveProgress({ sessions: {}, history: {} }, T, PROGS).setsDone === 0, 'no session, zero progress');
+  assert(c.socialLiveProgress({ sessions: { [SK]: { bench: setsOf(Array.from({ length: 30 }, () => ({ weight: '1', done: true }))) } } }, T, PROGS).pct === 100, 'percent is capped at 100');
+  assert(c.socialLiveProgress(Object.assign({}, d, { skipped: { [SK]: ['ohp'] } }), T, PROGS).setsDone === 2, 'a skipped exercise drops out of progress');
+  const pay = c.socialLivePayload(d, T, 12345);
+  assert(Object.keys(pay).sort().join() === 'at,name,pct,recordsToday,setsDone,userId', 'live packet keys: ' + Object.keys(pay).join());
+  assertNot(JSON.stringify(pay).includes('999') || JSON.stringify(pay).includes('weight'), 'a barbell weight leaked into the live packet');
+  assert(pay.at === 12345 && pay.userId === 'u1' && pay.name === 'Ник', 'identity and timestamp are passed through');
+  info('3 of 11 sets; the packet is counters only');
+});
+
+test('Live competition: scoring, tie-breaks and team goal', () => {
+  const c = loadCompete();
+  const rows = [
+    { userId: 'a', name: 'Борис', setsDone: 8, pct: 50, recordsToday: 0, at: 200 },
+    { userId: 'b', name: 'Анна', setsDone: 8, pct: 50, recordsToday: 1, at: 100 },
+    { userId: 'c', name: 'Вика', setsDone: 5, pct: 90, recordsToday: 2, at: 50 },
+    { userId: 'd', name: 'Глеб', setsDone: 8, pct: 50, recordsToday: 0, at: 200 } ];
+  const before = JSON.stringify(rows);
+  const bySets = c.socialCompRank('sets', rows);
+  assert(bySets.map(r => r.userId).join() === 'b,a,d,c', 'equal sets: whoever got there first, then by name: ' + bySets.map(r => r.userId).join());
+  assert(bySets.map(r => r.rank).join() === '1,2,3,4' && bySets[0].score === 8, 'consecutive ranks with the score attached');
+  assert(c.socialCompRank('plan', rows)[0].userId === 'c' && c.socialCompRank('plan', rows)[0].score === 90, 'plan format ranks by percent');
+  assert(c.socialCompRank('records', rows)[0].userId === 'c', 'records format ranks by beaten personal bests');
+  assert(c.socialCompRank('team', rows)[0].score === 8, 'the team format counts sets');
+  assert(JSON.stringify(rows) === before, 'ranking must not mutate its input');
+  const tp = c.socialTeamProgress(rows, 40);
+  assert(tp.total === 29 && tp.pct === 73 && !tp.reached, 'team progress: ' + JSON.stringify(tp));
+  assert(c.socialTeamProgress(rows, 20).reached && c.socialTeamProgress(rows, 20).pct === 100, 'the goal is reached and capped');
+  assert(c.socialTeamProgress([], 0).pct === 0 && !c.socialTeamProgress([], 0).reached, 'an empty goal is safe');
+  assert(c.SOCIAL_FORMATS.map(f => f.id).join() === 'sets,plan,records,team' && c.SOCIAL_FORMATS.every(f => f.desc && f.shares && f.name), 'four documented formats');
+  info('Earlier-to-reach wins ties; formats rank by their own metric');
+});
+
+test('Bots: deterministic, labelled data, believable and monotone, never beyond the plan', () => {
+  const c = loadCompete();
+  const a1 = c.socialBot('room-1', 0), a2 = c.socialBot('room-1', 0), b = c.socialBot('room-2', 0);
+  assert(JSON.stringify(a1) === JSON.stringify(a2), 'the same room and number always give the same bot');
+  assert(a1.userId !== b.userId, 'different rooms give different bots');
+  const names = Array.from({ length: 8 }, (_, i) => c.socialBot('room-1', i).name);
+  assert(new Set(names).size === 8, 'eight bots in one room have eight distinct names: ' + names.join());
+  for (let i = 0; i < 8; i++) {
+    const bot = c.socialBot('room-' + i, i);
+    assert(bot.skill >= 0.75 && bot.skill <= 1.25 && bot.userId.startsWith('bot-'), 'skill in range, id marked as a bot: ' + JSON.stringify(bot));
+    let prev = -1;
+    for (let m = 0; m <= 120; m++) {
+      const live = c.socialBotLive(bot, m, 18, 0.3);
+      assert(live.setsDone >= prev, 'bot progress must never go back (minute ' + m + ')');
+      assert(live.setsDone <= 18 && live.pct <= 100, 'a bot never exceeds the plan');
+      prev = live.setsDone;
+    }
+    assert(c.socialBotLive(bot, 0, 18, 0.3).setsDone === 0, 'everyone starts from zero');
+    const fin = c.socialBotLive(bot, 240, 18, 0.3).setsDone;
+    assert(fin === 18 || (fin >= 9 && fin <= 16), 'given enough time a bot finishes the plan or quits between 50% and 90% of it, got ' + fin);
+  }
+  info('Deterministic, named, bounded, monotone');
+});
+
+test('Bots behave like people: uneven rest, late arrival, long pauses, some quit early', () => {
+  const c = loadCompete();
+  const tls = Array.from({ length: 200 }, (_, i) => ({ bot: c.socialBot('room-' + i, i % 5), tl: null })).map(x => { x.tl = c.socialBotTimeline(x.bot, 18, 0.3); return x; });
+  // 1. отдых между подходами неровный, а не метроном
+  let uneven = 0, withPause = 0, late = 0, quit = 0, fullDur = [], meanRatio = [];
+  tls.forEach(({ bot, tl }) => {
+    const gaps = tl.map((x, k) => x - (k ? tl[k - 1] : 0)).slice(1);
+    const mean = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+    const sd = Math.sqrt(gaps.reduce((a, g) => a + (g - mean) * (g - mean), 0) / gaps.length);
+    if (sd / mean > 0.12) uneven++;
+    if (gaps.some(g => g > mean * 1.6)) withPause++;
+    if (tl[0] > 1.5) late++;
+    if (tl.length < 18) quit++; else { fullDur.push(tl[tl.length - 1]); meanRatio.push((tl[tl.length - 1] - tl[0]) / 17 / (1 / (0.3 * bot.skill))); }
+  });
+  assert(uneven / 200 > 0.95, 'rest between sets must vary, only ' + uneven + '/200 bots were uneven');
+  assert(withPause / 200 > 0.5, 'many bots take an occasional long pause, got ' + withPause + '/200');
+  assert(late / 200 > 0.5, 'most bots do not start at the exact first second, got ' + late + '/200');
+  assert(quit / 200 > 0.1 && quit / 200 < 0.4, 'roughly one in four quits early, got ' + quit + '/200');
+  // 2. при этом средний темп соответствует заданному: гонка остаётся близкой
+  const avgRatio = meanRatio.reduce((a, b) => a + b, 0) / meanRatio.length;
+  assert(avgRatio > 0.85 && avgRatio < 1.3, 'on average a bot keeps the pace it was given, ratio ' + avgRatio.toFixed(2));
+  // 3. у разных ботов разные расписания; у одного бота - одно и то же при каждом вызове
+  const a = c.socialBot('room-9', 0), b = c.socialBot('room-9', 1);
+  assert(JSON.stringify(c.socialBotTimeline(a, 18, 0.3)) !== JSON.stringify(c.socialBotTimeline(b, 18, 0.3)), 'two bots of one room must not move in lockstep');
+  assert(JSON.stringify(c.socialBotTimeline(a, 18, 0.3)) === JSON.stringify(c.socialBotTimeline(a, 18, 0.3)), 'one bot always has the same schedule');
+  // 4. подходы приходят ступеньками (целые числа, не плавная кривая), за минуту не больше одного-двух
+  const live = Array.from({ length: 61 }, (_, m) => c.socialBotLive(a, m, 18, 0.3).setsDone);
+  assert(live.every((v, i) => i === 0 || v - live[i - 1] <= 2), 'never more than two sets in a minute: ' + live.join(','));
+  info('Uneven rest, pauses, late start, ~1/4 drop out, average pace preserved');
+});
+
+test('Bots: pace comes from the user\'s own history, with a sane default for a beginner', () => {
+  const c = loadCompete();
+  assert(c.socialReferencePace({ history: {} }).planned === 18 && c.socialReferencePace({ history: {} }).perMin === 0.3, 'no history: 18 sets an hour');
+  const ent = (n, k) => ({ date: dn(n), ts: n, workout: 'push', detail: [{ id: 'x', sets: Array.from({ length: k }, () => ({ w: '1', done: true })) }] });
+  const r = c.socialReferencePace({ history: { push: [ent(1, 20), ent(8, 24), ent(15, 16)] } });
+  assert(r.planned === 20 && r.perMin === 20 / 60, 'average of the user\'s sessions: ' + JSON.stringify(r));
+  const tiny = c.socialReferencePace({ history: { push: [ent(1, 2)] } });
+  assert(tiny.planned === 6, 'never fewer than 6 sets, got ' + tiny.planned);
+  info('Bots race at roughly your own level, so the race is close');
+});
+
+test('Bots yield to people: humans push bots out from the end and the rest do not change', () => {
+  const c = loadCompete();
+  const o = { seed: 'room-x', capacity: 5, minutes: 30, planned: 18, perMin: 0.3, startsAt: 0 };
+  const me = (sets, at) => ({ userId: 'me', name: 'Вы', setsDone: sets, pct: Math.round(sets / 18 * 100), recordsToday: 0, at: at || 1 });
+  const empty = c.socialRoomBoard('sets', [], o);
+  assert(empty.length === 5 && empty.every(r => r.bot === true), 'an empty room is full of bots');
+  const one = c.socialRoomBoard('sets', [me(3)], o);
+  assert(one.length === 5 && one.filter(r => r.bot).length === 4 && one.filter(r => !r.bot).length === 1, 'one person, four bots');
+  const sig = rows => rows.filter(r => r.bot).map(r => r.userId + ':' + r.setsDone).sort();
+  const botsOf5 = sig(empty), botsOf4 = sig(one);
+  assert(botsOf4.every(x => botsOf5.includes(x)), 'the bots that stay are the same bots with the same progress');
+  assert(botsOf5.filter(x => !botsOf4.includes(x)).length === 1, 'exactly one bot left when one person joined');
+  const gone = botsOf5.filter(x => !botsOf4.includes(x))[0];
+  assert(gone.startsWith(c.socialBot('room-x', 4).userId + ':'), 'the bot that leaves is the LAST one (index 4), so earlier bots keep their places: left ' + gone);
+  const two = c.socialRoomBoard('sets', [me(3), { userId: 'h2', name: 'Игрок', setsDone: 4, pct: 22, recordsToday: 0, at: 2 }], o);
+  assert(two.filter(r => r.bot).length === 3 && sig(two).every(x => botsOf4.includes(x)), 'a second person removes the next bot, the earlier ones stay');
+  const crowd = Array.from({ length: 7 }, (_, i) => ({ userId: 'h' + i, name: 'H' + i, setsDone: i, pct: 0, recordsToday: 0, at: i }));
+  const full = c.socialRoomBoard('sets', crowd, o);
+  assert(full.length === 5 && full.every(r => !r.bot), 'a full room has no bots and never exceeds its capacity');
+  assert(full.every((r, i) => r.rank === i + 1), 'ranks stay consecutive');
+  // боты помечены, людей за ботов выдавать нельзя
+  assert(empty.every(r => r.bot === true && r.userId.startsWith('bot-')) && one.filter(r => !r.bot).every(r => !r.userId.startsWith('bot-')), 'bots are flagged, humans are not');
+  info('5 bots -> 4 -> 3 -> 0 as people join; survivors keep their identity and progress');
+});
+
+testAsync('Live rooms: the local stand-in supports create, join, publish and subscribe', async () => {
+  const c = loadCompete();
+  let clock = 1000;
+  const be = c.socialLocalRooms({}, () => clock);
+  c.SOCIAL_ROOM_METHODS.forEach(m => assert(typeof be[m] === 'function', 'rooms method missing: ' + m));
+  const room = await be.createRoom({ format: 'plan', minutes: 45, capacity: 2 });
+  assert(room.format === 'plan' && room.minutes === 45 && room.capacity === 2 && /^[0-9A-F]{1,6}$/.test(room.code), 'room: ' + JSON.stringify(room));
+  assert((await be.joinRoom('NOPE', 'u1')).error === 'Комната не найдена', 'a wrong code is rejected');
+  assert((await be.publishLive(room.id, { userId: 'u1', setsDone: 1 })).error === 'Сначала войдите в комнату', 'publishing requires joining first');
+  let calls = 0;
+  const off = be.subscribeRoom(room.id, () => calls++);
+  assert((await be.joinRoom(room.code.toLowerCase(), 'u1')).ok, 'the code is case-insensitive');
+  assert((await be.joinRoom(room.code, 'u2')).ok, 'second person joins');
+  assert((await be.joinRoom(room.code, 'u3')).error === 'Комната заполнена', 'a full room refuses a third');
+  assert((await be.joinRoom(room.code, 'u1')).ok, 're-joining as the same person is fine');
+  clock = 2000;
+  await be.publishLive(room.id, { userId: 'u1', name: 'A', setsDone: 3, pct: 20, recordsToday: 0, at: 2000 });
+  clock = 3000;
+  await be.publishLive(room.id, { userId: 'u1', name: 'A', setsDone: 3, pct: 20, recordsToday: 0, at: 3000 });
+  const got = await be.getRoom(room.id);
+  const u1 = got.humans.filter(h => h.userId === 'u1')[0];
+  assert(u1.setsDone === 3 && u1.at === 2000, 'the reach time moves only when the score changes, so resending cannot fake "first": at=' + u1.at);
+  clock = 4000;
+  await be.publishLive(room.id, { userId: 'u1', name: 'A', setsDone: 4, pct: 25, recordsToday: 0, at: 0 });
+  assert((await be.getRoom(room.id)).humans.filter(h => h.userId === 'u1')[0].at === 4000, 'a new score gets a new reach time');
+  assert(calls >= 5, 'subscribers are notified on joins and publishes, got ' + calls);
+  off();
+  const before = calls;
+  await be.publishLive(room.id, { userId: 'u1', setsDone: 5 });
+  assert(calls === before, 'an unsubscribed callback is not called again');
+  assert((await be.getRoom('nope')) === null, 'an unknown room is null');
+  info('create / join / publish / getRoom / subscribe, anti-replay reach time');
+});
+
+test('Live competition UI: bots are labelled, no network, wired in, privacy stated, beta only', () => {
+  const comp = fs.readFileSync(path.join(BETA_SRC_DIR, 'compete.jsx'), 'utf8');
+  ['fetch(', 'XMLHttpRequest', 'sendBeacon', 'WebSocket', 'EventSource', 'navigator.share'].forEach(x => assertNot(comp.includes(x), 'compete.jsx must not touch the network: ' + x));
+  // Боты ведут себя по-человечески, но НЕ выдаются за людей: значок у имени и строка в шапке комнаты обязательны
+  assert(comp.includes('{r.bot && <span title="бот-партнёр"') && comp.includes('🤖'), 'every bot row must carry the robot marker');
+  assert(/В комнате: .*человек.*бот-партнёр/.test(comp.replace(/\s+/g, ' ')), 'the room header must say how many people and bots are in the room');
+  assert(comp.includes('боты-партнёры (они отмечены значком 🤖)'), 'the intro text must say bots are marked');
+  assert(comp.includes('не выдаются за людей') && comp.includes('нельзя'), 'the no-deception rule must stay in the code comment');
+  assertNot(/hideBot|скрыть бот|без пометки|неотличим/i.test(comp), 'there must be no switch that hides the bot marker');
+  assert(comp.includes('Каждый подключившийся человек вытесняет одного бота'), 'the replacement rule is explained to the user');
+  assert(comp.includes('Веса не публикуются'), 'the weights-never-published promise is visible');
+  assert(comp.includes('Сервера пока нет, ничего не отправляется'), 'the panel says nothing is sent');
+  assert(betaSrc.includes('typeof CompetePanel === "function" && <CompetePanel'), 'CompetePanel not wired into BetaTab');
+  assertNot(/function Compete|socialRoomBoard|socialBot/.test(app), 'competitions must not exist in the production page');
+  assert((comp.slice(comp.indexOf('function CompetePanel')).match(/minHeight: 48/g) || []).length >= 3, 'demo buttons need 44pt+ targets');
+  info('Labelled bots, no network, wired in, beta only');
+});
+
 test('Coach UI: panel is wired into the beta tab and its dismiss button is a 44pt target', () => {
   const coach = fs.readFileSync(path.join(BETA_SRC_DIR, 'coach.jsx'), 'utf8');
   assert(/function CoachPanel/.test(betaApp), 'CoachPanel missing from the beta page');
