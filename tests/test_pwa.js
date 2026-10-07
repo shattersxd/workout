@@ -3285,7 +3285,7 @@ testAsync('Spotify: commands report errors to everyone and never hide them', asy
 test('Music design doc records the iPhone limit, the options and the decision to stay on Spotify for now', () => {
   const doc = fs.readFileSync(path.join(ROOT, 'docs', 'music-design.md'), 'utf8');
   ['останавливает звук при сворачивании или блокировке', 'Пульт', 'Плеер внутри приложения', 'Apple Music', 'Jamendo', 'Интернет-радио',
-    'решено пока делать только Spotify', 'Что надо проверить на телефоне', 'интерфейс провайдера'].forEach(x => assert(doc.includes(x), 'music doc is missing: ' + x));
+    'решено пока делать только Spotify', 'Что надо проверить на телефоне', 'интерфейс провайдера', 'нативное приложение для iOS', 'App Remote', 'UIBackgroundModes'].forEach(x => assert(doc.includes(x), 'music doc is missing: ' + x));
   assert((doc.match(/https:\/\//g) || []).length >= 4, 'the claims about services must carry source links');
   info('Options, the iPhone limit and the decision are written down');
 });
