@@ -13,15 +13,26 @@ function countEntries(d) {
   return Object.keys((d && d.history) || {}).reduce(function (n, k) { return n + ((d.history[k] || []).length); }, 0);
 }
 
-// Боевые данные для копирования: { data } или { error }. Только getItem.
+// Боевые данные для прямого копирования: { data } или { error }. Только getItem.
+// На iPhone каждое приложение с экрана «Домой» хранит данные ОТДЕЛЬНО, даже если адрес общий, поэтому
+// из тестового приложения основное обычно не видно. Тогда переносим данные файлом (betaMergeFile).
 function readProdBackup() {
   try {
     const raw = localStorage.getItem(PROD_STORAGE_KEY);
-    if (!raw) return { error: "В основной версии данных нет (открывалась ли она на этом телефоне?)" };
+    if (!raw) return { error: "Основная версия хранит данные отдельно, и отсюда их не видно. Загрузите файл копии." };
     return parseBackup(raw);
   } catch (e) {
-    return { error: "Не удалось прочитать основную версию" };
+    return { error: "Не удалось прочитать основную версию. Загрузите файл копии." };
   }
+}
+
+// Добавляет в cur то, чего там нет, из текста файла копии: { data, added } или { error }.
+// Ничего не удаляет и не перезаписывает, повторная загрузка не дублирует.
+function betaMergeFile(text, cur) {
+  const res = parseBackup(text);
+  if (res.error) return { error: res.error };
+  const m = mergeBackup(cur, res.data);
+  return { data: pruneOldKeys(m.data), added: m.added };
 }
 
 function BetaSection(props) {
@@ -41,6 +52,21 @@ function BetaTab(props) {
   const showToast = props.showToast;
   const prod = readProdBackup();
   const prodCount = prod.data ? countEntries(prod.data) : 0;
+  const fileRef = useRef(null);
+
+  function onFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onerror = () => showToast("Не удалось прочитать файл");
+    reader.onload = () => {
+      const text = String(reader.result || "");
+      const r = betaMergeFile(text, data);
+      if (r.error) { showToast(r.error); return; }
+      setData(prev => betaMergeFile(text, prev).data);
+      showToast(r.added > 0 ? "Загружено тренировок: " + r.added : "Новых тренировок в файле нет");
+    };
+    reader.readAsText(file);
+  }
 
   function copyFromProd() {
     if (prod.error) { showToast(prod.error); return; }
@@ -60,15 +86,28 @@ function BetaTab(props) {
 
       <BetaSection title="ДАННЫЕ">
         <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6, marginBottom: 10 }}>
-          Чтобы тренер видел вашу историю, скопируйте её из основной версии. Копирование только читает основную версию и добавляет недостающие тренировки сюда; повторное нажатие ничего не дублирует.
+          Чтобы тренер видел вашу историю, перенесите её из основной версии. На iPhone каждое приложение на экране «Домой» хранит данные отдельно, поэтому делается это через файл:
+        </div>
+        <div style={{ fontSize: 11, color: "#aaa", lineHeight: 1.7, marginBottom: 12 }}>
+          1. В основной версии нажмите ПЛАН, затем СОХРАНИТЬ и выберите «Сохранить в Файлы».<br />
+          2. Здесь нажмите кнопку ниже и выберите этот файл.<br />
+          Загрузка только добавляет недостающие тренировки. Повторная загрузка ничего не дублирует.
         </div>
         <div style={{ fontSize: 10, color: "#666", marginBottom: 12 }}>
-          В основной версии: {prod.error ? "нет данных" : prodCount} | здесь: {countEntries(data)}
+          Здесь сейчас тренировок: {countEntries(data)}{prod.error ? "" : " | в основной версии: " + prodCount}
         </div>
-        <button onClick={copyFromProd}
+        <button onClick={() => fileRef.current && fileRef.current.click()}
           style={{ width: "100%", padding: "12px 8px", borderRadius: 9, border: "1px solid #f7a84460", background: "#f7a84412", color: "#f7a844", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", minHeight: 48 }}>
-          СКОПИРОВАТЬ ИЗ ОСНОВНОЙ ВЕРСИИ
+          ЗАГРУЗИТЬ ФАЙЛ ИЗ ОСНОВНОЙ ВЕРСИИ
         </button>
+        <input ref={fileRef} type="file" accept="application/json,.json" style={{ display: "none" }}
+          onChange={e => { onFile(e.target.files && e.target.files[0]); e.target.value = ""; }} />
+        {!prod.error && (
+          <button onClick={copyFromProd}
+            style={{ width: "100%", marginTop: 8, padding: "12px 8px", borderRadius: 9, border: "1px solid #2a2a2a", background: "#0c0c0f", color: "#999", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 48 }}>
+            СКОПИРОВАТЬ НАПРЯМУЮ (ЕСЛИ ВИДНА ОСНОВНАЯ ВЕРСИЯ)
+          </button>
+        )}
       </BetaSection>
 
       {typeof ProfilePanel === "function" && <ProfilePanel data={data} setData={setData} showToast={showToast} />}

@@ -285,7 +285,18 @@ function BetaOverlay(props) {
   const showToast = props.showToast;
   const [done, setDone] = useState(null);
   const open = (!data.profile && !data.profileSkipped) || !!data.profileEdit;
-  if (!open && !done) return null;
+  const visible = open || !!done;
+
+  // Пока анкета открыта, основное приложение скрыто: на iPhone фиксированное окно иногда не доходит до
+  // нижнего края, и под ним просвечивали карточки упражнений. Анкета рисуется отдельно, прямо в body.
+  useEffect(() => {
+    const r = document.getElementById("root");
+    if (!r || !visible) return;
+    r.style.visibility = "hidden";
+    return () => { r.style.visibility = ""; };
+  }, [visible]);
+
+  if (!visible) return null;
 
   function save(p) {
     const profile = Object.assign({}, p, { createdAt: todayKey() });
@@ -301,8 +312,8 @@ function BetaOverlay(props) {
     setDone(null);
   }
 
-  const wrap = { position: "fixed", inset: 0, zIndex: 300, background: "#0c0c0f", overflowY: "auto", WebkitOverflowScrolling: "touch", paddingTop: "env(safe-area-inset-top)", paddingBottom: "calc(40px + env(safe-area-inset-bottom))" };
-  return (
+  const wrap = { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 300, background: "#0c0c0f", overflowY: "auto", WebkitOverflowScrolling: "touch", paddingTop: "env(safe-area-inset-top)", paddingBottom: "calc(40px + env(safe-area-inset-bottom))" };
+  return ReactDOM.createPortal(
     <div style={wrap}>
       <div style={{ maxWidth: 560, margin: "0 auto", padding: "24px 20px 0" }}>
         {done ? (
@@ -342,7 +353,8 @@ function BetaOverlay(props) {
           </>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

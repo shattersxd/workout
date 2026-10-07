@@ -3886,6 +3886,48 @@ test('Copy from production only reads it and merges additively', () => {
   info('One getItem, zero writes; copy is additive and repeatable');
 });
 
+test('Moving data into the test app by file (home-screen apps on iPhone do not share storage)', () => {
+  const from = src.indexOf('const BACKUP_APP');
+  const prodBody = src.slice(from, src.indexOf('export default function App', from));
+  const betaBody = betaSrc.slice(betaSrc.indexOf('const PROD_STORAGE_KEY'), betaSrc.indexOf('function BetaSection'));
+  let pruned = 0;
+  const f = new Function('localStorage', 'HISTORY_LIMIT', 'pruneOldKeys', prodBody + betaBody + '; return { betaMergeFile, readProdBackup, buildBackup };')(
+    { getItem: () => null }, 200, d => { pruned++; return d; });
+  const empty = () => ({ sessions: {}, history: {}, swaps: {}, skipped: {}, customWorkouts: {}, customSets: {}, addedEx: {}, resuming: null, dbMode: 'single', trash: [], schedule: [null, null, null, null, null, null, null] });
+  const prod = empty();
+  prod.history.push = [{ date: '2026-09-25', ts: 20, workout: 'push' }, { date: '2026-09-18', ts: 10, workout: 'push' }];
+  const file = f.buildBackup(prod);
+  // файл копии основной версии загружается в пустую бету
+  const r1 = f.betaMergeFile(file, empty());
+  assert(r1.added === 2 && r1.data.history.push.length === 2 && pruned === 1, 'file import into an empty test app: ' + JSON.stringify({ a: r1.added, p: pruned }));
+  // повторная загрузка ничего не дублирует и ничего не стирает
+  const local = r1.data;
+  local.history.push.unshift({ date: '2026-10-01', ts: 30, workout: 'push', name: 'LOCAL' });
+  const r2 = f.betaMergeFile(file, local);
+  assert(r2.added === 0 && r2.data.history.push.length === 3 && r2.data.history.push[0].name === 'LOCAL', 'a second load adds nothing and keeps local work');
+  // не тот файл: понятная ошибка, данные не тронуты
+  const bad = f.betaMergeFile('{"hello": 1}', local);
+  assert(bad.error && !bad.data, 'a foreign file is rejected with a message');
+  assert(f.betaMergeFile('not json', local).error, 'garbage is rejected with a message');
+  // на iPhone основная версия отсюда не видна: сообщение спокойное и говорит, что делать
+  const msg = f.readProdBackup().error;
+  assert(msg.includes('хранит данные отдельно') && msg.includes('Загрузите файл копии'), 'the message must explain and point to the file: ' + msg);
+  assertNot(/нет \(открывалась ли/.test(msg), 'the old abrupt wording must be gone');
+  info('File import is additive and repeatable; the error message explains what to do');
+});
+
+test('Test app data section explains the file route and the questionnaire is rendered on its own', () => {
+  const shell = fs.readFileSync(path.join(BETA_SRC_DIR, 'shell.jsx'), 'utf8');
+  assert(shell.includes('type="file" accept="application/json,.json"') && shell.includes('ЗАГРУЗИТЬ ФАЙЛ ИЗ ОСНОВНОЙ ВЕРСИИ'), 'a file picker for the main version copy');
+  assert(shell.includes('хранит данные отдельно') && shell.includes('СОХРАНИТЬ'), 'the section tells how to produce the file');
+  assert(shell.includes('{!prod.error && ('), 'the direct copy button is shown only where the main version is actually readable');
+  const prof = fs.readFileSync(path.join(BETA_SRC_DIR, 'profile.jsx'), 'utf8');
+  assert(prof.includes('ReactDOM.createPortal(') && prof.includes('document.body'), 'the questionnaire is rendered in body, outside the app tree');
+  assert(prof.includes('r.style.visibility = "hidden"') && prof.includes('r.style.visibility = ""'), 'the app underneath is hidden while the questionnaire is open and restored afterwards');
+  assert(/top: 0, left: 0, right: 0, bottom: 0/.test(prof), 'explicit edges instead of the inset shorthand');
+  info('File route documented in the UI; questionnaire sits above a hidden app');
+});
+
 test('Beta page code obeys the iOS rules (no bad non-ASCII in strings, no ?. / ??)', () => {
   const bad = scanNonAsciiInStrings(betaApp);
   assert(bad.length === 0, bad.length + ' bad chars in beta strings: ' + bad.slice(0, 5).join(', '));
