@@ -28,7 +28,7 @@
 
 ```bash
 python3 scripts/build.py      # src/ -> index.html
-node tests/test_pwa.js        # 248 тестов, должно быть 248/248
+node tests/test_pwa.js        # 259 тестов, должно быть 259/259
 ```
 
 Или одной командой:
@@ -51,6 +51,8 @@ tests/test_pwa.js         регрессионный набор
 index.html                собранное приложение, его раздаёт GitHub Pages
 vendor/                   React, ReactDOM и Babel: приложение не ходит на CDN
 sw.js                     service worker: кэш для работы без интернета
+beta/                     тестовая версия (собирается build.py из src/ + src/beta/)
+src/beta/                 код тестовой версии: тренер, Spotify; в боевую сборку не попадает
 CLAUDE.md                 ограничения платформы и контракты данных
 ```
 

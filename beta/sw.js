@@ -6,17 +6,17 @@
 // связь бывает плохая, тогда сразу открываем сохранённую копию. После деплоя новая
 // версия приходит при ближайшем открытии, когда сеть отвечает.
 // Менять CACHE нужно только когда меняются файлы в vendor/.
-const CACHE = "sila-v6";
+const CACHE = "sila-beta-v1";
 // Чистим только СВОИ старые кэши: тестовая версия (beta/sw.js) живёт на том же origin
 // под префиксом "sila-beta-" и не должна пострадать от обновления боевого воркера.
-const CACHE_PREFIX = "sila-v";
+const CACHE_PREFIX = "sila-beta-";
 const NETWORK_WAIT_MS = 3000;
 const PRECACHE = [
   "./",
   "index.html",
-  "vendor/react.production.min.js",
-  "vendor/react-dom.production.min.js",
-  "vendor/babel.min.js"
+  "../vendor/react.production.min.js",
+  "../vendor/react-dom.production.min.js",
+  "../vendor/babel.min.js"
 ];
 
 self.addEventListener("install", e => {

@@ -283,13 +283,12 @@ test('Timer uses wall-clock endsAt (correct after iOS background freeze)', () =>
 });
 
 test('Timer state saved to and restored from localStorage on app kill/reopen', () => {
-  assert(src.includes('sila_timer'), 'Timer key sila_timer not found in localStorage ops');
-  assert(src.includes('localStorage.getItem("sila_timer")') || src.includes("localStorage.getItem('sila_timer')"),
-    'Timer not restored from localStorage');
-  assert(src.includes('localStorage.setItem("sila_timer"') || src.includes("localStorage.setItem('sila_timer'"),
-    'Timer not saved to localStorage');
-  assert(src.includes('localStorage.removeItem("sila_timer")') || src.includes("localStorage.removeItem('sila_timer')"),
-    'Timer not removed from localStorage on stop');
+  // Ключ идёт через TIMER_KEY: у тестовой версии он свой (sila_timer_beta), боевой остаётся sila_timer
+  assert(src.includes('const TIMER_KEY = APP_VARIANT === "beta" ? "sila_timer_beta" : "sila_timer"'), 'TIMER_KEY declaration missing or changed');
+  assert(src.includes('localStorage.getItem(TIMER_KEY)'), 'Timer not restored from localStorage');
+  assert(src.includes('localStorage.setItem(TIMER_KEY,'), 'Timer not saved to localStorage');
+  assert(src.includes('localStorage.removeItem(TIMER_KEY)'), 'Timer not removed from localStorage on stop');
+  assert((src.match(/"sila_timer"/g) || []).length === 1, 'the timer key must appear as a literal only in its declaration');
 });
 
 test('visibilitychange listener syncs timer when app returns to foreground', () => {
@@ -1004,12 +1003,14 @@ test('activeTab default is "workout"', () => {
 });
 
 test('localStorage keys are consistent (ppl_tracker_v4 and sila_timer)', () => {
+  // Основной ключ и ключ таймера идут через константы (у beta они свои), прямых строковых ключей быть не должно
+  assert(src.includes('const STORAGE_KEY = APP_VARIANT === "beta" ? "ppl_tracker_beta" : "ppl_tracker_v4"'), 'STORAGE_KEY declaration missing or changed');
+  assert(src.includes('const TIMER_KEY = APP_VARIANT === "beta" ? "sila_timer_beta" : "sila_timer"'), 'TIMER_KEY declaration missing or changed');
+  assert(src.includes('localStorage.getItem(STORAGE_KEY)') && src.includes('localStorage.setItem(STORAGE_KEY,'), 'main data must go through STORAGE_KEY');
   const keys = new Set([...src.matchAll(/localStorage\.\w+\(['"]([^'"]+)['"]/g)].map(m => m[1]));
-  assert(keys.has('ppl_tracker_v4'), 'Main storage key ppl_tracker_v4 not found');
-  assert(keys.has('sila_timer'), 'Timer storage key sila_timer not found');
-  const unexpected = [...keys].filter(k => k !== 'ppl_tracker_v4' && k !== 'sila_timer' && k !== 'ach_unlocked');
-  assert(unexpected.length === 0, `Unexpected localStorage keys: ${unexpected.join(', ')}`);
-  info(`localStorage keys: ${[...keys].join(', ')}`);
+  const unexpected = [...keys].filter(k => k !== 'ach_unlocked');
+  assert(unexpected.length === 0, `Unexpected literal localStorage keys (use STORAGE_KEY / TIMER_KEY): ${unexpected.join(', ')}`);
+  info('Keys: STORAGE_KEY (ppl_tracker_v4 / _beta), TIMER_KEY (sila_timer / _beta)');
 });
 
 test('Parentheses balance outside strings and comments', () => {
@@ -1999,10 +2000,13 @@ test('History tab fully removed (merged into Journal)', () => {
   assert(!src.includes('activeTab === "history"'), 'history tab render block still present — dead code');
   const i = src.indexOf('[["workout","');
   assert(i >= 0, 'tab bar definition not found');
-  const tabs = src.slice(i, src.indexOf(']].map(', i) + 2);
+  const tabs = src.slice(i, src.indexOf(']]', i) + 2);
   const count = (tabs.match(/\["/g) || []).length;
   assert(count === 4, `Expected 4 tabs after merge, found ${count}: ${tabs}`);
-  info('4 tabs: workout, warmup, journal, achievements');
+  // пятая вкладка бывает только в тестовой сборке, через проверку BetaTab
+  const after = src.slice(i + tabs.length, i + tabs.length + 120);
+  assert(after.startsWith('.concat(typeof BetaTab === "function" ? [["beta","БЕТА"]] : [])'), 'the only extra tab must be the BETA seam');
+  info('4 tabs: workout, warmup, journal, achievements (+ BETA only in the test build)');
 });
 
 test('Journal shows every history entry, not only detailed ones', () => {
@@ -2773,15 +2777,15 @@ test('sw.js precaches the page and every vendor file, all of which exist', () =>
 });
 
 // Исполняет настоящий sw.js на заглушках Cache API; ждём сети 40 мс вместо 3 с
-function runSw(store, fetchImpl) {
-  let code = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8').replace('const NETWORK_WAIT_MS = 3000', 'const NETWORK_WAIT_MS = 40');
+function runSw(store, fetchImpl, file, cacheKeys) {
+  let code = fs.readFileSync(path.join(ROOT, file || 'sw.js'), 'utf8').replace('const NETWORK_WAIT_MS = 3000', 'const NETWORK_WAIT_MS = 40');
   const handlers = {};
   const key = r => (typeof r === 'string' ? (r === 'index.html' ? 'https://x.test/index.html' : r) : r.url);
   const self_ = { location: { origin: 'https://x.test' }, addEventListener: (t, f) => { handlers[t] = f; }, skipWaiting: () => Promise.resolve(), clients: { claim: () => Promise.resolve() } };
   const caches = {
     open: async () => ({ addAll: async () => {}, put: async (r, res) => { store.set(key(r), res); } }),
     match: async r => store.get(key(r)),
-    keys: async () => ['sila-v5', 'sila-v6'], delete: async k => { store.deleted = (store.deleted || []).concat(k); return true; },
+    keys: async () => cacheKeys || ['sila-v5', 'sila-v6', 'sila-beta-v1'], delete: async k => { store.deleted = (store.deleted || []).concat(k); return true; },
   };
   class Response { constructor(body, o) { this.body = body; this.ok = !(o && o.ok === false); } clone() { return this; } static error() { const r = new Response('ERR', { ok: false }); r.isError = true; return r; } }
   class Request { constructor(u) { this.url = u; } }
@@ -2834,8 +2838,165 @@ testAsync('sw.js activate deletes old caches (the inline sila-v5 worker)', async
   let waited;
   sw.handlers.activate({ waitUntil: p => { waited = p; } });
   await waited;
-  assert((store.deleted || []).join() === 'sila-v5', 'only caches other than the current one must be deleted, got ' + store.deleted);
-  info('Old caches cleaned on activate');
+  assert((store.deleted || []).join() === 'sila-v5', 'only OLD production caches must be deleted (never sila-beta-*), got ' + store.deleted);
+  info('Old caches cleaned on activate, the test version cache is left alone');
+});
+
+// ── SECTION 23: TEST (BETA) VERSION ─────────────────────────────────────────
+section('23 · TEST VERSION (beta/)');
+
+const BETA_HTML_PATH = path.join(ROOT, 'beta', 'index.html');
+const BETA_SW_PATH = path.join(ROOT, 'beta', 'sw.js');
+const BETA_SRC_DIR = path.join(ROOT, 'src', 'beta');
+const betaHtml = fs.existsSync(BETA_HTML_PATH) ? fs.readFileSync(BETA_HTML_PATH, 'utf8') : '';
+const betaApp = betaHtml.slice(betaHtml.indexOf(APP_MARKER) + APP_MARKER.length, betaHtml.indexOf('</script>', betaHtml.indexOf(APP_MARKER)));
+const betaFiles = fs.existsSync(BETA_SRC_DIR) ? fs.readdirSync(BETA_SRC_DIR).filter(f => f.endsWith('.jsx')).sort() : [];
+const betaSrc = betaFiles.map(f => fs.readFileSync(path.join(BETA_SRC_DIR, f), 'utf8')).join('\n');
+
+test('Compilation waits for the whole page, otherwise Babel reads a half-loaded app source', () => {
+  // Гонка: библиотеки из vendor/ и кэша воркера приходят мгновенно, а inline-скрипт приложения
+  // (~290 КБ) в конце страницы ещё разбирается. Тогда textContent оборван и Babel падает с
+  // "Unterminated string constant" на ровном месте. Воспроизводилось в Edge примерно на каждой второй загрузке.
+  [['production', html], ['beta', betaHtml]].forEach(([name, page]) => {
+    const shell = page.slice(0, page.indexOf('id="app-src"'));
+    const fnSrc = shell.match(/function onDocumentParsed\(fn\) \{[\s\S]*?\n\}/);
+    assert(fnSrc, name + ': onDocumentParsed missing');
+    const make = state => {
+      const doc = { readyState: state, listener: null, addEventListener(t, f) { assert(t === 'DOMContentLoaded', 'must wait for DOMContentLoaded'); this.listener = f; } };
+      return { doc, fn: new Function('document', fnSrc[0] + '; return onDocumentParsed;')(doc) };
+    };
+    let ran = 0, w = make('loading');
+    w.fn(() => ran++);
+    assert(ran === 0 && w.doc.listener, name + ': while the page is loading the callback must wait');
+    w.doc.listener();
+    assert(ran === 1, name + ': the callback must run once the page is parsed');
+    ['interactive', 'complete'].forEach(s => { ran = 0; make(s).fn(() => ran++); assert(ran === 1, name + ': an already parsed page (' + s + ') must run immediately'); });
+    const call = shell.indexOf('onDocumentParsed(function()');
+    const transform = shell.indexOf('Babel.transform');
+    const read = shell.indexOf("getElementById('app-src').textContent");
+    assert(call > 0 && transform > call && read > call, name + ': the app source must be read and compiled inside onDocumentParsed');
+  });
+  info('Compile starts only after parsing finishes (production and beta)');
+});
+
+test('Test version is built: beta/index.html, beta/sw.js and src/beta/*.jsx exist', () => {
+  assert(betaHtml.length > 0, 'beta/index.html missing (run: python3 scripts/build.py)');
+  assert(fs.existsSync(BETA_SW_PATH), 'beta/sw.js missing');
+  assert(betaFiles.includes('shell.jsx'), 'src/beta/shell.jsx missing');
+  info('Beta modules: ' + betaFiles.join(', '));
+});
+
+test('Production page carries no beta code and keeps its own keys', () => {
+  assert(app.includes('const APP_VARIANT = "prod";'), 'production must be built as "prod"');
+  assertNot(/function BetaTab|function BetaSection|PROD_STORAGE_KEY|function readProdBackup/.test(app), 'beta modules leaked into the production page');
+  assertNot(app.includes('ppl_tracker_beta') && !app.includes('APP_VARIANT === "beta" ? "ppl_tracker_beta"'), 'unexpected beta key use in production');
+  info('index.html is "prod" and contains no src/beta code');
+});
+
+test('Test page is the "beta" variant with its own name and shared libraries', () => {
+  assert(betaApp.includes('const APP_VARIANT = "beta";'), 'beta must be built as "beta"');
+  assert(/function BetaTab/.test(betaApp), 'BetaTab missing from the test page');
+  assert(betaHtml.includes('<title>Workout BETA</title>'), 'title must say BETA - otherwise the two apps look the same on the home screen');
+  assert(betaHtml.includes('name="apple-mobile-web-app-title" content="Workout BETA"'), 'home-screen name must say BETA');
+  assert(betaHtml.includes('Workout%20BETA'), 'manifest name must say BETA');
+  ['react.production.min.js', 'react-dom.production.min.js', 'babel.min.js'].forEach(f =>
+    assert(betaHtml.includes("loadScript('../vendor/" + f + "'"), f + ' must load from ../vendor/ (shared with production)'));
+  assertNot(/loadScript\('vendor\//.test(betaHtml), 'a library still loads from vendor/ relative to beta/ - it would 404');
+  info('Own name, shared ../vendor/');
+});
+
+test('Test version never writes to production storage keys', () => {
+  // ключи, как их вычислит бета-страница
+  const decl = betaApp.match(/const APP_VARIANT = "beta";\s*const STORAGE_KEY = [^\n]+\s*const TIMER_KEY = [^\n]+/);
+  assert(decl, 'key declarations not found in the beta page');
+  const keys = new Function(decl[0] + '; return { STORAGE_KEY, TIMER_KEY };')();
+  assert(keys.STORAGE_KEY === 'ppl_tracker_beta' && keys.TIMER_KEY === 'sila_timer_beta', 'beta keys must be separate, got ' + JSON.stringify(keys));
+  // в модулях src/beta запись и удаление возможны только в НЕ боевые ключи
+  const writes = [...betaSrc.matchAll(/localStorage\.(setItem|removeItem)\(\s*([^,)]+)/g)].map(m => m[2].trim());
+  writes.forEach(w => assertNot(/PROD_STORAGE_KEY|ppl_tracker_v4|"sila_timer"/.test(w), 'beta code writes to a production key: ' + w));
+  // единственное упоминание боевого ключа - константа для ЧТЕНИЯ
+  assert((betaSrc.match(/ppl_tracker_v4/g) || []).length === 1, 'the production key may be named exactly once (the read-only constant)');
+  info('Beta keys: ' + keys.STORAGE_KEY + ', ' + keys.TIMER_KEY + '; ' + writes.length + ' write(s) in beta modules, none to production');
+});
+
+test('Copy from production only reads it and merges additively', () => {
+  const from = src.indexOf('const BACKUP_APP');
+  const prodBody = src.slice(from, src.indexOf('export default function App', from));
+  const betaBody = betaSrc.slice(betaSrc.indexOf('const PROD_STORAGE_KEY'), betaSrc.indexOf('function BetaSection'));
+  const calls = [];
+  const mk = raw => ({ getItem: k => { calls.push(['get', k]); return k === 'ppl_tracker_v4' ? raw : null; }, setItem: k => calls.push(['set', k]), removeItem: k => calls.push(['remove', k]) });
+  const load = ls => new Function('localStorage', 'HISTORY_LIMIT', prodBody + betaBody + '; return { readProdBackup, countEntries };')(ls, 200);
+
+  const prodData = { sessions: {}, history: { push: [{ date: '2026-09-25', ts: 5, workout: 'push' }, { date: '2026-09-18', ts: 4, workout: 'push' }] }, schedule: ['push', null, null, null, null, null, null], dbMode: 'single' };
+  let f = load(mk(JSON.stringify(prodData)));
+  let r = f.readProdBackup();
+  assert(r.data && f.countEntries(r.data) === 2, 'production history must be readable, got ' + JSON.stringify(r).slice(0, 80));
+  assert(calls.length === 1 && calls[0][0] === 'get' && calls[0][1] === 'ppl_tracker_v4', 'reading production must be exactly one getItem, got ' + JSON.stringify(calls));
+  assert(!calls.some(c => c[0] !== 'get'), 'no writes or removals while reading production');
+
+  f = load(mk(null)); r = f.readProdBackup();
+  assert(r.error && !r.data, 'no production data -> a message, not a crash');
+  f = load(mk('not json')); r = f.readProdBackup();
+  assert(r.error && !r.data, 'broken production data -> a message, not a crash');
+
+  // слияние в пустую бету копирует историю, и повторное нажатие ничего не дублирует
+  const { mergeBackup, parseBackup } = new Function('HISTORY_LIMIT', prodBody + '; return { mergeBackup, parseBackup };')(200);
+  const empty = { sessions: {}, history: {}, swaps: {}, skipped: {}, customWorkouts: {}, customSets: {}, addedEx: {}, resuming: null, dbMode: 'single', trash: [], schedule: [null, null, null, null, null, null, null] };
+  const once = mergeBackup(empty, parseBackup(JSON.stringify(prodData)).data);
+  assert(once.added === 2, 'first copy adds 2, got ' + once.added);
+  const twice = mergeBackup(once.data, parseBackup(JSON.stringify(prodData)).data);
+  assert(twice.added === 0, 'second copy adds nothing, got ' + twice.added);
+  info('One getItem, zero writes; copy is additive and repeatable');
+});
+
+test('Beta page code obeys the iOS rules (no bad non-ASCII in strings, no ?. / ??)', () => {
+  const bad = scanNonAsciiInStrings(betaApp);
+  assert(bad.length === 0, bad.length + ' bad chars in beta strings: ' + bad.slice(0, 5).join(', '));
+  const hits = codeLines(betaSrc).filter(l => l.includes('?.') || /[^?]\?\?[^?=]/.test(l) || /\|\|=|&&=|\?\?=/.test(l));
+  assert(hits.length === 0, 'optional chaining / nullish / logical assignment in beta modules: ' + hits.slice(0, 3).join(' | '));
+  ['.at(', 'structuredClone', 'Object.hasOwn'].forEach(t => assertNot(betaSrc.includes(t), t + ' is not available on the target iOS'));
+  info('Beta modules follow the same rules as production');
+});
+
+test('Beta page really compiles with the vendored Babel 7.23.10 (not just regexes)', () => {
+  const Babel = require(path.join(ROOT, 'vendor', 'babel.min.js'));
+  assert(Babel.version === '7.23.10', 'unexpected Babel version ' + Babel.version);
+  const compile = code => Babel.transform(code, { presets: [['react', {}]], plugins: [], filename: 'app.jsx' }).code;
+  const compiled = compile(betaApp);
+  new Function('React', 'ReactDOM', compiled);   // создаём, но не запускаем: проверяем, что итог - валидный JS
+  new Function('React', 'ReactDOM', compile(app));
+  assert(compiled.length > 0, 'empty output');
+  info('Beta and production pages both compile to valid JS');
+});
+
+test('beta/sw.js has its own cache, shared libraries and never touches production caches', () => {
+  const sw = fs.readFileSync(BETA_SW_PATH, 'utf8');
+  assert(/const CACHE = "sila-beta-v\d+"/.test(sw), 'beta cache must be sila-beta-N');
+  assert(sw.includes('const CACHE_PREFIX = "sila-beta-"'), 'beta must only clean sila-beta-* caches');
+  const list = JSON.parse(sw.match(/const PRECACHE = (\[[\s\S]*?\]);/)[1]);
+  list.filter(u => u !== './').forEach(u => assert(fs.existsSync(path.join(ROOT, 'beta', u)), 'beta precache entry does not exist: ' + u));
+  assert(list.filter(u => u.startsWith('../vendor/')).length === 3, 'all three libraries must come from ../vendor/');
+  info('Beta precache: ' + list.join(', '));
+});
+
+testAsync('beta/sw.js activate deletes only old beta caches; production sw.js leaves beta alone', async () => {
+  const keys = ['sila-v5', 'sila-v6', 'sila-beta-v0', 'sila-beta-v1'];
+  let store = new Map(), waited;
+  runSw(store, () => Promise.reject(new Error('x')), 'beta/sw.js', keys).handlers.activate({ waitUntil: p => { waited = p; } });
+  await waited;
+  assert((store.deleted || []).join() === 'sila-beta-v0', 'beta worker must delete only old beta caches, got ' + store.deleted);
+  store = new Map();
+  runSw(store, () => Promise.reject(new Error('x')), 'sw.js', keys).handlers.activate({ waitUntil: p => { waited = p; } });
+  await waited;
+  assert((store.deleted || []).join() === 'sila-v5', 'production worker must delete only old production caches, got ' + store.deleted);
+  info('The two workers never delete each other\'s caches');
+});
+
+test('--check covers beta, and the default build writes all three files', () => {
+  const b = fs.readFileSync(path.join(ROOT, 'scripts', 'build.py'), 'utf8');
+  assert(b.includes('BETA_OUT') && b.includes('BETA_SW_OUT') && b.includes('build(beta=True)'), 'build.py must build the test version');
+  assert(b.includes('def replace_once'), 'beta substitutions must fail loudly when they miss');
+  info('build.py builds and checks index.html, beta/index.html, beta/sw.js');
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -110,6 +110,12 @@ function loadScript(url, cb) {
   document.head.appendChild(s);
 }
 
+// Выполнить fn, когда документ разобран целиком (DOMContentLoaded уже мог пройти)
+function onDocumentParsed(fn) {
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn);
+  else fn();
+}
+
 window.onerror = function(msg, src, line, col, err) {
   showErr('Ошибка JS:\n' + msg + '\n(строка ' + line + ')');
   return false;
@@ -123,6 +129,11 @@ loadScript('vendor/react.production.min.js', function() {
   loadScript('vendor/react-dom.production.min.js', function() {
     setLabel('КОМПИЛЯЦИЯ...');
     loadScript('vendor/babel.min.js', function() {
+      // Исходник приложения - огромный inline-скрипт в конце страницы. Библиотеки из vendor/ и из
+      // кэша воркера приходят мгновенно и могут обогнать разбор страницы: тогда textContent оборван
+      // на середине, и Babel падает с "Unterminated string constant". Компилируем, только когда
+      // документ разобран целиком.
+      onDocumentParsed(function() {
       try {
         setLabel('ЗАПУСК...');
         var code = document.getElementById('app-src').textContent;
@@ -152,6 +163,7 @@ loadScript('vendor/react.production.min.js', function() {
         showErr('Ошибка компиляции:\n' + e.message);
         console.error(e);
       }
+      });
     });
   });
 });

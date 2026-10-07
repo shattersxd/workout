@@ -110,6 +110,12 @@ function loadScript(url, cb) {
   document.head.appendChild(s);
 }
 
+// Выполнить fn, когда документ разобран целиком (DOMContentLoaded уже мог пройти)
+function onDocumentParsed(fn) {
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn);
+  else fn();
+}
+
 window.onerror = function(msg, src, line, col, err) {
   showErr('Ошибка JS:\n' + msg + '\n(строка ' + line + ')');
   return false;
@@ -123,6 +129,11 @@ loadScript('vendor/react.production.min.js', function() {
   loadScript('vendor/react-dom.production.min.js', function() {
     setLabel('КОМПИЛЯЦИЯ...');
     loadScript('vendor/babel.min.js', function() {
+      // Исходник приложения - огромный inline-скрипт в конце страницы. Библиотеки из vendor/ и из
+      // кэша воркера приходят мгновенно и могут обогнать разбор страницы: тогда textContent оборван
+      // на середине, и Babel падает с "Unterminated string constant". Компилируем, только когда
+      // документ разобран целиком.
+      onDocumentParsed(function() {
       try {
         setLabel('ЗАПУСК...');
         var code = document.getElementById('app-src').textContent;
@@ -152,6 +163,7 @@ loadScript('vendor/react.production.min.js', function() {
         showErr('Ошибка компиляции:\n' + e.message);
         console.error(e);
       }
+      });
     });
   });
 });
@@ -1340,7 +1352,12 @@ const WEEK_SCHEDULE = [
   { day: "ПТ", workout: "legs" }, { day: "СБ", workout: null }, { day: "ВС", workout: null },
 ];
 
-const STORAGE_KEY = "ppl_tracker_v4";
+// Вариант сборки: "prod" или "beta" (build.py --beta подставляет "beta"). У всех страниц на
+// github.io общий localStorage, поэтому тестовая версия держит данные и таймер под СВОИМИ
+// ключами и никогда не пишет в боевые.
+const APP_VARIANT = "prod";
+const STORAGE_KEY = APP_VARIANT === "beta" ? "ppl_tracker_beta" : "ppl_tracker_v4";
+const TIMER_KEY = APP_VARIANT === "beta" ? "sila_timer_beta" : "sila_timer";
 const HISTORY_LIMIT = 200;   // ~15 месяцев при 3 тренировках в неделю
 const SESSION_KEEP_DAYS = 400;
 function pruneOldKeys(d) {
@@ -1496,7 +1513,7 @@ function App() {
     var dow = new Date().getDay();
     var schedIdx = dow === 0 ? 6 : dow - 1;
     try {
-      var saved = localStorage.getItem("ppl_tracker_v4");
+      var saved = localStorage.getItem(STORAGE_KEY);
       var parsed = saved ? JSON.parse(saved) : null;
       var sched = parsed && parsed.schedule ? parsed.schedule : ["push",null,"pull",null,"legs",null,null];
       return sched[schedIdx] || "push";
@@ -1592,9 +1609,9 @@ function App() {
   useEffect(function() {
     try {
       if (timer && timer.running && timer.endsAt) {
-        localStorage.setItem("sila_timer", JSON.stringify({ total: timer.total, endsAt: timer.endsAt }));
+        localStorage.setItem(TIMER_KEY, JSON.stringify({ total: timer.total, endsAt: timer.endsAt }));
       } else {
-        localStorage.removeItem("sila_timer");
+        localStorage.removeItem(TIMER_KEY);
       }
     } catch(e) {}
   }, [timer ? timer.running : false, timer ? timer.endsAt : null]);
@@ -1602,12 +1619,12 @@ function App() {
   // Restore timer on mount if app was killed during rest
   useEffect(function() {
     try {
-      var saved = localStorage.getItem("sila_timer");
+      var saved = localStorage.getItem(TIMER_KEY);
       if (saved) {
         var t = JSON.parse(saved);
         var left = Math.round((t.endsAt - Date.now()) / 1000);
         if (left > 0) setTimer({ total: t.total, endsAt: t.endsAt, left: left, running: true });
-        localStorage.removeItem("sila_timer");
+        localStorage.removeItem(TIMER_KEY);
       }
     } catch(e) {}
   }, []);
@@ -1714,7 +1731,7 @@ function App() {
   function stopTimer() {
     try { clearInterval(timerRef.current); } catch(e) {}
     try { clearTimeout(notifTimerRef.current); } catch(e) {}
-    try { localStorage.removeItem("sila_timer"); } catch(e) {}
+    try { localStorage.removeItem(TIMER_KEY); } catch(e) {}
     setTimer(null);
   }
 
@@ -2701,7 +2718,10 @@ function App() {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
             <div>
               <div style={{ fontSize: 10, letterSpacing: 4, color: "#777", marginBottom: 4 }}>PUSH / PULL / LEGS</div>
-              <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: 1, color: "#fff" }}>WORKOUT ROUTINE</div>
+              <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: 1, color: "#fff" }}>
+                WORKOUT ROUTINE
+                {APP_VARIANT === "beta" && <span style={{ marginLeft: 8, padding: "2px 6px", borderRadius: 4, border: "1px solid #f7a844", color: "#f7a844", fontSize: 9, letterSpacing: 2, verticalAlign: "middle" }}>BETA</span>}
+              </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{ textAlign: "right" }}>
@@ -2733,7 +2753,7 @@ function App() {
             })}
           </div>
           <div style={{ display: "flex", borderBottom: "1px solid #1a1a22" }}>
-            {[["workout","ТРЕНИРОВКА"],["warmup","РАЗМИНКА"],["journal","ЖУРНАЛ"],["achievements","АЧИВКИ"]].map(([id, label]) => (
+            {[["workout","ТРЕНИРОВКА"],["warmup","РАЗМИНКА"],["journal","ЖУРНАЛ"],["achievements","АЧИВКИ"]].concat(typeof BetaTab === "function" ? [["beta","БЕТА"]] : []).map(([id, label]) => (
               <button key={id} onClick={() => setActiveTab(id)}
                 style={{ flex: 1, padding: "11px 1px 13px", background: "none", border: "none", borderBottom: activeTab === id ? `3px solid ${w.color}` : "3px solid transparent", color: activeTab === id ? "#fff" : "#383838", fontSize: 9.5, letterSpacing: 0.5, cursor: "pointer", marginBottom: -1, transition: "all 0.15s", fontFamily: "inherit", fontWeight: activeTab === id ? 700 : 400, whiteSpace: "nowrap" }}>
                 {label}
@@ -3612,6 +3632,9 @@ function App() {
         )}
 
         {/* ===== ИСТОРИЯ ===== */}
+        {/* Вкладка тестовой версии: BetaTab определён только в beta-сборке (src/beta/), в боевой его нет */}
+        {activeTab === "beta" && typeof BetaTab === "function" && <BetaTab data={data} setData={setData} showToast={showToast} />}
+
         {activeTab === "achievements" && (() => {
           var ach = computeAch();
           return (
