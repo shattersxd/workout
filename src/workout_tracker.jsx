@@ -1411,8 +1411,9 @@ export default function App() {
   const lastPromptedExDone = useRef(0);
   const [toast, setToast] = useState(null);
   const [editMode, setEditMode] = useState(false);
-  // planScreen: null | "list" | "builder" | {editing: id}
+  // planScreen: null | "list" | "settings" (только в тестовой версии, из меню) | "builder" | {editing: id}
   const [planScreen, setPlanScreen] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);   // меню в шапке: есть только в тестовой версии
   const [builderName, setBuilderName] = useState("");
   const [builderColor, setBuilderColor] = useState("#4488ff");
   const [builderExercises, setBuilderExercises] = useState([]);
@@ -2611,6 +2612,106 @@ export default function App() {
   const w = getWorkout(activeDay) || PROGRAM.push;
   const hasAlts = (id) => (ALTERNATIVES[id] || []).length > 0;
 
+  // Настройки одним блоком. В основной версии он стоит внутри "Мой план", в тестовой (есть меню,
+  // см. src/beta/menu.jsx) - на отдельном экране "Настройки", а "Мой план" остаётся про тренировки.
+  const hasMenu = typeof BetaMenu === "function";
+  const settingsSections = (
+    <>
+              <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-666)", marginBottom: 10 }}>ВЕС ГАНТЕЛЕЙ</div>
+              <div style={{ background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "14px 14px", marginBottom: 24 }}>
+                <div style={{ fontSize: 11, color: "var(--tx-888)", lineHeight: 1.6, marginBottom: 12 }}>
+                  Как ты записываешь вес в упражнениях с гантелями. Влияет только на подпись  -  число остаётся тем, что ты ввёл.
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {[["single","ЗА ОДНУ","кг/шт"],["total","ОБЩИЙ","кг общ"]].map(m => {
+                    const on = (data.dbMode || "single") === m[0];
+                    return (
+                      <button key={m[0]} onClick={() => setData(prev => ({ ...prev, dbMode: m[0] }))}
+                        style={{ flex: 1, padding: "12px 8px", borderRadius: 9, border: `1px solid ${on ? "#f7a84460" : "var(--bd-2a2a2a)"}`, background: on ? "#f7a84412" : "var(--bg-0c0c0f)", cursor: "pointer", fontFamily: "inherit", minHeight: 52 }}>
+                        <div style={{ fontSize: 10, color: on ? "var(--tx-f7a844)" : "var(--tx-777)", letterSpacing: 1, fontWeight: on ? 700 : 400, marginBottom: 3 }}>{m[1]}</div>
+                        <div style={{ fontSize: 9, color: on ? "var(--tx-8a7550)" : "var(--tx-555)" }}>{m[2]}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {APP_VARIANT !== "beta" ? (
+                <>
+                  <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-666)", marginBottom: 10 }}>ТЕМА</div>
+                  <div style={{ background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "14px 14px", marginBottom: 24 }}>
+                    <div style={{ fontSize: 11, color: "var(--tx-888)", lineHeight: 1.6, marginBottom: 12 }}>
+                      Авто - как на телефоне: тёмная или светлая вместе с iOS. Выбор хранится только на этом телефоне.
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      {[["auto", "АВТО"], ["light", "СВЕТЛАЯ"], ["dark", "ТЁМНАЯ"]].map(m => {
+                        const on = themePref === m[0];
+                        return (
+                          <button key={m[0]} onClick={() => chooseTheme(m[0])}
+                            style={{ flex: 1, padding: "12px 4px", borderRadius: 9, border: `1px solid ${on ? "#f7a84460" : "var(--bd-2a2a2a)"}`, background: on ? "#f7a84412" : "var(--bg-0c0c0f)", color: on ? "var(--tx-f7a844)" : "var(--tx-777)", fontSize: 10, letterSpacing: 1, fontWeight: on ? 700 : 400, cursor: "pointer", fontFamily: "inherit", minHeight: 48 }}>
+                            {m[1]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-666)", marginBottom: 10 }}>ТЕМА</div>
+                  <div style={{ background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "14px 14px", marginBottom: 24 }}>
+                    <div style={{ fontSize: 11, color: "var(--tx-888)", lineHeight: 1.6 }}>
+                      В тестовой версии пока только тёмная тема. Светлая уже есть в основной версии.
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-666)", marginBottom: 10 }}>ЭКРАН</div>
+              <div style={{ background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "14px 14px", marginBottom: 24 }}>
+                <div style={{ fontSize: 11, color: "var(--tx-888)", lineHeight: 1.6, marginBottom: 12 }}>
+                  {typeof navigator !== "undefined" && navigator.wakeLock
+                    ? "Не даём экрану гаснуть, пока открыта тренировка или разминка. Заряд расходуется быстрее."
+                    : "На этом телефоне не поддерживается (нужен iOS 16.4 или новее). Экран будет гаснуть как обычно."}
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {[[true, "НЕ ГАСИТЬ"], [false, "КАК ОБЫЧНО"]].map(m => {
+                    const on = keepAwake === m[0];
+                    return (
+                      <button key={m[1]} onClick={() => setData(prev => ({ ...prev, keepAwake: m[0] }))}
+                        style={{ flex: 1, padding: "12px 8px", borderRadius: 9, border: `1px solid ${on ? "#f7a84460" : "var(--bd-2a2a2a)"}`, background: on ? "#f7a84412" : "var(--bg-0c0c0f)", color: on ? "var(--tx-f7a844)" : "var(--tx-777)", fontSize: 10, letterSpacing: 1, fontWeight: on ? 700 : 400, cursor: "pointer", fontFamily: "inherit", minHeight: 48 }}>
+                        {m[1]}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-666)", marginBottom: 10 }}>РЕЗЕРВНАЯ КОПИЯ</div>
+              <div style={{ background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "14px 14px", marginBottom: 24 }}>
+                <div style={{ fontSize: 11, color: "var(--tx-888)", lineHeight: 1.6, marginBottom: 10 }}>
+                  Все данные хранятся только на этом телефоне. Сохрани копию в Файлы  -  история переживёт сброс Safari и переустановку. Загрузка копии добавляет недостающие тренировки и ничего не стирает.
+                </div>
+                <div style={{ fontSize: 10, color: "var(--tx-666)", marginBottom: 12 }}>
+                  Последняя копия: {data.lastBackup ? new Date(data.lastBackup + "T12:00:00").toLocaleDateString("ru", { day: "numeric", month: "long" }) : "ещё не сохранялась"}
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={exportBackup}
+                    style={{ flex: 1, padding: "12px 8px", borderRadius: 9, border: "1px solid #f7a84460", background: "#f7a84412", color: "var(--tx-f7a844)", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", minHeight: 48 }}>
+                    СОХРАНИТЬ
+                  </button>
+                  <button onClick={() => importRef.current && importRef.current.click()}
+                    style={{ flex: 1, padding: "12px 8px", borderRadius: 9, border: "1px solid var(--bd-2a2a2a)", background: "var(--bg-0c0c0f)", color: "var(--tx-999)", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 48 }}>
+                    ЗАГРУЗИТЬ
+                  </button>
+                </div>
+                <input ref={importRef} type="file" accept="application/json,.json" style={{ display: "none" }}
+                  onChange={e => { importBackup(e.target.files && e.target.files[0]); e.target.value = ""; }} />
+              </div>
+
+    </>
+  );
+
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-0c0c0f)", color: "var(--tx-e8e8e8)", fontFamily: "'DM Mono','Fira Mono',monospace", paddingBottom: timer ? 180 : 100 }}>
 
@@ -2618,23 +2719,25 @@ export default function App() {
       <div style={{ background: "var(--bg-0c0c0f)", borderBottom: "1px solid var(--bd-1a1a22)", padding: "20px 20px 0", position: "sticky", top: 0, zIndex: 100, isolation: "isolate" }}>
         <div style={{ maxWidth: 560, margin: "0 auto" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-            <div>
-              <div style={{ fontSize: 10, letterSpacing: 4, color: "var(--tx-777)", marginBottom: 4 }}>PUSH / PULL / LEGS</div>
-              <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: 1, color: "var(--tx-fff)" }}>
-                WORKOUT ROUTINE
-                {APP_VARIANT === "beta" && <span style={{ marginLeft: 8, padding: "2px 6px", borderRadius: 4, border: "1px solid #f7a844", color: "var(--tx-f7a844)", fontSize: 9, letterSpacing: 2, verticalAlign: "middle" }}>BETA</span>}
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 10, letterSpacing: APP_VARIANT === "beta" ? 3 : 4, whiteSpace: "nowrap", color: "var(--tx-777)", marginBottom: 4 }}>
+                PUSH / PULL / LEGS
+                {APP_VARIANT === "beta" && <span style={{ marginLeft: 10, padding: "2px 6px", borderRadius: 4, border: "1px solid #f7a844", color: "var(--tx-f7a844)", fontSize: 9, letterSpacing: 2, verticalAlign: "middle" }}>BETA</span>}
               </div>
+              <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: 1, color: "var(--tx-fff)" }}>WORKOUT ROUTINE</div>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{ textAlign: "right" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+              <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                 <div style={{ fontSize: 10, color: "var(--tx-777)", marginBottom: 2 }}>сегодня</div>
                 <div style={{ fontSize: 13, color: "var(--tx-999)" }}>{new Date().toLocaleDateString("ru", { day: "numeric", month: "short" })}</div>
               </div>
-              <button onClick={() => setPlanScreen("list")}
-                style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "6px 10px", borderRadius: 8, border: "1px solid var(--bd-2a2a2a)", background: "var(--bg-0f0f12)", cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
-                <span style={{ fontSize: 14, color: "var(--tx-666)", lineHeight: 1 }}>+</span>
-                <span style={{ fontSize: 7, color: "var(--tx-777)", letterSpacing: 0.5 }}>ПЛАН</span>
-              </button>
+              {hasMenu ? <BetaMenuButton onClick={() => setMenuOpen(true)} /> : (
+                <button onClick={() => setPlanScreen("list")}
+                  style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "6px 10px", borderRadius: 8, border: "1px solid var(--bd-2a2a2a)", background: "var(--bg-0f0f12)", cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+                  <span style={{ fontSize: 14, color: "var(--tx-666)", lineHeight: 1 }}>+</span>
+                  <span style={{ fontSize: 7, color: "var(--tx-777)", letterSpacing: 0.5 }}>ПЛАН</span>
+                </button>
+              )}
             </div>
           </div>
           <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
@@ -3705,6 +3808,21 @@ export default function App() {
           );
         }
 
+        // Экран "Настройки": открывается из меню, которое есть только в тестовой версии
+        if (planScreen === "settings") {
+          return (
+            <div style={{ position: "fixed", inset: 0, background: "var(--bg-0c0c0f)", zIndex: 100, overflowY: "auto", WebkitOverflowScrolling: "touch", paddingTop: "env(safe-area-inset-top)", paddingBottom: "calc(40px + env(safe-area-inset-bottom))" }}>
+              <div style={{ maxWidth: 560, margin: "0 auto", padding: "20px 20px 0" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
+                  <button onClick={() => setPlanScreen(null)} style={{ background: "none", border: "none", color: "var(--tx-666)", fontSize: 20, cursor: "pointer", padding: "4px 8px 4px 0" }}>{"<"}</button>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "var(--tx-fff)" }}>НАСТРОЙКИ</div>
+                </div>
+                {settingsSections}
+              </div>
+            </div>
+          );
+        }
+
         // List screen: choose template or create custom
         return (
           <div style={{ position: "fixed", inset: 0, background: "var(--bg-0c0c0f)", zIndex: 100, overflowY: "auto", WebkitOverflowScrolling: "touch", paddingTop: "env(safe-area-inset-top)", paddingBottom: "calc(40px + env(safe-area-inset-bottom))" }}>
@@ -3714,89 +3832,7 @@ export default function App() {
                 <div style={{ fontSize: 14, fontWeight: 700, color: "var(--tx-fff)" }}>МОЙ ПЛАН</div>
               </div>
 
-              {/* Built-in templates */}
-              <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-666)", marginBottom: 10 }}>ВЕС ГАНТЕЛЕЙ</div>
-              <div style={{ background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "14px 14px", marginBottom: 24 }}>
-                <div style={{ fontSize: 11, color: "var(--tx-888)", lineHeight: 1.6, marginBottom: 12 }}>
-                  Как ты записываешь вес в упражнениях с гантелями. Влияет только на подпись  -  число остаётся тем, что ты ввёл.
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  {[["single","ЗА ОДНУ","кг/шт"],["total","ОБЩИЙ","кг общ"]].map(m => {
-                    const on = (data.dbMode || "single") === m[0];
-                    return (
-                      <button key={m[0]} onClick={() => setData(prev => ({ ...prev, dbMode: m[0] }))}
-                        style={{ flex: 1, padding: "12px 8px", borderRadius: 9, border: `1px solid ${on ? "#f7a84460" : "var(--bd-2a2a2a)"}`, background: on ? "#f7a84412" : "var(--bg-0c0c0f)", cursor: "pointer", fontFamily: "inherit", minHeight: 52 }}>
-                        <div style={{ fontSize: 10, color: on ? "var(--tx-f7a844)" : "var(--tx-777)", letterSpacing: 1, fontWeight: on ? 700 : 400, marginBottom: 3 }}>{m[1]}</div>
-                        <div style={{ fontSize: 9, color: on ? "var(--tx-8a7550)" : "var(--tx-555)" }}>{m[2]}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {APP_VARIANT !== "beta" && (
-                <>
-                  <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-666)", marginBottom: 10 }}>ТЕМА</div>
-                  <div style={{ background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "14px 14px", marginBottom: 24 }}>
-                    <div style={{ fontSize: 11, color: "var(--tx-888)", lineHeight: 1.6, marginBottom: 12 }}>
-                      Авто - как на телефоне: тёмная или светлая вместе с iOS. Выбор хранится только на этом телефоне.
-                    </div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      {[["auto", "АВТО"], ["light", "СВЕТЛАЯ"], ["dark", "ТЁМНАЯ"]].map(m => {
-                        const on = themePref === m[0];
-                        return (
-                          <button key={m[0]} onClick={() => chooseTheme(m[0])}
-                            style={{ flex: 1, padding: "12px 4px", borderRadius: 9, border: `1px solid ${on ? "#f7a84460" : "var(--bd-2a2a2a)"}`, background: on ? "#f7a84412" : "var(--bg-0c0c0f)", color: on ? "var(--tx-f7a844)" : "var(--tx-777)", fontSize: 10, letterSpacing: 1, fontWeight: on ? 700 : 400, cursor: "pointer", fontFamily: "inherit", minHeight: 48 }}>
-                            {m[1]}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </>
-              )}
-
-              <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-666)", marginBottom: 10 }}>ЭКРАН</div>
-              <div style={{ background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "14px 14px", marginBottom: 24 }}>
-                <div style={{ fontSize: 11, color: "var(--tx-888)", lineHeight: 1.6, marginBottom: 12 }}>
-                  {typeof navigator !== "undefined" && navigator.wakeLock
-                    ? "Не даём экрану гаснуть, пока открыта тренировка или разминка. Заряд расходуется быстрее."
-                    : "На этом телефоне не поддерживается (нужен iOS 16.4 или новее). Экран будет гаснуть как обычно."}
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  {[[true, "НЕ ГАСИТЬ"], [false, "КАК ОБЫЧНО"]].map(m => {
-                    const on = keepAwake === m[0];
-                    return (
-                      <button key={m[1]} onClick={() => setData(prev => ({ ...prev, keepAwake: m[0] }))}
-                        style={{ flex: 1, padding: "12px 8px", borderRadius: 9, border: `1px solid ${on ? "#f7a84460" : "var(--bd-2a2a2a)"}`, background: on ? "#f7a84412" : "var(--bg-0c0c0f)", color: on ? "var(--tx-f7a844)" : "var(--tx-777)", fontSize: 10, letterSpacing: 1, fontWeight: on ? 700 : 400, cursor: "pointer", fontFamily: "inherit", minHeight: 48 }}>
-                        {m[1]}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-666)", marginBottom: 10 }}>РЕЗЕРВНАЯ КОПИЯ</div>
-              <div style={{ background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "14px 14px", marginBottom: 24 }}>
-                <div style={{ fontSize: 11, color: "var(--tx-888)", lineHeight: 1.6, marginBottom: 10 }}>
-                  Все данные хранятся только на этом телефоне. Сохрани копию в Файлы  -  история переживёт сброс Safari и переустановку. Загрузка копии добавляет недостающие тренировки и ничего не стирает.
-                </div>
-                <div style={{ fontSize: 10, color: "var(--tx-666)", marginBottom: 12 }}>
-                  Последняя копия: {data.lastBackup ? new Date(data.lastBackup + "T12:00:00").toLocaleDateString("ru", { day: "numeric", month: "long" }) : "ещё не сохранялась"}
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={exportBackup}
-                    style={{ flex: 1, padding: "12px 8px", borderRadius: 9, border: "1px solid #f7a84460", background: "#f7a84412", color: "var(--tx-f7a844)", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", minHeight: 48 }}>
-                    СОХРАНИТЬ
-                  </button>
-                  <button onClick={() => importRef.current && importRef.current.click()}
-                    style={{ flex: 1, padding: "12px 8px", borderRadius: 9, border: "1px solid var(--bd-2a2a2a)", background: "var(--bg-0c0c0f)", color: "var(--tx-999)", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 48 }}>
-                    ЗАГРУЗИТЬ
-                  </button>
-                </div>
-                <input ref={importRef} type="file" accept="application/json,.json" style={{ display: "none" }}
-                  onChange={e => { importBackup(e.target.files && e.target.files[0]); e.target.value = ""; }} />
-              </div>
+              {!hasMenu && settingsSections}
 
               <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-666)", marginBottom: 10 }}>РАСПИСАНИЕ НЕДЕЛИ</div>
               <div style={{ background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "14px 12px", marginBottom: 24 }}>
@@ -3886,6 +3922,12 @@ export default function App() {
           </div>
         );
       })()}
+
+      {/* Меню в шапке: BetaMenu и betaMenuItems есть только в тестовой сборке (src/beta/menu.jsx) */}
+      {hasMenu && menuOpen && (
+        <BetaMenu items={betaMenuItems()} onClose={() => setMenuOpen(false)}
+          onSelect={item => { setMenuOpen(false); setPlanScreen(item.screen); }} />
+      )}
 
       {addExModal && (() => {
         const all = getAllExercises();

@@ -4296,7 +4296,13 @@ test('Theme: the test version is always dark (its panels are drawn for a dark ba
   assert(betaHtml.includes("localStorage.getItem('sila_theme_beta')") && !betaHtml.includes("localStorage.getItem('sila_theme')"), 'the early script in beta must read the beta key');
   const prodHead = html.slice(0, html.indexOf(APP_MARKER));
   assert(prodHead.includes("localStorage.getItem('sila_theme')") && !prodHead.includes('sila_theme_beta'), 'the production early script must read only the production key');
-  assert(/\{APP_VARIANT !== "beta" && \(\s*<>\s*<div[^>]*>ТЕМА<\/div>/.test(src), 'the theme switch must be hidden in beta');
+  const tStart = src.indexOf('{APP_VARIANT !== "beta" ? (');
+  const tMid = src.indexOf(') : (', tStart);
+  const tEnd = src.indexOf('\n              )}', tMid);
+  assert(tStart > 0 && tMid > tStart && tEnd > tMid, 'theme block (ternary on APP_VARIANT) not found');
+  const thenBranch = src.slice(tStart, tMid), elseBranch = src.slice(tMid, tEnd);
+  assert(thenBranch.includes('chooseTheme(m[0])') && !elseBranch.includes('chooseTheme'), 'the theme switch must exist only outside beta');
+  assert(elseBranch.includes('только тёмная'), 'beta must explain why there is no theme switch');
   info('Beta: always dark, own key, no switch');
 });
 
@@ -4380,6 +4386,101 @@ test('Theme: in the light theme the iPhone status-bar strip stays dark (the bar 
   assert(headSrc.includes('apple-mobile-web-app-status-bar-style" content="black-translucent"'), 'the strip exists because of black-translucent');
   assert(/html\{[^}]*background:var\(--bg-0c0c0f\)\}/.test(headSrc) && /#loader\{[^}]*background:var\(--bg-0c0c0f\)/.test(headSrc), 'html and loader follow the theme (no dark flash)');
   info('Dark strip under the status bar, no flash of the wrong theme');
+});
+
+// ── SECTION 25: MENU & SETTINGS SCREEN (test version) ───────────────────────
+section('25 · MENU & SETTINGS (beta)');
+
+const menuSrc = fs.readFileSync(path.join(BETA_SRC_DIR, 'menu.jsx'), 'utf8');
+function loadMenu() {
+  const data = menuSrc.slice(menuSrc.indexOf('const BETA_MENU_SCREENS'), menuSrc.indexOf('// Три полоски'));
+  return new Function(data + '; return { betaMenuItems, BETA_MENU_SCREENS };')();
+}
+
+test('Menu: the code exists only in the test version, and production never reaches it', () => {
+  assert(/function BetaMenu\(/.test(betaApp) && /function BetaMenuButton\(/.test(betaApp) && /function betaMenuItems\(/.test(betaApp), 'menu components must be in the beta page');
+  assert(!/function BetaMenu|function betaMenuItems/.test(app), 'production page must not contain the menu code');
+  assert(src.includes('const hasMenu = typeof BetaMenu === "function";'), 'a single guard decides whether the menu exists');
+  // каждое обращение к функциям меню стоит под hasMenu
+  const bad = [];
+  for (const m of src.matchAll(/<BetaMenuButton|<BetaMenu |betaMenuItems\(\)/g)) {
+    if (!src.slice(Math.max(0, m.index - 160), m.index).includes('hasMenu')) bad.push(src.slice(m.index, m.index + 30));
+  }
+  assert(bad.length === 0, 'menu function used outside the hasMenu guard (ReferenceError in production): ' + bad.join(' | '));
+  assert(!src.includes('setPlanScreen("settings")'), 'the settings screen is opened only through the menu item data, never directly');
+  info('Guarded by hasMenu; absent from the production page');
+});
+
+test('Menu: items are plain data that point only at screens the app really has', () => {
+  const { betaMenuItems, BETA_MENU_SCREENS } = loadMenu();
+  const items = betaMenuItems();
+  assert(items.length >= 2, 'at least plan and settings');
+  assert(new Set(items.map(i => i.id)).size === items.length, 'item ids must be unique');
+  items.forEach(i => {
+    assert(BETA_MENU_SCREENS.includes(i.screen), i.id + ' points to an unknown screen ' + i.screen);
+    assert(/[А-Яа-я]/.test(i.title) && /[А-Яа-я]/.test(i.sub), i.id + ' needs a Russian title and description');
+  });
+  assert(items.some(i => i.screen === 'list') && items.some(i => i.screen === 'settings'), 'plan and settings are both in the menu');
+  assert(src.includes('planScreen === "settings"') && src.includes('// List screen: choose template or create custom'), 'App renders both screens');
+  info(items.map(i => i.id + ' -> ' + i.screen).join(', '));
+});
+
+test('Menu: settings live on their own screen in the test version and stay inside "My plan" in production', () => {
+  assert((src.match(/const settingsSections = \(/g) || []).length === 1, 'the settings block is defined once');
+  const listStart = src.indexOf('// List screen: choose template or create custom');
+  const listEnd = src.indexOf('{addExModal && (() => {');
+  const list = src.slice(listStart, listEnd);
+  assert(list.includes('{!hasMenu && settingsSections}'), 'plan list shows the settings only when there is no menu (production)');
+  ['ВЕС ГАНТЕЛЕЙ', 'ЭКРАН', 'РЕЗЕРВНАЯ КОПИЯ', '>ТЕМА<'].forEach(t => assert(!list.includes(t), t + ' must not be duplicated in the plan list'));
+  const settingsScreen = src.slice(src.indexOf('if (planScreen === "settings")'), listStart);
+  assert(settingsScreen.includes('НАСТРОЙКИ') && settingsScreen.includes('{settingsSections}'), 'settings screen renders the shared block');
+  const block = src.slice(src.indexOf('const settingsSections = ('), src.indexOf('  return (\n    <div style={{ minHeight: "100vh"'));
+  ['ВЕС ГАНТЕЛЕЙ', 'ЭКРАН', 'РЕЗЕРВНАЯ КОПИЯ'].forEach(t => assert((block.match(new RegExp('>' + t + '<', 'g')) || []).length === 1, t + ' appears once in the block'));
+  assert((block.match(/>ТЕМА</g) || []).length === 2, 'theme: the switch (production) and the explanation (beta)');
+  assert(block.includes('exportBackup') && block.includes('importBackup') && block.includes('keepAwake') && block.includes('dbMode'), 'all four settings are in the block');
+  info('One block, two homes: production plan list / beta settings screen');
+});
+
+test('Menu: the header button replaces "+PLAN" in beta only and keeps its position', () => {
+  const head = src.slice(src.indexOf('{hasMenu ? <BetaMenuButton'), src.indexOf('{/* ===== WORKOUT ===== */}') > 0 ? src.indexOf('<div style={{ display: "flex", gap: 4, marginBottom: 16 }}>') : 0);
+  assert(head.includes('<BetaMenuButton onClick={() => setMenuOpen(true)} />'), 'menu button opens the menu');
+  assert(head.includes('onClick={() => setPlanScreen("list")}') && head.includes('>ПЛАН</span>'), 'production keeps the "+ПЛАН" button as before');
+  assert(html.includes('setPlanScreen("list")') && !app.includes('BetaMenuButton />'), 'production page still has the old button and no menu button');
+  info('Beta: menu button; production: unchanged');
+});
+
+test('Menu: closes by scrim, close button and choosing an item; the panel does not close itself', () => {
+  assert(src.includes('onSelect={item => { setMenuOpen(false); setPlanScreen(item.screen); }}'), 'choosing an item closes the menu and opens the screen');
+  assert(src.includes('onClose={() => setMenuOpen(false)}'), 'App closes the menu on request');
+  assert(/aria-modal="true"[\s\S]{0,40}onClick=\{props\.onClose\}/.test(menuSrc), 'tapping the dimmed area closes the menu');
+  assert(menuSrc.includes('onClick={e => e.stopPropagation()}'), 'tapping the panel must not close it');
+  assert(/onClick=\{props\.onClose\} aria-label="Закрыть меню"/.test(menuSrc), 'explicit close button');
+  assert(menuSrc.includes('onClick={() => props.onSelect(it)}'), 'items report the chosen item');
+  info('Scrim, button and item all close the menu');
+});
+
+test('Menu: tap targets are at least 44pt, safe areas are respected, motion can be turned off', () => {
+  const sizes = [...menuSrc.matchAll(/(?:width|height|minHeight): (\d+)/g)].map(m => +m[1]);
+  assert(/width: 44, height: 44, padding: 0/.test(menuSrc), 'menu button is 44x44');
+  assert(/width: 44, height: 44, borderRadius: 10/.test(menuSrc), 'close button is 44x44');
+  assert(/minHeight: 60/.test(menuSrc), 'menu rows are tall enough');
+  assert(menuSrc.includes('env(safe-area-inset-top)') && menuSrc.includes('env(safe-area-inset-bottom)'), 'panel keeps clear of the status bar and the home indicator');
+  assert(menuSrc.includes('prefers-reduced-motion: reduce'), 'respect reduced motion');
+  assert(menuSrc.includes('zIndex: 600'), 'panel must sit above the rest timer (500) and the other windows (200)');
+  assert(menuSrc.includes('role="dialog"') && menuSrc.includes('aria-label="Меню"'), 'screen readers see a dialog');
+  info('44pt targets, safe areas, reduced motion');
+});
+
+test('Menu: only theme tokens, no raw colours, and the code follows the platform rules', () => {
+  assert(!/#[0-9a-fA-F]{3,8}\b/.test(menuSrc.replace(/\/\/.*$/gm, '')), 'menu.jsx must use var(--...) tokens, not hex');
+  const used = new Set([...menuSrc.matchAll(/var\(--([a-z0-9-]+)\)/g)].map(m => m[1]));
+  const undef = [...used].filter(k => !(k in DARK));
+  assert(undef.length === 0, 'unknown tokens: ' + undef.join(', '));
+  assert(!/\?\.|\?\?/.test(menuSrc.replace(/\/\/.*$/gm, '')), 'no optional chaining / nullish coalescing (iOS Babel)');
+  const strings = [...menuSrc.replace(/\/\/.*$/gm, '').matchAll(/"([^"\n]*)"/g)].map(m => m[1]);
+  const badChars = strings.filter(s => [...s].some(c => c.charCodeAt(0) > 127 && !/[Ѐ-ӿ°]/.test(c) && c.codePointAt(0) < 0x1F000));
+  assert(badChars.length === 0, 'non-ASCII outside Cyrillic in strings: ' + badChars.join(' | '));
+  info(used.size + ' tokens, ASCII-safe strings');
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
