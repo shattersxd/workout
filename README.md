@@ -28,7 +28,7 @@
 
 ```bash
 python3 scripts/build.py      # src/ -> index.html
-node tests/test_pwa.js        # 283 теста, должно быть 283/283
+node tests/test_pwa.js        # 290 тестов, должно быть 290/290
 ```
 
 Или одной командой:
@@ -53,6 +53,7 @@ vendor/                   React, ReactDOM и Babel: приложение не х
 sw.js                     service worker: кэш для работы без интернета
 beta/                     тестовая версия (собирается build.py из src/ + src/beta/)
 src/beta/                 код тестовой версии: тренер, Spotify; в боевую сборку не попадает
+docs/social-design.md     соц-функции: варианты бэкенда, приватность, дорожная карта
 CLAUDE.md                 ограничения платформы и контракты данных
 ```
 

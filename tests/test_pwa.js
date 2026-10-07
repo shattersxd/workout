@@ -3314,6 +3314,137 @@ test('Onboarding UI: first-launch overlay is a beta-only seam, skippable, and ev
   info('Seam, skip, privacy note, tap targets');
 });
 
+// ── Заготовки под соц-функции ──────────────────────────────────────────────────
+function loadSocial() {
+  const dnFrom = src.indexOf('function dayNum');
+  const dnSrc = src.slice(dnFrom, src.indexOf('function backupAgeDays', dnFrom));
+  const coachSrc = fs.readFileSync(path.join(BETA_SRC_DIR, 'coach.jsx'), 'utf8');
+  const coachPure = coachSrc.slice(0, coachSrc.indexOf('const COACH_KIND_STYLE'));
+  const profSrc = fs.readFileSync(path.join(BETA_SRC_DIR, 'profile.jsx'), 'utf8');
+  const profPure = profSrc.slice(0, profSrc.indexOf('// ---- Интерфейс ----'));
+  const socSrc = fs.readFileSync(path.join(BETA_SRC_DIR, 'social.jsx'), 'utf8');
+  const socPure = socSrc.slice(0, socSrc.indexOf('function SocialPanel'));
+  return new Function('todayKey', dnSrc + profPure + coachPure + socPure +
+    '; return { socialUuid, socialFriendCode, socialEnsure, socialSummary, socialLeaderboard, socialLocalBackend, SOCIAL_BACKEND_METHODS, SOCIAL_SCHEMA_VERSION, SOCIAL_SHARE_KEYS };')(() => TODAY);
+}
+const ID_A = '3f2a9c1e-7b4d-4e8a-9c01-aaaaaaaaaaaa';
+const ID_B = 'b81d0c77-1111-4222-8333-bbbbbbbbbbbb';
+
+test('Social groundwork: identity, schema version and consent defaults are created once and never overwritten', () => {
+  const s = loadSocial();
+  const input = { history: { push: [] }, schedule: ['push', null, null, null, null, null, null] };
+  const before = JSON.stringify(input);
+  const a = s.socialEnsure(input, () => ID_A);
+  assert(JSON.stringify(input) === before, 'socialEnsure must not mutate its input');
+  assert(a.schemaVersion === 1 && a.identity.userId === ID_A && a.identity.createdAt === TODAY, 'identity and version: ' + JSON.stringify(a.identity));
+  assert(a.social.enabled === false && a.social.displayName === '' && !a.social.share.workouts && !a.social.share.volume && !a.social.share.prs, 'everything is private by default');
+  assert(a.history === input.history && a.schedule === input.schedule, 'unrelated data is carried over untouched');
+  const b = s.socialEnsure(a, () => ID_B);
+  assert(b.identity.userId === ID_A, 'the id must stay stable on repeated calls');
+  const c = s.socialEnsure(Object.assign({}, a, { social: { enabled: true, displayName: 'Ник', share: { volume: true } } }), () => ID_B);
+  assert(c.social.enabled === true && c.social.displayName === 'Ник' && c.social.share.volume === true && c.social.share.prs === false, 'existing choices survive, missing categories default to hidden: ' + JSON.stringify(c.social));
+  info('Private by default, stable id, no overwrite');
+});
+
+test('Social groundwork: UUIDs are valid v4 and friend codes are short and readable', () => {
+  const s = loadSocial();
+  const ids = new Set(Array.from({ length: 50 }, () => s.socialUuid()));
+  assert(ids.size === 50, 'ids must be unique');
+  ids.forEach(i => assert(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(i), 'not a v4 uuid: ' + i));
+  assert(s.socialFriendCode(ID_A) === '3F2A-9C1E', 'friend code, got ' + s.socialFriendCode(ID_A));
+  assert(s.socialFriendCode('') === '' && s.socialFriendCode('zz') === '' && s.socialFriendCode(null) === '', 'bad ids give no code');
+  info('v4 UUIDs, XXXX-XXXX codes');
+});
+
+test('Social summary: nothing is published until a category is switched on', () => {
+  const s = loadSocial();
+  const d = s.socialEnsure({ history: { push: [{ date: '2026-10-05', ts: 1, workout: 'push', detail: [{ id: 'bench', name: 'Жим', sets: [{ w: '60', done: true }] }] }] } }, () => ID_A);
+  const sum = s.socialSummary(d, TODAY);
+  assert(Object.keys(sum).sort().join() === 'asOf,name,userId,v', 'only the envelope, got ' + Object.keys(sum).join());
+  assert(sum.userId === ID_A && sum.v === 1 && sum.asOf === TODAY, 'envelope values');
+  info('Default summary has no data in it');
+});
+
+test('Social summary: shared numbers are right and health data can never leak', () => {
+  const s = loadSocial();
+  const ago = n => new Date(Date.UTC(2026, 9, 7) - n * 86400000).toISOString().slice(0, 10);
+  const e = (n, w, ex) => ({ date: ago(n), ts: n, workout: w, name: w, detail: ex.map(([id, name, kg]) => ({ id, name, sets: [{ w: String(kg), done: true }, { w: String(kg), done: true }] })) });
+  const history = { push: [
+    e(2, 'push', [['bench', 'Жим штанги лёжа', 70]]), e(9, 'push', [['bench', 'Жим штанги лёжа', 65]]), e(16, 'push', [['bench', 'Жим штанги лёжа', 62.5]]),
+    e(0, 'pull', [['row', 'Тяга', 50]]), e(7, 'pull', [['row', 'Тяга', 50]]), e(14, 'pull', [['row', 'Тяга', 50]]),
+    e(4, 'legs', [['sq', 'Присед', 100]]), e(11, 'legs', [['sq', 'Присед', 100]]), e(18, 'legs', [['sq', 'Присед', 100]]) ] };
+  const secrets = { profile: { sex: 'f', age: 33, height: 183.7, weight: 77.7, injuries: ['knees'], goal: 'cut' }, bodyLog: [{ date: ago(1), kg: 77.7 }], feelLog: [{ date: ago(1), score: 1 }], profileEdit: true };
+  const all = { workouts: true, volume: true, prs: true };
+  const d = s.socialEnsure(Object.assign({ history, schedule: ['push', null, 'pull', null, 'legs', null, null] }, secrets), () => ID_A);
+  const sum = s.socialSummary(Object.assign({}, d, { social: { enabled: true, displayName: 'Ник', share: all } }), TODAY);
+  assert(sum.name === 'Ник', 'display name is shared');
+  // Текущая неделя - пн 5 окт ... ср 7 окт: жим (пн) и тяга (ср). Ноги пришлись на субботу 3 окт, это прошлая неделя.
+  assert(sum.workoutsThisWeek === 2 && sum.lastWorkoutDaysAgo === 0, 'this week: ' + JSON.stringify(sum));
+  // план 3 дня: текущая неделя ещё неполная (2 из 3), а две предыдущие недели по 3 тренировки; 9 тренировок за 28 дней
+  assert(sum.workoutsLast28 === 9 && sum.streakWeeks === 2, 'streak and 28-day count: ' + JSON.stringify(sum));
+  assert(sum.volumeThisWeek === 2 * 70 + 2 * 50, 'week volume = sum of done sets of this week, got ' + sum.volumeThisWeek);
+  // рекорд только у жима (62.5 -> 65 -> 70); тяга и присед стоят на месте
+  assert(sum.prs.length === 1 && sum.prs[0].name === 'Жим штанги лёжа' && sum.prs[0].kg === 70 && sum.prs[0].date === ago(2), 'records: ' + JSON.stringify(sum.prs));
+  // приватность: ни одно значение из профиля, веса тела, самочувствия и травм не может попасть в пакет
+  const json = JSON.stringify(sum);
+  ['183.7', '77.7', 'knees', 'injur', 'profile', 'bodyLog', 'feelLog', 'height', 'goal', '"sex"', '"age"'].forEach(x => assertNot(json.includes(x), 'health data leaked into the summary: ' + x));
+  const allowed = new Set(['v', 'userId', 'name', 'asOf', 'workoutsThisWeek', 'workoutsLast28', 'streakWeeks', 'lastWorkoutDaysAgo', 'volumeThisWeek', 'prs']);
+  Object.keys(sum).forEach(k => assert(allowed.has(k), 'unexpected key in the published summary: ' + k));
+  // отключённая категория исчезает целиком
+  const noVol = s.socialSummary(Object.assign({}, d, { social: { enabled: true, displayName: '', share: { workouts: true } } }), TODAY);
+  assert(!('volumeThisWeek' in noVol) && !('prs' in noVol) && ('workoutsThisWeek' in noVol), 'a hidden category must be absent, not zero');
+  info('Numbers correct; profile, body weight, feel and injuries never appear');
+});
+
+test('Social leaderboard ranks by consistency or volume, fairly and stably', () => {
+  const s = loadSocial();
+  const mk = (userId, name, w, streak, vol) => ({ userId, name, workoutsThisWeek: w, streakWeeks: streak, volumeThisWeek: vol });
+  const list = [mk('1', 'Борис', 3, 1, 5000), mk('2', 'Анна', 3, 4, 3000), mk('3', 'Вика', 4, 0, 1000), mk('4', 'Глеб', 3, 1, 9000), { userId: '5', name: 'Без данных' }];
+  const byW = s.socialLeaderboard(list, 'workouts');
+  assert(byW.map(r => r.name).join() === 'Вика,Анна,Борис,Глеб', 'more workouts first, then streak, then name: ' + byW.map(r => r.name).join());
+  assert(byW.map(r => r.rank).join() === '1,2,3,4' && byW[0].value === 4, 'ranks are consecutive, values carried');
+  const byV = s.socialLeaderboard(list, 'volume');
+  assert(byV.map(r => r.name).join() === 'Глеб,Борис,Анна,Вика', 'by volume: ' + byV.map(r => r.name).join());
+  assert(s.socialLeaderboard([mk('9', '', 1, 0, 1)], 'workouts')[0].name === 'Без имени', 'an empty name gets a placeholder');
+  assert(s.socialLeaderboard(list.slice(), 'workouts').length === 4 && list.length === 5, 'the input list is not modified');
+  info('Consistency first, volume optional, ties by streak then name');
+});
+
+testAsync('Social backend: the local stand-in implements the whole interface (so the UI can be built before a server exists)', async () => {
+  const s = loadSocial();
+  const store = {};
+  const be = s.socialLocalBackend(store);
+  s.SOCIAL_BACKEND_METHODS.forEach(m => assert(typeof be[m] === 'function', 'backend method missing: ' + m));
+  const summ = (id, name, w) => ({ v: 1, userId: id, name, workoutsThisWeek: w, streakWeeks: 0 });
+  await be.signIn({ userId: ID_A });
+  await be.publishSummary(summ(ID_A, 'Я', 2));
+  await be.publishSummary(summ(ID_B, 'Друг', 3));
+  const mine = await be.addFriendByCode(s.socialFriendCode(ID_A));
+  assert(mine.error === 'Это вы', 'adding yourself is refused, got ' + JSON.stringify(mine));
+  const nope = await be.addFriendByCode('ZZZZ-0000');
+  assert(nope.error === 'Код не найден', 'unknown code, got ' + JSON.stringify(nope));
+  const ok = await be.addFriendByCode(s.socialFriendCode(ID_B).toLowerCase());
+  assert(ok.ok && ok.userId === ID_B, 'a friend is added by a (case-insensitive) code');
+  const friends = await be.getFriends();
+  assert(friends.length === 1 && friends[0].name === 'Друг', 'friends list: ' + JSON.stringify(friends));
+  const board = await be.getLeaderboard('workouts');
+  assert(board.map(r => r.name).join() === 'Друг,Я', 'leaderboard includes me and my friends, best first: ' + board.map(r => r.name).join());
+  info('signIn, publishSummary, addFriendByCode, getFriends, getLeaderboard all work against the stand-in');
+});
+
+test('Social: nothing leaves the phone, the panel is wired and explained, the design doc exists', () => {
+  const soc = fs.readFileSync(path.join(BETA_SRC_DIR, 'social.jsx'), 'utf8');
+  ['fetch(', 'XMLHttpRequest', 'sendBeacon', 'WebSocket', 'EventSource', 'navigator.share', 'location.href'].forEach(x => assertNot(soc.includes(x), 'social.jsx must not touch the network or navigate: ' + x));
+  assert(soc.includes('ничего не отправляется'), 'the panel must say that nothing is sent');
+  assert(soc.includes('Профиль, вес тела, самочувствие и журнал целиком друзьям не показываются никогда'), 'the privacy promise must stay visible');
+  assert(betaSrc.includes('typeof SocialPanel === "function" && <SocialPanel'), 'SocialPanel not wired into BetaTab');
+  assertNot(/function Social|socialSummary|socialEnsure/.test(app), 'the social groundwork must not exist in the production page');
+  assert((soc.slice(soc.indexOf('function SocialPanel')).match(/minHeight: 44/g) || []).length >= 2, 'inputs and toggles need 44pt targets');
+  const doc = fs.readFileSync(path.join(ROOT, 'docs', 'social-design.md'), 'utf8');
+  ['Supabase', 'Firebase', 'Cloudflare', 'PocketBase', 'Анонимный аккаунт', 'Sign in with Apple', 'Что закладываем СЕЙЧАС', 'Дорожная карта'].forEach(x => assert(doc.includes(x), 'design doc is missing: ' + x));
+  info('No network in social.jsx; doc covers backends, auth, privacy, roadmap');
+});
+
 test('Coach UI: panel is wired into the beta tab and its dismiss button is a 44pt target', () => {
   const coach = fs.readFileSync(path.join(BETA_SRC_DIR, 'coach.jsx'), 'utf8');
   assert(/function CoachPanel/.test(betaApp), 'CoachPanel missing from the beta page');
