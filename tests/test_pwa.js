@@ -2862,7 +2862,10 @@ function loadCoach() {
   const dnSrc = src.slice(dnFrom, src.indexOf('function backupAgeDays', dnFrom));
   const coachSrc = fs.readFileSync(path.join(BETA_SRC_DIR, 'coach.jsx'), 'utf8');
   const body = coachSrc.slice(0, coachSrc.indexOf('const COACH_KIND_STYLE'));
-  return new Function(dnSrc + body + '; return { coachAnalyze, coachVisible, coachPlural, coachWeekday, coachStuck, dayNum };')();
+  // тренер использует расчёты из profile.jsx (динамика веса, самочувствие, рекомендация)
+  const profSrc = fs.readFileSync(path.join(BETA_SRC_DIR, 'profile.jsx'), 'utf8');
+  const prof = profSrc.slice(0, profSrc.indexOf('// ---- Интерфейс ----'));
+  return new Function(dnSrc + prof + body + '; return { coachAnalyze, coachVisible, coachPlural, coachWeekday, coachStuck, dayNum, profileValidate, profileBmi, profileBmiLabel, profileEnergy, profileRecommend, bodyLogAdd, bodyTrend, bodyLatest, feelLogSet, feelRecent, profileNum };')();
 }
 const TODAY = '2026-10-07';   // среда
 const ago = n => new Date(Date.UTC(2026, 9, 7) - n * 86400000).toISOString().slice(0, 10);
@@ -3170,6 +3173,145 @@ test('Spotify: tokens stay out of the app data and the backup file, UI is wired 
   assert(/function SpotifyPanel|function spCall/.test(betaApp) && !/function SpotifyPanel|spStartLogin|accounts\.spotify\.com/.test(app), 'Spotify code exists in beta and never in production');
   assert(betaSrc.includes('const SPOTIFY_BOOT') && /\nspBoot\(\);/.test(sp), 'the callback is processed at startup, not only when the tab opens');
   info('Isolated storage, no secret, no leak into production');
+});
+
+// ── Профиль, программа, вес тела, самочувствие ────────────────────────────────
+const PRESET_KEYS = ['push', 'pull', 'legs', 'fullbody_a', 'fullbody_b', 'fullbody_c'];
+const goodProfile = (o) => Object.assign({ sex: 'm', age: 30, height: 180, weight: 80, goal: 'mass', level: 'mid', days: 3, injuries: [] }, o || {});
+
+test('Profile: validation accepts a sane questionnaire and names every problem', () => {
+  const c = loadCoach();
+  assert(c.profileValidate(goodProfile()).length === 0, 'a normal profile must pass');
+  assert(c.profileValidate(goodProfile({ age: '30', height: '180,5', weight: '80,5' })).length === 0, 'strings with a decimal comma must pass');
+  const bad = c.profileValidate({ sex: '', age: 12, height: 100, weight: 20, goal: '', level: '', days: 0 });
+  assert(bad.length === 7, 'every missing or absurd field gets its own message, got ' + bad.length + ': ' + bad.join(' | '));
+  assert(c.profileValidate(goodProfile({ age: 13 })).length === 1 && c.profileValidate(goodProfile({ age: 14 })).length === 0, 'minimum age is 14');
+  assert(c.profileValidate(goodProfile({ weight: 251 })).length === 1 && c.profileValidate(goodProfile({ height: 231 })).length === 1, 'upper bounds');
+  info('Validation: 7 distinct messages, decimal comma accepted');
+});
+
+test('Profile: BMI and calorie targets follow Mifflin-St Jeor and refuse risky cases', () => {
+  const c = loadCoach();
+  assert(c.profileBmi(180, 80) === 24.7 && c.profileBmiLabel(24.7) === 'норма', 'BMI 24.7 is normal');
+  assert(c.profileBmiLabel(17) === 'ниже нормы' && c.profileBmiLabel(27) === 'выше нормы' && c.profileBmiLabel(31) === 'высокий', 'BMI labels');
+  // мужчина 30 лет, 180 см, 80 кг: BMR 1780, 3 дня x1.45 = 2581, масса +10% = 2839 -> 2840, белок 1.8 x 80 = 144
+  const m = c.profileEnergy(goodProfile(), 80);
+  assert(m.bmr === 1780 && m.tdee === 2580 && m.target === 2840 && m.protein === 144, 'male mass: ' + JSON.stringify(m));
+  // женщина 25 лет, 165 см, 60 кг: BMR 1345, 4 дня x1.55 = 2085, похудение -15% = 1772 -> 1770, белок 2.0 x 60 = 120
+  const f = c.profileEnergy(goodProfile({ sex: 'f', age: 25, height: 165, weight: 60, goal: 'cut', days: 4 }), 60);
+  assert(f.bmr === 1350 && f.target === 1770 && f.protein === 120, 'female cut: ' + JSON.stringify(f));
+  assert(c.profileEnergy(goodProfile({ goal: 'fit' }), 80).target === 2580, 'maintenance goal keeps TDEE');
+  assert(c.profileEnergy(goodProfile({ age: 15 }), 80) === null, 'no calorie targets for under 16');
+  assert(c.profileEnergy(goodProfile({ age: 71 }), 80) === null, 'no calorie targets for over 70');
+  assert(c.profileEnergy(goodProfile({ height: 180, weight: 50 }), 50) === null, 'BMI under 16: see a doctor, not a formula');
+  assert(c.profileEnergy(goodProfile({ height: 170, weight: 130 }), 130) === null, 'BMI over 40: see a doctor, not a formula');
+  info('Targets: 2840 kcal / 144 g protein (male mass), 1770 / 120 (female cut); null for risky cases');
+});
+
+test('Profile: program recommendation picks only existing presets and a sensible split', () => {
+  const c = loadCoach();
+  const cnt = s => s.filter(Boolean).length;
+  const sched = (o) => c.profileRecommend(goodProfile(o)).schedule;
+  for (const level of ['new', 'mid', 'pro']) for (const days of [2, 3, 4, 5, 6]) {
+    const r = c.profileRecommend(goodProfile({ level, days }));
+    assert(r.schedule.length === 7 && r.schedule.every(k => k === null || PRESET_KEYS.includes(k)), level + '/' + days + ': only real presets, 7 slots');
+    assert(cnt(r.schedule) === r.days && r.title && r.why.length > 0, level + '/' + days + ': scheduled days match the plan');
+    // между тренировками есть отдых: подряд не больше 3 дней
+    const run = r.schedule.reduce((a, k) => { const n = k ? a.cur + 1 : 0; return { cur: n, max: Math.max(a.max, n) }; }, { cur: 0, max: 0 }).max;
+    // до 5 дней подряд не больше трёх; при 6 днях отдых один (воскресенье), это осознанный выбор классического PPL x2
+    assert(r.days === 6 ? (run === 6 && cnt(r.schedule) === 6) : run <= 3, level + '/' + days + ': rest days must be respected, longest run ' + run);
+  }
+  assert(c.profileRecommend(goodProfile({ level: 'new', days: 5 })).days === 3, 'a beginner is capped at 3 days');
+  assert(c.profileRecommend(goodProfile({ level: 'new', days: 5 })).why[0].includes('Новичку'), 'and told why');
+  assert(sched({ level: 'new', days: 3 }).join() === 'fullbody_a,,fullbody_b,,fullbody_c,,', 'beginner 3 days = fullbody A/B/C Mon/Wed/Fri');
+  assert(sched({ level: 'pro', days: 3 }).join() === 'push,,pull,,legs,,', 'experienced 3 days = push/pull/legs');
+  assert(sched({ level: 'mid', days: 2 }).join() === 'fullbody_a,,,fullbody_b,,,', '2 days = fullbody A and B spaced apart');
+  assert(sched({ level: 'pro', days: 6 }).join() === 'push,pull,legs,push,pull,legs,', '6 days = PPL twice, Sunday off');
+  info('Every level/days combination gives a valid, rest-respecting schedule');
+});
+
+test('Profile: goal advice and injury notes are included and stay cautious', () => {
+  const c = loadCoach();
+  const r = c.profileRecommend(goodProfile({ goal: 'cut', injuries: ['knees', 'shoulders'] }));
+  assert(r.goalTip.includes('похудение') && r.notes.length === 2, 'goal tip and two injury notes, got ' + r.notes.length);
+  assert(r.notes.every(n => n.includes('стоп')), 'every injury note tells to stop on pain');
+  assert(c.profileRecommend(goodProfile({ injuries: [] })).notes.length === 0, 'no injuries, no notes');
+  assert(c.profileRecommend(goodProfile({ injuries: ['unknown'] })).notes.length === 0, 'unknown keys are ignored, not crashed on');
+  const ui = fs.readFileSync(path.join(BETA_SRC_DIR, 'profile.jsx'), 'utf8');
+  assert(ui.includes('не рекомендация врача') && ui.includes('обратитесь к врачу'), 'the disclaimers must stay in the UI');
+  info('Goal tip, cautious injury notes, disclaimers present');
+});
+
+test('Body log and feel log: one entry per date, sorted, validated, trend needs two weeks', () => {
+  const c = loadCoach();
+  let log = c.bodyLogAdd([], '2026-09-23', '80,5');
+  log = c.bodyLogAdd(log, '2026-10-07', '81');
+  log = c.bodyLogAdd(log, '2026-09-30', '80.8');
+  assert(log.map(r => r.date).join() === '2026-09-23,2026-09-30,2026-10-07' && log[0].kg === 80.5, 'sorted by date, comma accepted: ' + JSON.stringify(log));
+  assert(c.bodyLogAdd(log, '2026-10-07', '79').length === 3 && c.bodyLogAdd(log, '2026-10-07', '79')[2].kg === 79, 'same date replaces');
+  assert(c.bodyLogAdd(log, '2026-10-08', '10') === log && c.bodyLogAdd(log, '2026-10-08', 'abc') === log, 'absurd values are rejected without a change');
+  const tr = c.bodyTrend(log, '2026-10-07');
+  assert(tr.span === 14 && tr.delta === 0.5 && tr.perWeek === 0.25 && tr.latest === 81, 'trend over 14 days: ' + JSON.stringify(tr));
+  assert(c.bodyTrend(log.slice(1), '2026-10-07') === null, 'only 7 days apart: no trend yet');
+  assert(c.bodyTrend([{ date: '2026-08-01', kg: 90 }, { date: '2026-10-07', kg: 80 }], '2026-10-07') === null, 'records older than 4 weeks are ignored');
+  assert(c.bodyLatest(log, 70) === 81 && c.bodyLatest([], 70) === 70, 'latest weight falls back to the questionnaire');
+  let fl = c.feelLogSet([], '2026-10-05', 3);
+  fl = c.feelLogSet(fl, '2026-10-05', 4);
+  assert(fl.length === 1 && fl[0].score === 4, 'one score per date, the latest wins');
+  assert(c.feelLogSet(fl, '2026-10-06', 6) === fl && c.feelLogSet(fl, '2026-10-06', 0) === fl, 'scores outside 1..5 are rejected');
+  assert(c.feelRecent(fl, '2026-10-07') === null, 'fewer than three scores: no verdict');
+  fl = c.feelLogSet(c.feelLogSet(fl, '2026-10-03', 2), '2026-10-01', 1);
+  assert(c.feelRecent(fl, '2026-10-07') === 2.3, 'average of the last three (1, 2, 4), got ' + c.feelRecent(fl, '2026-10-07'));
+  assert(c.feelRecent([{ date: '2026-09-01', score: 1 }, { date: '2026-09-02', score: 1 }, { date: '2026-09-03', score: 1 }], '2026-10-07') === null, 'scores older than two weeks do not count');
+  info('One entry per date, validated, trend after 14 days');
+});
+
+test('Coach with a profile: weigh-in reminder, weight trend vs goal, feel, schedule mismatch', () => {
+  const c = loadCoach();
+  const ago = n => new Date(Date.UTC(2026, 9, 7) - n * 86400000).toISOString().slice(0, 10);
+  const ids2 = (d) => c.coachAnalyze(d, TODAY).advice.map(a => a.id);
+  const base = (o) => Object.assign({ history: {}, schedule: ['push', null, 'pull', null, 'legs', null, null], profile: goodProfile({ days: 3 }) }, o || {});
+  // напоминание о взвешивании работает и без журнала тренировок
+  assert(ids2(base()).includes('weigh'), 'no weight records: remind');
+  assert(!ids2(base({ bodyLog: [{ date: ago(3), kg: 80 }] })).includes('weigh'), 'a recent weigh-in: stay quiet');
+  assert(ids2(base({ bodyLog: [{ date: ago(15), kg: 80 }] })).includes('weigh'), 'two weeks old: remind');
+  assert(c.coachAnalyze({ history: {}, schedule: base().schedule }, TODAY).advice.length === 0, 'without a profile none of this appears');
+  // цель - масса, вес стоит на месте 3 недели
+  const flat = [{ date: ago(24), kg: 80 }, { date: ago(10), kg: 80 }, { date: ago(1), kg: 80 }];
+  assert(ids2(base({ bodyLog: flat })).includes('trend-mass'), 'mass goal and a flat weight: tip');
+  assert(!ids2(base({ bodyLog: [{ date: ago(24), kg: 80 }, { date: ago(1), kg: 81.5 }] })).includes('trend-mass'), 'weight is growing: no tip');
+  assert(!ids2(base({ bodyLog: [{ date: ago(12), kg: 80 }, { date: ago(1), kg: 80 }] })).includes('trend-mass'), 'less than 21 days of data: no verdict yet');
+  // цель - похудение
+  const cut = goodProfile({ goal: 'cut' });
+  assert(ids2(base({ profile: cut, bodyLog: flat })).includes('trend-cut'), 'cut goal and a flat weight: tip');
+  const fast = [{ date: ago(24), kg: 85 }, { date: ago(1), kg: 80 }];   // -5 кг за 23 дня = -1.5 кг в неделю
+  const r = c.coachAnalyze(base({ profile: cut, bodyLog: fast }), TODAY).advice;
+  assert(r.find(a => a.id === 'trend-fast' && a.kind === 'warn'), 'losing over 1% a week: warning');
+  assert(!r.some(a => a.id === 'trend-cut'), 'a fast loss is not "not losing"');
+  // самочувствие
+  const low = [{ date: ago(5), score: 2 }, { date: ago(3), score: 1 }, { date: ago(1), score: 2 }];
+  const f = c.coachAnalyze(base({ feelLog: low }), TODAY).advice.find(a => a.id === 'feel-low');
+  assert(f && f.kind === 'warn' && f.text.includes('1,7 из 5'), 'low scores: warning with the average, got ' + (f && f.text));
+  assert(!ids2(base({ feelLog: [{ date: ago(5), score: 2 }, { date: ago(3), score: 4 }, { date: ago(1), score: 5 }] })).includes('feel-low'), 'good scores: quiet');
+  // расписание короче рекомендации
+  const short = base({ schedule: ['push', null, null, null, null, null, null] });
+  const m = c.coachAnalyze(short, TODAY).advice.find(a => a.id === 'plan-days');
+  assert(m && m.text.includes('3 тренировки') && m.text.includes('в расписании 1'), 'schedule mismatch: ' + (m && m.text));
+  assert(!ids2(base()).includes('plan-days'), 'a matching schedule is fine');
+  info('Weigh-in, goal trend (+/-), feel, schedule mismatch');
+});
+
+test('Onboarding UI: first-launch overlay is a beta-only seam, skippable, and every control is tappable', () => {
+  const ui = fs.readFileSync(path.join(BETA_SRC_DIR, 'profile.jsx'), 'utf8');
+  assert(src.includes('typeof BetaOverlay === "function" && <BetaOverlay data={data} setData={setData} showToast={showToast} />'), 'overlay seam missing in App');
+  assertNot(/function BetaOverlay|function ProfilePanel|function BodyPanel|function profileRecommend|function ProfileForm/.test(app), 'the questionnaire must not leak into the production page (only the guarded seam is allowed there)');
+  assert(/function BetaOverlay/.test(betaApp) && betaSrc.includes('typeof ProfilePanel === "function"') && betaSrc.includes('typeof BodyPanel === "function"'), 'overlay and panels wired into the beta page');
+  assert(ui.includes('(!data.profile && !data.profileSkipped) || !!data.profileEdit'), 'the form opens on first launch and on explicit edit only');
+  assert(ui.includes('profileSkipped: todayKey()') && ui.includes('ПОТОМ'), 'the questionnaire can be skipped');
+  assert(ui.includes('Данные хранятся только на этом телефоне'), 'the privacy promise stays visible');
+  assert((ui.match(/minHeight: 4[48]/g) || []).length >= 12, 'every button and input needs a 44pt+ target');
+  assert(ui.includes('bodyLogAdd(prev.bodyLog || [], todayKey(), p.weight)'), 'the starting weight seeds the weight log');
+  info('Seam, skip, privacy note, tap targets');
 });
 
 test('Coach UI: panel is wired into the beta tab and its dismiss button is a 44pt target', () => {

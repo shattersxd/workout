@@ -3835,6 +3835,9 @@ export default function App() {
         );
       })()}
 
+      {/* Анкета первого запуска: BetaOverlay есть только в тестовой сборке (src/beta/profile.jsx) */}
+      {typeof BetaOverlay === "function" && <BetaOverlay data={data} setData={setData} showToast={showToast} />}
+
       {savePrompt && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: "0 0 calc(40px + env(safe-area-inset-bottom))" }}
           onClick={() => setSavePrompt(false)}>

@@ -90,6 +90,50 @@ function coachWeeks(entries) {
   return weeks;
 }
 
+// Советы по анкете, весу тела и самочувствию (работают и без журнала). Нужен data.profile.
+function coachProfileAdvice(d, today, planned) {
+  const out = [];
+  const p = d.profile;
+  if (!p) return out;
+  const log = d.bodyLog || [];
+  const todayDn = dayNum(today);
+  // 1. Давно не взвешивались
+  const lastW = log.length ? dayNum(log[log.length - 1].date) : null;
+  if (lastW === null || todayDn - lastW >= 14) {
+    out.push({ id: "weigh", kind: "tip", title: "Пора взвеситься",
+      text: "Раз в 1-2 недели, утром, в одинаковых условиях: так видно тренд к вашей цели, а не колебания дня." });
+  }
+  // 2. Динамика веса относительно цели (нужны две записи с промежутком от 21 дня)
+  const tr = bodyTrend(log, today);
+  if (tr && tr.span >= 21) {
+    if (p.goal === "mass" && tr.perWeek < 0.1) {
+      out.push({ id: "trend-mass", kind: "tip", title: "Вес не растёт",
+        text: "Цель - масса, а вес стоит на месте. Если тренировки идут по плану, добавь 200-300 ккал в день и оцени через 2-3 недели." });
+    }
+    if (p.goal === "cut" && tr.perWeek > -0.05) {
+      out.push({ id: "trend-cut", kind: "tip", title: "Вес не снижается",
+        text: "Цель - похудение. Проверь питание и добавь ходьбу; спешить не нужно, 0,3-0,7 кг в неделю - нормальный темп." });
+    }
+    if (p.goal === "cut" && tr.perWeek < -(tr.latest * 0.01)) {
+      out.push({ id: "trend-fast", kind: "warn", title: "Вес снижается слишком быстро",
+        text: "Больше 1% веса тела в неделю: растёт риск потерять мышцы и силу. Добавь немного еды." });
+    }
+  }
+  // 3. Самочувствие: три последние оценки низкие
+  const fe = feelRecent(d.feelLog, today);
+  if (fe !== null && fe <= 2) {
+    out.push({ id: "feel-low", kind: "warn", title: "Тренировки даются тяжело",
+      text: "Средняя оценка трёх последних - " + String(fe).replace(".", ",") + " из 5. Сделай лёгкую неделю (веса на 10-20% ниже) или добавь день отдыха и проверь сон." });
+  }
+  // 4. В расписании меньше дней, чем рекомендовано по анкете
+  const want = profileRecommend(p).days;
+  if (planned < want) {
+    out.push({ id: "plan-days", kind: "tip", title: "Расписание короче рекомендации",
+      text: "По анкете вам подходит " + want + " " + coachPlural(want, "тренировка", "тренировки", "тренировок") + " в неделю, а в расписании " + planned + ". Рекомендованное расписание можно применить в блоке ПРОФИЛЬ." });
+  }
+  return out;
+}
+
 const COACH_KIND_ORDER = { warn: 0, tip: 1, good: 2 };
 const COACH_LAG_TITLE = { push: "Жим отстаёт", pull: "Тяга отстаёт", legs: "Ноги отстают" };   // "Ноги" во множественном числе
 const COACH_DAY_GEN = { push: "жимового дня", pull: "тягового дня", legs: "дня ног" };
@@ -115,8 +159,11 @@ function coachAnalyze(d, today) {
     perWeek: Math.round(in28 / 4 * 10) / 10,
     total: dnList.length
   };
-  const advice = [];
-  if (!dnList.length) return { stats: stats, advice: advice };
+  const advice = coachProfileAdvice(d, today, planned);
+  if (!dnList.length) {
+    advice.sort(function (a, b) { return COACH_KIND_ORDER[a.kind] - COACH_KIND_ORDER[b.kind]; });
+    return { stats: stats, advice: advice.slice(0, COACH_MAX_ADVICE) };
+  }
 
   // 1. Перерыв
   const onBreak = lastAgo >= COACH_BREAK_DAYS;
@@ -259,42 +306,38 @@ function CoachPanel(props) {
 
   return (
     <BetaSection title="ТРЕНЕР">
-      {st.total === 0 ? (
-        <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6 }}>
-          Пока нечего анализировать. Скопируйте историю из основной версии (блок ДАННЫЕ выше) или завершите пару тренировок здесь.
-        </div>
-      ) : (
-        <>
-          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-            {tiles.map(t => (
-              <div key={t[0]} style={{ flex: 1, background: "#0c0c0f", border: "1px solid #1a1a22", borderRadius: 10, padding: "10px 6px", textAlign: "center" }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#ddd", marginBottom: 3 }}>{t[1]}</div>
-                <div style={{ fontSize: 8, color: "#666", letterSpacing: 1 }}>{t[0]}</div>
-              </div>
-            ))}
-          </div>
-          {visible.length === 0 && (
-            <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6 }}>
-              Замечаний нет. Тренер смотрит на перерывы, пропуски, застой в весах, перекосы между днями и резкий рост нагрузки.
+      {st.total > 0 && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+          {tiles.map(t => (
+            <div key={t[0]} style={{ flex: 1, background: "#0c0c0f", border: "1px solid #1a1a22", borderRadius: 10, padding: "10px 6px", textAlign: "center" }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#ddd", marginBottom: 3 }}>{t[1]}</div>
+              <div style={{ fontSize: 8, color: "#666", letterSpacing: 1 }}>{t[0]}</div>
             </div>
-          )}
-          {visible.map(a => {
-            const k = COACH_KIND_STYLE[a.kind];
-            return (
-              <div key={a.id} style={{ background: k.bg, border: "1px solid " + k.border, borderRadius: 10, padding: "12px 12px 10px 14px", marginBottom: 8 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: k.color, marginBottom: 5 }}>{k.icon} {a.title}</div>
-                <div style={{ fontSize: 11, color: "#bbb", lineHeight: 1.6 }}>{a.text}</div>
-                <div style={{ textAlign: "right", marginTop: 2 }}>
-                  <button onClick={() => dismiss(a.id)}
-                    style={{ minHeight: 44, padding: "0 12px", background: "none", border: "none", color: "#666", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" }}>
-                    СКРЫТЬ НА НЕДЕЛЮ
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </>
+          ))}
+        </div>
       )}
+      {visible.length === 0 && (
+        <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6 }}>
+          {st.total === 0
+            ? "Пока нечего анализировать. Скопируйте историю из основной версии (блок ДАННЫЕ выше) или завершите пару тренировок здесь."
+            : "Замечаний нет. Тренер смотрит на перерывы, пропуски, застой в весах, перекосы между днями, резкий рост нагрузки, вес тела и самочувствие."}
+        </div>
+      )}
+      {visible.map(a => {
+        const k = COACH_KIND_STYLE[a.kind];
+        return (
+          <div key={a.id} style={{ background: k.bg, border: "1px solid " + k.border, borderRadius: 10, padding: "12px 12px 10px 14px", marginBottom: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: k.color, marginBottom: 5 }}>{k.icon} {a.title}</div>
+            <div style={{ fontSize: 11, color: "#bbb", lineHeight: 1.6 }}>{a.text}</div>
+            <div style={{ textAlign: "right", marginTop: 2 }}>
+              <button onClick={() => dismiss(a.id)}
+                style={{ minHeight: 44, padding: "0 12px", background: "none", border: "none", color: "#666", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" }}>
+                СКРЫТЬ НА НЕДЕЛЮ
+              </button>
+            </div>
+          </div>
+        );
+      })}
     </BetaSection>
   );
 }
