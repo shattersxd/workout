@@ -2592,6 +2592,9 @@ export default function App() {
 
       <div style={{ maxWidth: 560, margin: "0 auto", padding: "0 20px" }}>
 
+        {/* Мини-плеер Spotify: BetaMiniPlayer есть только в тестовой сборке (src/beta/spotify.jsx) */}
+        {typeof BetaMiniPlayer === "function" && <BetaMiniPlayer />}
+
         {/* ===== WORKOUT ===== */}
         {activeTab === "workout" && (
           <>

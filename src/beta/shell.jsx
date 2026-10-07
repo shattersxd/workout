@@ -19,10 +19,10 @@ function countEntries(d) {
 function readProdBackup() {
   try {
     const raw = localStorage.getItem(PROD_STORAGE_KEY);
-    if (!raw) return { error: "Основная версия хранит данные отдельно, и отсюда их не видно. Загрузите файл копии." };
+    if (!raw) return { error: "Основная версия хранит данные отдельно, поэтому отсюда их не видно. Загрузите, пожалуйста, файл копии." };
     return parseBackup(raw);
   } catch (e) {
-    return { error: "Не удалось прочитать основную версию. Загрузите файл копии." };
+    return { error: "Не получилось прочитать основную версию. Загрузите, пожалуйста, файл копии." };
   }
 }
 
@@ -57,13 +57,13 @@ function BetaTab(props) {
   function onFile(file) {
     if (!file) return;
     const reader = new FileReader();
-    reader.onerror = () => showToast("Не удалось прочитать файл");
+    reader.onerror = () => showToast("Не получилось прочитать файл");
     reader.onload = () => {
       const text = String(reader.result || "");
       const r = betaMergeFile(text, data);
       if (r.error) { showToast(r.error); return; }
       setData(prev => betaMergeFile(text, prev).data);
-      showToast(r.added > 0 ? "Загружено тренировок: " + r.added : "Новых тренировок в файле нет");
+      showToast(r.added > 0 ? "Загружено тренировок: " + r.added : "В файле нет новых тренировок");
     };
     reader.readAsText(file);
   }
@@ -72,7 +72,7 @@ function BetaTab(props) {
     if (prod.error) { showToast(prod.error); return; }
     const added = mergeBackup(data, prod.data).added;
     setData(prev => pruneOldKeys(mergeBackup(prev, prod.data).data));
-    showToast(added > 0 ? "Скопировано тренировок: " + added : "Новых тренировок в основной версии нет");
+    showToast(added > 0 ? "Скопировано тренировок: " + added : "В основной версии нет новых тренировок");
   }
 
   return (
@@ -80,7 +80,7 @@ function BetaTab(props) {
       <div style={{ background: "#1a1206", border: "1px solid #f7a84440", borderRadius: 12, padding: "12px 14px", marginBottom: 20 }}>
         <div style={{ fontSize: 9, letterSpacing: 2, color: "#f7a844", marginBottom: 4 }}>ТЕСТОВАЯ ВЕРСИЯ</div>
         <div style={{ fontSize: 11, color: "#ccc", lineHeight: 1.6 }}>
-          Здесь пробуем новое. Данные этой версии хранятся отдельно и основную не затрагивают.
+          Здесь мы пробуем новые возможности. Данные этой версии хранятся отдельно и основную версию не затрагивают.
         </div>
       </div>
 
@@ -91,7 +91,7 @@ function BetaTab(props) {
         <div style={{ fontSize: 11, color: "#aaa", lineHeight: 1.7, marginBottom: 12 }}>
           1. В основной версии нажмите ПЛАН, затем СОХРАНИТЬ и выберите «Сохранить в Файлы».<br />
           2. Здесь нажмите кнопку ниже и выберите этот файл.<br />
-          Загрузка только добавляет недостающие тренировки. Повторная загрузка ничего не дублирует.
+          Загрузка только добавляет недостающие тренировки: ничего не удаляется и не дублируется.
         </div>
         <div style={{ fontSize: 10, color: "#666", marginBottom: 12 }}>
           Здесь сейчас тренировок: {countEntries(data)}{prod.error ? "" : " | в основной версии: " + prodCount}

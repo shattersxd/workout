@@ -8,11 +8,12 @@
 // Токены лежат под ОТДЕЛЬНЫМ ключом, а не в data: иначе они попали бы в файл резервной копии.
 
 const SPOTIFY_STORAGE_KEY = "ppl_spotify_beta";
-const SPOTIFY_SCOPES = "user-read-playback-state user-modify-playback-state user-read-currently-playing";
+const SPOTIFY_SCOPES = "user-read-playback-state user-modify-playback-state user-read-currently-playing playlist-read-private playlist-read-collaborative";
 const SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize";
 const SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token";
 const SPOTIFY_API = "https://api.spotify.com/v1";
 const SPOTIFY_POLL_MS = 5000;
+const SPOTIFY_PLAYLISTS_PATH = "/me/playlists?limit=20";
 
 // Текущее время: переданное значение (в том числе 0) важнее часов
 function spNow(now) { return now === undefined ? Date.now() : now; }
@@ -98,25 +99,32 @@ async function spTokenRequest(fetchFn, params) {
 async function spExchange(cb, store, fetchFn, now) {
   const p = store.pending;
   if (!p || p.state !== cb.state) {
-    return { error: "Вход завершился в другом окне и не нашёл начатый вход. Попробуйте ещё раз" };
+    return { error: "Вход завершился в другом окне, и приложение не нашло начатый вход. Попробуйте, пожалуйста, ещё раз" };
   }
   const r = await spTokenRequest(fetchFn, {
     grant_type: "authorization_code", code: cb.code, redirect_uri: p.redirect,
     client_id: store.clientId, code_verifier: p.verifier
   });
   if (r.error) return { error: r.error };
-  return { store: { clientId: store.clientId, access: r.json.access_token, refresh: r.json.refresh_token || "", expiresAt: spNow(now) + r.json.expires_in * 1000 } };
+  return { store: { clientId: store.clientId, access: r.json.access_token, refresh: r.json.refresh_token || "", expiresAt: spNow(now) + r.json.expires_in * 1000, scope: r.json.scope || "" } };
 }
 
 async function spRefresh(store, fetchFn, now) {
   const r = await spTokenRequest(fetchFn, { grant_type: "refresh_token", refresh_token: store.refresh, client_id: store.clientId });
   if (r.error) return { error: r.error, invalid: r.invalid };
-  return { store: { clientId: store.clientId, access: r.json.access_token, refresh: r.json.refresh_token || store.refresh, expiresAt: spNow(now) + r.json.expires_in * 1000 } };
+  return { store: { clientId: store.clientId, access: r.json.access_token, refresh: r.json.refresh_token || store.refresh, expiresAt: spNow(now) + r.json.expires_in * 1000, scope: r.json.scope || store.scope || "" } };
+}
+
+// Параметры запроса к API; тело (JSON) нужно только командам вроде PUT /me/player/play
+function spInit(method, token, body) {
+  const init = { method: method, headers: { Authorization: "Bearer " + token } };
+  if (body !== undefined) { init.headers["Content-Type"] = "application/json"; init.body = JSON.stringify(body); }
+  return init;
 }
 
 // Запрос к API с обновлением токена: заранее, если истекает, и один раз после 401.
 // Возвращает { status, json, store } (store мог обновиться) или { status: 401, error, store }
-async function spCall(store, fetchFn, method, path, now) {
+async function spCall(store, fetchFn, method, path, now, body) {
   const t = spNow(now);
   let st = store;
   if (!st.refresh) return { status: 401, error: "Spotify не подключён", store: st };
@@ -125,12 +133,12 @@ async function spCall(store, fetchFn, method, path, now) {
     if (rr.error) return { status: 401, error: rr.error, store: st, expired: !!rr.invalid };
     st = rr.store;
   }
-  let res = await fetchFn(SPOTIFY_API + path, { method: method, headers: { Authorization: "Bearer " + st.access } });
+  let res = await fetchFn(SPOTIFY_API + path, spInit(method, st.access, body));
   if (res.status === 401) {
     const rr = await spRefresh(st, fetchFn, t);
     if (rr.error) return { status: 401, error: rr.error, store: st, expired: !!rr.invalid };
     st = rr.store;
-    res = await fetchFn(SPOTIFY_API + path, { method: method, headers: { Authorization: "Bearer " + st.access } });
+    res = await fetchFn(SPOTIFY_API + path, spInit(method, st.access, body));
   }
   let json = null;
   if (res.status !== 204) { try { json = await res.json(); } catch (e) {} }
@@ -153,10 +161,110 @@ function spPlayerView(status, json) {
 function spErrorText(status, json) {
   if (status >= 200 && status < 300) return null;
   const reason = json && json.error && json.error.reason;
-  if (reason === "PREMIUM_REQUIRED" || status === 403) return "Управление воспроизведением требует Spotify Premium";
+  if (reason === "PREMIUM_REQUIRED" || status === 403) return "Для управления воспроизведением нужен Spotify Premium";
   if (reason === "NO_ACTIVE_DEVICE" || status === 404) return "Нет активного устройства: запустите музыку в приложении Spotify на телефоне и вернитесь сюда";
   if (status === 429) return "Spotify просит подождать, попробуйте через минуту";
   return "Spotify ответил " + status;
+}
+
+// ---- Выбор музыки: плейлисты и поиск ----
+
+// Есть ли у токена нужный доступ. Токены, выданные до появления плейлистов, поля scope не имеют:
+// считаем, что доступа нет, и предлагаем войти заново один раз.
+function spHasScope(store, scope) {
+  return (store.scope || "").split(" ").indexOf(scope) >= 0;
+}
+
+function spPlaylistsView(json) {
+  return ((json && json.items) || []).filter(function (p) { return p && p.uri && p.name; })
+    .map(function (p) { return { id: p.id, uri: p.uri, name: p.name, total: p.tracks && typeof p.tracks.total === "number" ? p.tracks.total : null }; });
+}
+
+function spSearchView(json) {
+  return ((json && json.tracks && json.tracks.items) || []).filter(function (x) { return x && x.uri && x.name; })
+    .map(function (x) { return { uri: x.uri, name: x.name, artist: (x.artists || []).map(function (a) { return a.name; }).join(", ") }; });
+}
+
+// В режиме разработки Spotify отдаёт в поиске не больше 10 результатов за раз
+function spSearchPath(q) {
+  return "/search?q=" + encodeURIComponent(q) + "&type=track&limit=10";
+}
+
+// Тело PUT /me/player/play: плейлист играет целиком (context_uri), трек - отдельно (uris)
+function spPlayBody(kind, uri) {
+  return kind === "playlist" ? { context_uri: uri } : { uris: [uri] };
+}
+
+// ---- Общий доступ к API: мини-плеер на главной и панель на вкладке БЕТА работают с одним хранилищем ----
+
+let spQueue = Promise.resolve();
+
+// Запросы идут по очереди, и каждый раз токены читаются заново: два компонента не обновят токен одновременно
+// (при ротации refresh-токена это сломало бы вход).
+function spSharedCall(method, path, body) {
+  const run = spQueue.then(async function () {
+    const before = spLoad();
+    const r = await spCall(before, fetch, method, path, undefined, body);
+    if (r.store && r.store !== before) spSave(r.store);
+    if (r.status === 401 && r.expired) spSave({ clientId: before.clientId });
+    return r;
+  });
+  spQueue = run.catch(function () {});
+  return run;
+}
+
+// Общее состояние плеера. Опрос идёт, пока есть хотя бы один подписчик и приложение на экране.
+const SPOTIFY_FEED = { subs: [], timer: null, view: null, msg: "" };
+
+function spFeedNotify() {
+  SPOTIFY_FEED.subs.slice().forEach(function (cb) { cb(); });
+}
+
+async function spFeedRefresh() {
+  if (!SPOTIFY_FEED.subs.length) return;
+  if (!spLoad().refresh) { SPOTIFY_FEED.view = null; SPOTIFY_FEED.msg = ""; spFeedNotify(); return; }
+  try {
+    const r = await spSharedCall("GET", "/me/player");
+    if (r.status === 401) {
+      SPOTIFY_FEED.view = null;
+      SPOTIFY_FEED.msg = r.error || "Пожалуйста, войдите заново";
+    } else {
+      SPOTIFY_FEED.view = spPlayerView(r.status, r.json);
+      SPOTIFY_FEED.msg = (r.status === 200 || r.status === 204) ? "" : (spErrorText(r.status, r.json) || "");
+    }
+  } catch (e) {
+    SPOTIFY_FEED.msg = "Не получилось связаться со Spotify";
+  }
+  spFeedNotify();
+}
+
+function spFeedSubscribe(cb) {
+  SPOTIFY_FEED.subs.push(cb);
+  if (SPOTIFY_FEED.subs.length === 1) {
+    spFeedRefresh();
+    SPOTIFY_FEED.timer = setInterval(function () { if (document.visibilityState === "visible") spFeedRefresh(); }, SPOTIFY_POLL_MS);
+  } else {
+    cb();
+  }
+  return function () {
+    SPOTIFY_FEED.subs = SPOTIFY_FEED.subs.filter(function (x) { return x !== cb; });
+    if (!SPOTIFY_FEED.subs.length && SPOTIFY_FEED.timer) { clearInterval(SPOTIFY_FEED.timer); SPOTIFY_FEED.timer = null; }
+  };
+}
+
+// Команда плееру (пауза, следующий трек, запуск плейлиста). Возвращает { ok, err }, ошибку видят все подписчики.
+async function spCommand(method, path, body) {
+  let err = null;
+  try {
+    const r = await spSharedCall(method, path, body);
+    err = r.status === 401 ? (r.error || "Пожалуйста, войдите заново") : spErrorText(r.status, r.json);
+  } catch (e) {
+    err = "Не получилось связаться со Spotify";
+  }
+  SPOTIFY_FEED.msg = err || "";
+  spFeedNotify();
+  setTimeout(spFeedRefresh, 500);
+  return { ok: !err, err: err };
 }
 
 // Завершение входа при загрузке страницы (после возврата со Spotify в адресе ?code=...)
@@ -175,10 +283,11 @@ async function spBoot() {
       try { history.replaceState(null, "", spRedirectUri()); } catch (e) {}
     }
   } catch (e) {
-    SPOTIFY_BOOT.error = "Не удалось завершить вход в Spotify";
+    SPOTIFY_BOOT.error = "Не получилось завершить вход в Spotify";
   }
   SPOTIFY_BOOT.done = true;
   if (SPOTIFY_BOOT.onDone) SPOTIFY_BOOT.onDone();
+  spFeedRefresh();
 }
 spBoot();
 
@@ -191,86 +300,55 @@ function SpotifyPanel(props) {
   const showToast = props.showToast;
   const [store, setStore] = useState(spLoad);
   const [clientId, setClientId] = useState(spLoad().clientId || "");
-  const [player, setPlayer] = useState(null);
-  const [msg, setMsg] = useState(SPOTIFY_BOOT.error || "");
+  const [bootMsg, setBootMsg] = useState(SPOTIFY_BOOT.error || "");
+  const [picker, setPicker] = useState(false);
   const [busy, setBusy] = useState(false);
-  const storeRef = useRef(store);
-  storeRef.current = store;
+  const [, setTick] = useState(0);
   const connected = !!store.refresh;
+  const feed = SPOTIFY_FEED;
+  const player = feed.view;
 
   // Вход мог завершиться уже после показа панели
   useEffect(() => {
-    SPOTIFY_BOOT.onDone = () => { setStore(spLoad()); setMsg(SPOTIFY_BOOT.error || ""); };
+    SPOTIFY_BOOT.onDone = () => { setStore(spLoad()); setBootMsg(SPOTIFY_BOOT.error || ""); };
     if (SPOTIFY_BOOT.done) SPOTIFY_BOOT.onDone();
     return () => { SPOTIFY_BOOT.onDone = null; };
   }, []);
 
-  async function call(method, path) {
-    const r = await spCall(storeRef.current, fetch, method, path);
-    if (r.store && r.store !== storeRef.current) { spSave(r.store); setStore(r.store); }
-    if (r.status === 401) {
-      if (r.expired) { spSave({ clientId: storeRef.current.clientId }); setStore({ clientId: storeRef.current.clientId }); }
-      setMsg(r.error || "Нужно войти заново");
-    }
-    return r;
-  }
-
-  async function refreshPlayer() {
-    try {
-      const r = await call("GET", "/me/player");
-      if (r.status === 401) return;
-      setPlayer(spPlayerView(r.status, r.json));
-      setMsg(r.status === 200 || r.status === 204 ? "" : (spErrorText(r.status, r.json) || ""));
-    } catch (e) {
-      setMsg("Нет связи со Spotify");
-    }
-  }
-
-  // Опрос раз в 5 секунд, пока панель открыта и приложение на экране
-  useEffect(() => {
-    if (!connected) return;
-    let alive = true;
-    refreshPlayer();
-    const id = setInterval(() => { if (alive && document.visibilityState === "visible") refreshPlayer(); }, SPOTIFY_POLL_MS);
-    return () => { alive = false; clearInterval(id); };
-  }, [connected]);
+  // Состояние плеера общее с мини-плеером на главной: панель только подписывается на него
+  useEffect(() => spFeedSubscribe(() => { setStore(spLoad()); setTick(n => n + 1); }), []);
 
   async function command(method, path) {
     if (busy) return;
     setBusy(true);
-    try {
-      const r = await call(method, path);
-      const err = r.status === 401 ? null : spErrorText(r.status, r.json);
-      if (err) setMsg(err); else setMsg("");
-      setTimeout(refreshPlayer, 500);
-    } catch (e) {
-      setMsg("Нет связи со Spotify");
-    }
+    await spCommand(method, path);
     setBusy(false);
   }
 
   function login() {
     const id = clientId.trim();
     if (id.length < 16) { showToast("Вставьте Client ID из кабинета Spotify"); return; }
-    spStartLogin(id).catch(() => setMsg("Не удалось начать вход"));
+    spStartLogin(id).catch(() => setBootMsg("Не получилось начать вход"));
   }
 
   function logout() {
     spSave({ clientId: store.clientId });
     setStore({ clientId: store.clientId });
-    setPlayer(null);
-    setMsg("");
+    SPOTIFY_FEED.view = null;
+    SPOTIFY_FEED.msg = "";
+    spFeedNotify();
   }
 
   const btn = { flex: 1, minHeight: 48, padding: "12px 6px", borderRadius: 9, border: "1px solid #2a2a2a", background: "#0c0c0f", color: "#ddd", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" };
   const uri = spRedirectUri();
+  const msg = feed.msg || bootMsg;
 
   return (
     <BetaSection title="МУЗЫКА (SPOTIFY)">
       {!connected ? (
         <>
           <div style={{ fontSize: 11, color: "#888", lineHeight: 1.7, marginBottom: 12 }}>
-            Пульт для Spotify: что играет, пауза, следующий и предыдущий трек. Нужен Spotify Premium.<br />
+            Пульт для Spotify: что играет, пауза, следующий и предыдущий трек, выбор плейлиста или трека. Нужен Spotify Premium.<br />
             1. На developer.spotify.com/dashboard создайте приложение (Web API).<br />
             2. В Redirect URIs добавьте этот адрес ровно как есть:
           </div>
@@ -294,7 +372,7 @@ function SpotifyPanel(props) {
                 <div style={{ fontSize: 11, color: "#888" }}>{player.artist}</div>
               </>
             ) : (
-              <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6 }}>{player ? "Сейчас ничего не играет. Запустите музыку в приложении Spotify." : "Загружаю..."}</div>
+              <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6 }}>{player ? "Сейчас ничего не играет. Запустите музыку в приложении Spotify или выберите её ниже." : "Загрузка..."}</div>
             )}
           </div>
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
@@ -305,13 +383,141 @@ function SpotifyPanel(props) {
             </button>
             <button style={btn} onClick={() => command("POST", "/me/player/next")}>ДАЛЬШЕ</button>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: picker ? 12 : 0 }}>
+            <button style={btn} onClick={() => setPicker(!picker)}>{picker ? "СКРЫТЬ ВЫБОР" : "ВЫБРАТЬ МУЗЫКУ"}</button>
             <a href="spotify://" style={{ ...btn, textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center", boxSizing: "border-box" }}>ОТКРЫТЬ SPOTIFY</a>
             <button style={btn} onClick={logout}>ВЫЙТИ</button>
           </div>
+          {picker && <SpotifyPicker onDone={() => setPicker(false)} />}
         </>
       )}
       {msg && <div style={{ fontSize: 11, color: "#f7a844", lineHeight: 1.6, marginTop: 12 }}>{msg}</div>}
     </BetaSection>
+  );
+}
+
+// Выбор музыки без собственного сервера: плейлисты пользователя и поиск треков (до 10 результатов)
+function SpotifyPicker(props) {
+  const [tab, setTab] = useState("playlists");
+  const [lists, setLists] = useState(null);
+  const [q, setQ] = useState("");
+  const [found, setFound] = useState(null);
+  const [msg, setMsg] = useState("");
+  const canLists = spHasScope(spLoad(), "playlist-read-private");
+
+  useEffect(() => {
+    if (tab !== "playlists" || !canLists || lists !== null) return;
+    let alive = true;
+    spSharedCall("GET", SPOTIFY_PLAYLISTS_PATH).then(r => {
+      if (!alive) return;
+      if (r.status === 200) setLists(spPlaylistsView(r.json));
+      else { setLists([]); setMsg(spErrorText(r.status, r.json) || "Не получилось загрузить плейлисты"); }
+    }).catch(() => { if (alive) { setLists([]); setMsg("Не получилось связаться со Spotify"); } });
+    return () => { alive = false; };
+  }, [tab]);
+
+  function search() {
+    const text = q.trim();
+    if (!text) return;
+    setMsg("");
+    setFound(null);
+    spSharedCall("GET", spSearchPath(text)).then(r => {
+      if (r.status === 200) setFound(spSearchView(r.json));
+      else { setFound([]); setMsg(spErrorText(r.status, r.json) || "Не получилось выполнить поиск"); }
+    }).catch(() => { setFound([]); setMsg("Не получилось связаться со Spotify"); });
+  }
+
+  async function play(kind, uri) {
+    const r = await spCommand("PUT", "/me/player/play", spPlayBody(kind, uri));
+    if (r.ok) props.onDone(); else setMsg(r.err);
+  }
+
+  const chip = on => ({ flex: 1, minHeight: 44, borderRadius: 9, border: "1px solid " + (on ? "#4a9a6a" : "#2a2a2a"), background: on ? "#4a9a6a18" : "#0c0c0f", color: on ? "#7fc79a" : "#999", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" });
+  const row = (key, title, sub, onPlay) => (
+    <div key={key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: "1px solid #14141a" }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12, color: "#ddd", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
+        {sub && <div style={{ fontSize: 10, color: "#777", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</div>}
+      </div>
+      <button onClick={onPlay} style={{ minHeight: 44, minWidth: 80, borderRadius: 9, border: "1px solid #4a9a6a", background: "#4a9a6a18", color: "#7fc79a", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>ИГРАТЬ</button>
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+        <button style={chip(tab === "playlists")} onClick={() => setTab("playlists")}>ПЛЕЙЛИСТЫ</button>
+        <button style={chip(tab === "search")} onClick={() => setTab("search")}>ПОИСК ТРЕКА</button>
+      </div>
+      {tab === "playlists" && (!canLists ? (
+        <div>
+          <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6, marginBottom: 10 }}>Чтобы показать ваши плейлисты, нужен ещё один доступ. Один раз войдите заново, это займёт несколько секунд.</div>
+          <button onClick={() => spStartLogin(spLoad().clientId).catch(() => setMsg("Не получилось начать вход"))}
+            style={{ width: "100%", minHeight: 48, borderRadius: 9, border: "1px solid #4a9a6a", background: "#4a9a6a18", color: "#7fc79a", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>ВОЙТИ ЗАНОВО</button>
+        </div>
+      ) : lists === null ? (
+        <div style={{ fontSize: 11, color: "#888" }}>Загрузка...</div>
+      ) : lists.length === 0 ? (
+        <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6 }}>Плейлистов не нашлось. Создайте или сохраните плейлист в приложении Spotify.</div>
+      ) : lists.map(pl => row(pl.id || pl.uri, pl.name, pl.total !== null ? pl.total + " треков" : "", () => play("playlist", pl.uri))))}
+      {tab === "search" && (
+        <div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => { if (e.key === "Enter") search(); }} placeholder="Название или исполнитель" autoCapitalize="off" autoCorrect="off"
+              style={{ flex: 1, minWidth: 0, boxSizing: "border-box", minHeight: 44, background: "#0c0c0f", border: "1px solid #2a2a2a", borderRadius: 10, padding: "10px 12px", color: "#fff", fontFamily: "inherit" }} />
+            <button onClick={search} style={{ minHeight: 44, minWidth: 80, borderRadius: 9, border: "1px solid #2a2a2a", background: "#0c0c0f", color: "#ddd", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" }}>НАЙТИ</button>
+          </div>
+          {found === null && <div style={{ fontSize: 10, color: "#666", lineHeight: 1.6 }}>Показываются первые 10 результатов: таково ограничение Spotify для личных приложений.</div>}
+          {found && found.length === 0 && !msg && <div style={{ fontSize: 11, color: "#888" }}>Ничего не нашлось. Попробуйте другое название.</div>}
+          {found && found.map(x => row(x.uri, x.name, x.artist, () => play("track", x.uri)))}
+        </div>
+      )}
+      {msg && <div style={{ fontSize: 11, color: "#f7a844", lineHeight: 1.6, marginTop: 10 }}>{msg}</div>}
+    </div>
+  );
+}
+
+// Мини-плеер на каждой вкладке (шов в App, только в тестовой сборке): что играет и переключение треков
+function BetaMiniPlayer() {
+  const [connected, setConnected] = useState(!!spLoad().refresh);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [, setTick] = useState(0);
+  useEffect(() => spFeedSubscribe(() => { setConnected(!!spLoad().refresh); setTick(n => n + 1); }), []);
+  if (!connected) return null;
+
+  const v = SPOTIFY_FEED.view;
+  const playing = !!(v && !v.none && v.playing);
+  async function command(method, path) {
+    if (busy) return;
+    setBusy(true);
+    await spCommand(method, path);
+    setBusy(false);
+  }
+  const b = { flex: 1, minHeight: 44, borderRadius: 9, border: "1px solid #2a2a2a", background: "#0c0c0f", color: "#ddd", fontSize: 9, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" };
+
+  return (
+    <div style={{ background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 12, padding: "10px 12px", margin: "14px 0 0" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <span style={{ fontSize: 14 }}>🎵</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12, color: "#fff", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {v && !v.none ? (v.title || "-") : "Сейчас ничего не играет"}
+          </div>
+          <div style={{ fontSize: 10, color: "#777", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {v && !v.none ? v.artist : "Запустите музыку в Spotify или выберите её здесь"}
+          </div>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        <button style={b} onClick={() => command("POST", "/me/player/previous")}>НАЗАД</button>
+        <button style={{ ...b, border: "1px solid #4a9a6a", background: "#4a9a6a18", color: "#7fc79a", fontWeight: 700 }}
+          onClick={() => command("PUT", playing ? "/me/player/pause" : "/me/player/play")}>{playing ? "ПАУЗА" : "ИГРАТЬ"}</button>
+        <button style={b} onClick={() => command("POST", "/me/player/next")}>ДАЛЬШЕ</button>
+        <button style={b} onClick={() => setOpen(!open)}>{open ? "СКРЫТЬ" : "ВЫБРАТЬ"}</button>
+      </div>
+      {SPOTIFY_FEED.msg && <div style={{ fontSize: 10, color: "#f7a844", lineHeight: 1.6, marginTop: 8 }}>{SPOTIFY_FEED.msg}</div>}
+      {open && <div style={{ marginTop: 12 }}><SpotifyPicker onDone={() => setOpen(false)} /></div>}
+    </div>
   );
 }

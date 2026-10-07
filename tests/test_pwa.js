@@ -2953,7 +2953,7 @@ test('Coach: push/pull/legs imbalance respects the schedule', () => {
   const h = hist(...days.map((n, i) => entry(ago(n), types[i])));
   const r = c.coachAnalyze({ schedule: sched, history: h }, TODAY);
   const b = r.advice.filter(a => a.id.startsWith('balance:'));
-  assert(b.length === 1 && b[0].id === 'balance:legs' && b[0].title === 'Ноги отстают', 'only legs must be flagged, got ' + JSON.stringify(b.map(x => x.id)));
+  assert(b.length === 1 && b[0].id === 'balance:legs' && b[0].title === 'Тренировок на ноги меньше других', 'only legs must be flagged, got ' + JSON.stringify(b.map(x => x.id)));
   // если ног нет в расписании, это выбор пользователя
   const noLegs = c.coachAnalyze({ schedule: ['push', null, 'pull', null, null, null, null], history: h }, TODAY);
   assert(!ids(noLegs).some(i => i === 'balance:legs'), 'legs are not scheduled, so they are not "lagging"');
@@ -3015,10 +3015,14 @@ function loadSpotify(env) {
   const calls = [];
   const history = { replaceState: (a, b, url) => calls.push(['replaceState', url]) };
   const fetchStub = (env && env.fetch) || (() => Promise.reject(new Error('no fetch expected')));
-  const api = new Function('localStorage', 'location', 'history', 'fetch',
-    body + '; return { SPOTIFY_STORAGE_KEY, SPOTIFY_BOOT, spBase64Url, spRandomString, spChallenge, spRedirectUri, spAuthUrl, spParseCallback, spExchange, spRefresh, spCall, spPlayerView, spErrorText, spLoad, spSave, spStartLogin, betaInitialTab };'
-  )(localStorage, location, history, fetchStub);
-  return Object.assign(api, { mem, calls, location });
+  const timers = { set: [], cleared: [] };
+  const fakeSetInterval = (fn, ms) => { timers.set.push({ fn, ms }); return timers.set.length; };
+  const fakeClearInterval = id => timers.cleared.push(id);
+  const doc = (env && env.document) || { visibilityState: 'visible' };
+  const api = new Function('localStorage', 'location', 'history', 'fetch', 'setInterval', 'clearInterval', 'document',
+    body + '; return { SPOTIFY_STORAGE_KEY, SPOTIFY_BOOT, SPOTIFY_FEED, spBase64Url, spRandomString, spChallenge, spRedirectUri, spAuthUrl, spParseCallback, spExchange, spRefresh, spCall, spInit, spPlayerView, spErrorText, spLoad, spSave, spStartLogin, betaInitialTab, spHasScope, spPlaylistsView, spSearchView, spSearchPath, spPlayBody, spSharedCall, spFeedSubscribe, spFeedRefresh, spCommand, SPOTIFY_PLAYLISTS_PATH };'
+  )(localStorage, location, history, fetchStub, fakeSetInterval, fakeClearInterval, doc);
+  return Object.assign(api, { mem, calls, location, timers });
 }
 const jsonRes = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => { if (body === undefined) throw new Error('no body'); return body; } });
 const bodyOf = init => Object.fromEntries(new URLSearchParams(init.body));
@@ -3045,7 +3049,7 @@ test('Spotify: redirect URI and authorize URL are exact and fully encoded', () =
   assert(q.response_type === 'code' && q.client_id === 'CLIENT123' && q.state === 'STATE', 'basic params: ' + JSON.stringify(q));
   assert(q.code_challenge === 'CHAL' && q.code_challenge_method === 'S256', 'PKCE params: ' + JSON.stringify(q));
   assert(q.redirect_uri === 'https://shattersxd.github.io/workout/beta/', 'redirect_uri must survive encoding, got ' + q.redirect_uri);
-  assert(q.scope.split(' ').sort().join() === 'user-modify-playback-state,user-read-currently-playing,user-read-playback-state', 'scopes: ' + q.scope);
+  assert(q.scope.split(' ').sort().join() === 'playlist-read-collaborative,playlist-read-private,user-modify-playback-state,user-read-currently-playing,user-read-playback-state', 'scopes: ' + q.scope);
   assertNot(/[?&]client_secret=/.test(u.href), 'a public client must never send a secret');
   info('Authorize URL is exact');
 });
@@ -3160,6 +3164,142 @@ testAsync('Spotify: finishing a login on page load saves tokens, cleans the URL,
   info('Boot: tokens saved, URL cleaned, denied/normal start handled');
 });
 
+testAsync('Spotify: commands can carry a JSON body, GET and plain commands do not', async () => {
+  const seen = [];
+  const fetchFn = async (url, init) => { seen.push({ url, init }); return jsonRes(204); };
+  const sp = loadSpotify({ fetch: fetchFn });
+  const st = { clientId: 'C', access: 'AT', refresh: 'RT', expiresAt: 10 * 60 * 1000 };
+  await sp.spCall(st, fetchFn, 'PUT', '/me/player/play', 0, { context_uri: 'spotify:playlist:1' });
+  const i = seen[0].init;
+  assert(i.method === 'PUT' && i.headers['Content-Type'] === 'application/json' && i.body === '{"context_uri":"spotify:playlist:1"}' && i.headers.Authorization === 'Bearer AT', 'a play command carries its JSON: ' + JSON.stringify(i));
+  seen.length = 0;
+  await sp.spCall(st, fetchFn, 'POST', '/me/player/next', 0);
+  assert(!('body' in seen[0].init) && !('Content-Type' in seen[0].init.headers), 'next/pause/GET send no body and no content type');
+  info('Body only when asked');
+});
+
+testAsync('Spotify: tokens remember granted scopes, so old tokens are asked to sign in again once for playlists', async () => {
+  const fetchOk = async () => jsonRes(200, { access_token: 'AT', refresh_token: 'RT', expires_in: 3600, scope: 'user-read-playback-state playlist-read-private' });
+  const sp = loadSpotify({ fetch: fetchOk });
+  const store = { clientId: 'C', pending: { verifier: 'V', state: 'S', redirect: 'https://x/' } };
+  const ex = await sp.spExchange({ code: 'c', state: 'S' }, store, fetchOk, 0);
+  assert(ex.store.scope === 'user-read-playback-state playlist-read-private', 'the granted scopes are stored: ' + JSON.stringify(ex.store));
+  assert(sp.spHasScope(ex.store, 'playlist-read-private') === true && sp.spHasScope(ex.store, 'playlist-read-collaborative') === false, 'scope check is exact');
+  assert(sp.spHasScope({ clientId: 'C', refresh: 'RT' }, 'playlist-read-private') === false, 'a token from before playlists existed has no scope field: ask to sign in again');
+  const rf = await sp.spRefresh(Object.assign({}, ex.store, { refresh: 'RT' }), async () => jsonRes(200, { access_token: 'N', expires_in: 3600 }), 0);
+  assert(rf.store.scope === 'user-read-playback-state playlist-read-private', 'a refresh that does not repeat the scope keeps the old one');
+  info('Scopes stored and kept across refreshes');
+});
+
+test('Spotify: playlists, search results and play bodies are mapped safely', () => {
+  const sp = loadSpotify();
+  const pl = sp.spPlaylistsView({ items: [{ id: 'a', uri: 'spotify:playlist:a', name: 'Зал', tracks: { total: 42 } }, null, { id: 'b', uri: 'spotify:playlist:b', name: 'Бег' }, { id: 'c', name: 'без uri' }] });
+  assert(pl.length === 2 && pl[0].name === 'Зал' && pl[0].total === 42 && pl[1].total === null, 'playlists: ' + JSON.stringify(pl));
+  assert(sp.spPlaylistsView(null).length === 0 && sp.spPlaylistsView({}).length === 0, 'an empty or broken reply is an empty list');
+  const tr = sp.spSearchView({ tracks: { items: [{ uri: 'spotify:track:1', name: 'Song', artists: [{ name: 'A' }, { name: 'B' }] }, null, { name: 'no uri' }] } });
+  assert(tr.length === 1 && tr[0].artist === 'A, B' && tr[0].uri === 'spotify:track:1', 'search: ' + JSON.stringify(tr));
+  assert(sp.spSearchView({}).length === 0 && sp.spSearchView(null).length === 0, 'no results is an empty list, not a crash');
+  assert(sp.spSearchPath('Queen & Bowie') === '/search?q=Queen%20%26%20Bowie&type=track&limit=10', 'the query is encoded and limited to 10 (the personal-app maximum): ' + sp.spSearchPath('Queen & Bowie'));
+  assert(JSON.stringify(sp.spPlayBody('playlist', 'spotify:playlist:a')) === '{"context_uri":"spotify:playlist:a"}', 'a playlist plays as a context');
+  assert(JSON.stringify(sp.spPlayBody('track', 'spotify:track:1')) === '{"uris":["spotify:track:1"]}', 'a track plays as a uri list');
+  assert(sp.SPOTIFY_PLAYLISTS_PATH === '/me/playlists?limit=20', 'playlists path');
+  info('Playlists, search and play bodies');
+});
+
+testAsync('Spotify: shared requests are queued, so two components never refresh the token at the same time', async () => {
+  const tokenCalls = [];
+  const fetchFn = async (url, init) => {
+    if (url.indexOf('/api/token') >= 0) { tokenCalls.push(bodyOf(init).refresh_token); await new Promise(r => setTimeout(r, 20)); return jsonRes(200, { access_token: 'FRESH', refresh_token: 'RT2', expires_in: 3600 }); }
+    return jsonRes(200, { is_playing: true, item: { name: 'S', artists: [] }, device: { name: 'D' } });
+  };
+  const mem = { ppl_spotify_beta: JSON.stringify({ clientId: 'C', access: 'OLD', refresh: 'RT1', expiresAt: 0 }) };
+  const sp = loadSpotify({ mem, fetch: fetchFn });
+  // мини-плеер и панель одновременно просят данные при просроченном токене
+  const [a, b] = await Promise.all([sp.spSharedCall('GET', '/me/player'), sp.spSharedCall('PUT', '/me/player/pause')]);
+  assert(a.status === 200 && b.status === 200, 'both requests succeed');
+  assert(tokenCalls.length === 1, 'the token must be refreshed exactly once for two simultaneous requests, got ' + tokenCalls.length);
+  const saved = JSON.parse(mem.ppl_spotify_beta);
+  assert(saved.access === 'FRESH' && saved.refresh === 'RT2', 'the refreshed (possibly rotated) token is stored for the next request: ' + JSON.stringify(saved));
+  // отозванный доступ: хранилище очищается, остаётся только Client ID
+  const mem2 = { ppl_spotify_beta: JSON.stringify({ clientId: 'C', access: 'x', refresh: 'RT', expiresAt: 0 }) };
+  const sp2 = loadSpotify({ mem: mem2, fetch: async url => url.indexOf('/api/token') >= 0 ? jsonRes(400, { error: 'invalid_grant', error_description: 'revoked' }) : jsonRes(200, {}) });
+  const r = await sp2.spSharedCall('GET', '/me/player');
+  assert(r.status === 401 && JSON.stringify(JSON.parse(mem2.ppl_spotify_beta)) === '{"clientId":"C"}', 'a revoked grant clears the tokens and keeps only the client id');
+  // ошибка в одном запросе не ломает очередь
+  const sp3 = loadSpotify({ mem: { ppl_spotify_beta: JSON.stringify({ clientId: 'C', access: 'A', refresh: 'R', expiresAt: Date.now() + 3600000 }) }, fetch: async (url) => { if (url.indexOf('boom') >= 0) throw new Error('network'); return jsonRes(200, {}); } });
+  let failed = false;
+  try { await sp3.spSharedCall('GET', '/boom'); } catch (e) { failed = true; }
+  assert(failed, 'the failing call reports its error');
+  assert((await sp3.spSharedCall('GET', '/ok')).status === 200, 'but the queue keeps working afterwards');
+  info('One refresh for concurrent callers; revoked access clears tokens; queue survives errors');
+});
+
+testAsync('Spotify: one shared poller for any number of components, started and stopped by subscribers', async () => {
+  let plays = 0;
+  const fetchFn = async url => { plays++; return jsonRes(200, { is_playing: true, item: { name: 'Song', artists: [{ name: 'Art' }] }, device: { name: 'iPhone' } }); };
+  const mem = { ppl_spotify_beta: JSON.stringify({ clientId: 'C', access: 'A', refresh: 'R', expiresAt: Date.now() + 3600000 }) };
+  const sp = loadSpotify({ mem, fetch: fetchFn });
+  let n1 = 0, n2 = 0;
+  const off1 = sp.spFeedSubscribe(() => n1++);
+  const off2 = sp.spFeedSubscribe(() => n2++);
+  assert(sp.timers.set.length === 1 && sp.timers.set[0].ms === 5000, 'two subscribers share ONE 5-second timer, got ' + sp.timers.set.length);
+  await new Promise(r => setTimeout(r, 30));
+  assert(plays === 1, 'the first subscriber triggers one player request, the second does not duplicate it, got ' + plays);
+  assert(sp.SPOTIFY_FEED.view && sp.SPOTIFY_FEED.view.title === 'Song' && sp.SPOTIFY_FEED.view.playing === true, 'the shared view is filled: ' + JSON.stringify(sp.SPOTIFY_FEED.view));
+  assert(n1 >= 1 && n2 >= 1, 'every subscriber is told about new state');
+  off1();
+  assert(sp.timers.cleared.length === 0, 'the timer keeps running while someone is subscribed');
+  off2();
+  assert(sp.timers.cleared.length === 1, 'the timer stops when the last subscriber leaves');
+  // таймер не опрашивает, пока приложение свёрнуто
+  const hidden = loadSpotify({ mem, fetch: fetchFn, document: { visibilityState: 'hidden' } });
+  const before = plays;
+  hidden.spFeedSubscribe(() => {});
+  await new Promise(r => setTimeout(r, 30));
+  const afterFirst = plays;
+  hidden.timers.set[0].fn();
+  await new Promise(r => setTimeout(r, 30));
+  assert(plays === afterFirst, 'a tick while the app is in the background does not call Spotify');
+  info('Single timer, shared state, stops with the last subscriber, silent in the background');
+});
+
+testAsync('Spotify: commands report errors to everyone and never hide them', async () => {
+  const mem = { ppl_spotify_beta: JSON.stringify({ clientId: 'C', access: 'A', refresh: 'R', expiresAt: Date.now() + 3600000 }) };
+  let status = 204, body = null;
+  const sp = loadSpotify({ mem, fetch: async () => status === 204 ? jsonRes(204) : jsonRes(status, body) });
+  let notified = 0;
+  sp.spFeedSubscribe(() => notified++);
+  await new Promise(r => setTimeout(r, 20));
+  let r = await sp.spCommand('PUT', '/me/player/pause');
+  assert(r.ok && r.err === null && sp.SPOTIFY_FEED.msg === '', 'success clears the message');
+  status = 403; body = { error: { reason: 'PREMIUM_REQUIRED' } };
+  r = await sp.spCommand('PUT', '/me/player/play', { uris: ['x'] });
+  assert(!r.ok && r.err.includes('Premium') && sp.SPOTIFY_FEED.msg.includes('Premium'), 'a refusal is shown to every subscriber: ' + r.err);
+  status = 404; body = { error: { reason: 'NO_ACTIVE_DEVICE' } };
+  r = await sp.spCommand('POST', '/me/player/next');
+  assert(!r.ok && r.err.includes('активного устройства'), 'no active device explains what to do');
+  assert(notified >= 3, 'subscribers were notified about every command result, got ' + notified);
+  info('Success, Premium and no-device cases');
+});
+
+test('Spotify main-screen player: wired into App as a beta-only seam, picker offers playlists and search, no server needed', () => {
+  const sp = fs.readFileSync(path.join(BETA_SRC_DIR, 'spotify.jsx'), 'utf8');
+  assert(src.includes('{typeof BetaMiniPlayer === "function" && <BetaMiniPlayer />}'), 'the mini player seam is missing in App');
+  assert(src.indexOf('BetaMiniPlayer') < src.indexOf('{/* ===== WORKOUT ===== */}') + 400 && src.indexOf('BetaMiniPlayer') < src.indexOf('activeTab === "workout" &&'), 'the mini player sits above every tab content, not inside one tab');
+  assertNot(/function BetaMiniPlayer|function SpotifyPicker/.test(app), 'the mini player must not exist in the production page');
+  assert(/function BetaMiniPlayer/.test(betaApp) && /function SpotifyPicker/.test(betaApp), 'both components exist in the beta page');
+  const mini = sp.slice(sp.indexOf('function BetaMiniPlayer'));
+  assert(mini.includes('if (!connected) return null'), 'nothing is shown until Spotify is connected');
+  ['НАЗАД', 'ДАЛЬШЕ', 'ВЫБРАТЬ', 'Сейчас ничего не играет'].forEach(x => assert(mini.includes(x), 'mini player is missing: ' + x));
+  assert(mini.includes('spFeedSubscribe') && !/fetch\(|setInterval/.test(mini), 'the mini player reads the shared state, it neither polls nor calls the API itself');
+  const picker = sp.slice(sp.indexOf('function SpotifyPicker'), sp.indexOf('function BetaMiniPlayer'));
+  ['ПЛЕЙЛИСТЫ', 'ПОИСК ТРЕКА', 'ВОЙТИ ЗАНОВО', 'первые 10 результатов', 'spPlayBody'].forEach(x => assert(picker.includes(x), 'picker is missing: ' + x));
+  assert((picker.match(/minHeight: 4[48]/g) || []).length >= 5, 'every picker control (tab, row button, search box, search button, sign-in-again) is a 44pt+ target');
+  assert(!/client_secret/.test(sp) && !/https?:\/\/(?!accounts\.spotify\.com|api\.spotify\.com)[^"']*\.(php|asp)/.test(sp), 'still no secret and no foreign server');
+  assert(sp.includes('playlist-read-private'), 'the playlist scope is requested');
+  info('Seam above all tabs, shared state, picker with playlists and search, 44pt targets');
+});
+
 test('Spotify: tokens stay out of the app data and the backup file, UI is wired and tappable', () => {
   const sp = fs.readFileSync(path.join(BETA_SRC_DIR, 'spotify.jsx'), 'utf8');
   assert(sp.includes('const SPOTIFY_STORAGE_KEY = "ppl_spotify_beta"'), 'tokens need their own key');
@@ -3234,7 +3374,7 @@ test('Profile: goal advice and injury notes are included and stay cautious', () 
   const c = loadCoach();
   const r = c.profileRecommend(goodProfile({ goal: 'cut', injuries: ['knees', 'shoulders'] }));
   assert(r.goalTip.includes('похудение') && r.notes.length === 2, 'goal tip and two injury notes, got ' + r.notes.length);
-  assert(r.notes.every(n => n.includes('стоп')), 'every injury note tells to stop on pain');
+  assert(r.notes.every(n => n.includes('остановитесь')), 'every injury note tells to stop on pain');
   assert(c.profileRecommend(goodProfile({ injuries: [] })).notes.length === 0, 'no injuries, no notes');
   assert(c.profileRecommend(goodProfile({ injuries: ['unknown'] })).notes.length === 0, 'unknown keys are ignored, not crashed on');
   const ui = fs.readFileSync(path.join(BETA_SRC_DIR, 'profile.jsx'), 'utf8');
@@ -3911,7 +4051,7 @@ test('Moving data into the test app by file (home-screen apps on iPhone do not s
   assert(f.betaMergeFile('not json', local).error, 'garbage is rejected with a message');
   // на iPhone основная версия отсюда не видна: сообщение спокойное и говорит, что делать
   const msg = f.readProdBackup().error;
-  assert(msg.includes('хранит данные отдельно') && msg.includes('Загрузите файл копии'), 'the message must explain and point to the file: ' + msg);
+  assert(msg.includes('хранит данные отдельно') && msg.includes('Загрузите, пожалуйста, файл копии'), 'the message must explain and point to the file: ' + msg);
   assertNot(/нет \(открывалась ли/.test(msg), 'the old abrupt wording must be gone');
   info('File import is additive and repeatable; the error message explains what to do');
 });
