@@ -2853,6 +2853,162 @@ const betaApp = betaHtml.slice(betaHtml.indexOf(APP_MARKER) + APP_MARKER.length,
 const betaFiles = fs.existsSync(BETA_SRC_DIR) ? fs.readdirSync(BETA_SRC_DIR).filter(f => f.endsWith('.jsx')).sort() : [];
 const betaSrc = betaFiles.map(f => fs.readFileSync(path.join(BETA_SRC_DIR, f), 'utf8')).join('\n');
 
+// ── Тренер: настоящий код src/beta/coach.jsx на синтетических журналах ────────
+function loadCoach() {
+  const dnFrom = src.indexOf('function dayNum');
+  const dnSrc = src.slice(dnFrom, src.indexOf('function backupAgeDays', dnFrom));
+  const coachSrc = fs.readFileSync(path.join(BETA_SRC_DIR, 'coach.jsx'), 'utf8');
+  const body = coachSrc.slice(0, coachSrc.indexOf('const COACH_KIND_STYLE'));
+  return new Function(dnSrc + body + '; return { coachAnalyze, coachVisible, coachPlural, coachWeekday, coachStuck, dayNum };')();
+}
+const TODAY = '2026-10-07';   // среда
+const ago = n => new Date(Date.UTC(2026, 9, 7) - n * 86400000).toISOString().slice(0, 10);
+const entry = (date, workout, exs) => ({ date, ts: Date.parse(date), workout, name: workout.toUpperCase(),
+  detail: (exs || []).map(([id, name, ws]) => ({ id, name, sets: ws.map(w => ({ w: String(w), done: true })) })) });
+const hist = (...es) => { const h = {}; es.forEach(e => { (h[e.workout] = h[e.workout] || []).push(e); }); return h; };
+const ids = r => r.advice.map(a => a.id);
+
+test('Coach: weekday maths, plural forms, empty journal', () => {
+  const c = loadCoach();
+  assert(c.coachWeekday(c.dayNum('2026-10-05')) === 0, 'Monday must be 0');
+  assert(c.coachWeekday(c.dayNum('2026-10-07')) === 2, 'Wednesday must be 2');
+  assert(c.coachWeekday(c.dayNum('2026-10-11')) === 6, 'Sunday must be 6');
+  const f = n => c.coachPlural(n, 'тренировку', 'тренировки', 'тренировок');
+  assert([1, 2, 5, 11, 12, 14, 21, 22, 25].map(f).join() === 'тренировку,тренировки,тренировок,тренировок,тренировок,тренировок,тренировку,тренировки,тренировок', 'plural forms wrong: ' + [1, 2, 5, 11, 12, 14, 21, 22, 25].map(f).join());
+  const r = c.coachAnalyze({ history: {}, schedule: ['push', null, 'pull', null, 'legs', null, null] }, TODAY);
+  assert(r.advice.length === 0 && r.stats.total === 0 && r.stats.lastAgo === null && r.stats.planned === 3, 'empty journal must give no advice, got ' + JSON.stringify(r));
+  info('0 = Monday, Russian plurals, empty journal is safe');
+});
+
+test('Coach: summary tiles (week progress, last workout, pace)', () => {
+  const c = loadCoach();
+  const d = { schedule: ['push', null, 'pull', null, 'legs', null, null], history: hist(
+    entry(ago(2), 'push'), entry(ago(0), 'pull'),           // пн 5 и ср 7 этой недели
+    entry(ago(9), 'push'), entry(ago(16), 'push'), entry(ago(23), 'push')) };
+  const r = c.coachAnalyze(d, TODAY);
+  assert(r.stats.doneThisWeek === 2, 'two workouts this week, got ' + r.stats.doneThisWeek);
+  assert(r.stats.lastAgo === 0, 'last workout is today, got ' + r.stats.lastAgo);
+  assert(r.stats.perWeek === 1.3, '5 workouts in 28 days = 1.3 a week, got ' + r.stats.perWeek);
+  info('Week 2 of 3, pace 1.3 per week');
+});
+
+test('Coach: a break gives one calm warning and suppresses the missed-days noise', () => {
+  const c = loadCoach();
+  const r = c.coachAnalyze({ schedule: ['push', null, 'pull', null, 'legs', null, null], history: hist(entry(ago(17), 'push'), entry(ago(24), 'push'), entry(ago(31), 'push')) }, TODAY);
+  const b = r.advice.find(a => a.id === 'break');
+  assert(b && b.kind === 'warn' && b.title === 'Перерыв 17 дней', 'break advice expected, got ' + JSON.stringify(ids(r)));
+  assert(!ids(r).includes('missed'), 'missed days are already explained by the break');
+  info('Break: ' + b.title);
+});
+
+test('Coach: plateau after 3 sessions without a new maximum, record while progressing', () => {
+  const c = loadCoach();
+  const bench = ws => ['bench', 'Жим штанги лёжа', ws];
+  // 60, 62.5, 65, 65, 65, 65: последний рекорд на третьей тренировке, дальше три без роста
+  const stuck = c.coachAnalyze({ history: hist(...[35, 28, 21, 14, 7, 2].map((n, i) => entry(ago(n), 'push', [bench([[60], [62.5], [65], [65], [65], [65]][i])]))) }, TODAY);
+  const p = stuck.advice.find(a => a.id === 'plateau:bench');
+  assert(p && p.kind === 'tip' && p.text.includes('65 кг') && p.text.includes('3 тренировки'), 'plateau expected, got ' + JSON.stringify(ids(stuck)));
+  assert(!ids(stuck).some(i => i.startsWith('pr:')), 'a plateau is not a record');
+  // рост продолжается: рекорд, застоя нет
+  const grow = c.coachAnalyze({ history: hist(...[35, 28, 21, 14, 2].map((n, i) => entry(ago(n), 'push', [bench([[60], [62.5], [65], [67.5], [70]][i])]))) }, TODAY);
+  const r = grow.advice.find(a => a.id.startsWith('pr:bench'));
+  assert(r && r.kind === 'good' && r.text.includes('70 кг') && r.text.includes('+2.5'), 'record expected, got ' + JSON.stringify(ids(grow)));
+  assert(!ids(grow).includes('plateau:bench'), 'no plateau while progressing');
+  // слишком мало данных: 3 тренировки без роста ещё не застой
+  const few = c.coachAnalyze({ history: hist(...[14, 7, 2].map(n => entry(ago(n), 'push', [bench([60])]))) }, TODAY);
+  assert(!ids(few).includes('plateau:bench'), 'three sessions are not enough evidence');
+  // давно не делал: не ругаем за упражнение, которого уже нет в программе
+  const old = c.coachAnalyze({ history: hist(...[100, 93, 86, 79, 72, 65].map(n => entry(ago(n), 'push', [bench([60])]))) }, TODAY);
+  assert(!ids(old).includes('plateau:bench'), 'an exercise untouched for 30+ days is not a plateau');
+  info('Plateau needs 4+ sessions and 3 stuck; records only within a week');
+});
+
+test('Coach: missed scheduled days over two weeks', () => {
+  const c = loadCoach();
+  const sched = ['push', null, 'pull', null, 'legs', null, null];
+  // тренировки только по понедельникам: 21 сен, 28 сен, 5 окт
+  const r = c.coachAnalyze({ schedule: sched, history: hist(entry('2026-09-21', 'push'), entry('2026-09-28', 'push'), entry('2026-10-05', 'push')) }, TODAY);
+  const m = r.advice.find(a => a.id === 'missed');
+  assert(m && m.title === 'Пропущено 4 из 6 по плану', 'expected 4 of 6 missed, got ' + (m ? m.title : JSON.stringify(ids(r))));
+  // всё по плану - тишина
+  const ok = c.coachAnalyze({ schedule: sched, history: hist(entry('2026-09-21', 'push'), entry('2026-09-23', 'pull'), entry('2026-09-25', 'legs'), entry('2026-09-28', 'push'), entry('2026-09-30', 'pull'), entry('2026-10-02', 'legs'), entry('2026-10-05', 'push')) }, TODAY);
+  assert(!ids(ok).includes('missed'), 'no missed days when everything was done');
+  // новичок: до первой тренировки пропусками не считаем
+  const fresh = c.coachAnalyze({ schedule: sched, history: hist(entry('2026-10-05', 'push')) }, TODAY);
+  assert(!ids(fresh).includes('missed'), 'days before the first workout are not misses');
+  info('4 of 6 flagged; full attendance and beginners are left alone');
+});
+
+test('Coach: push/pull/legs imbalance respects the schedule', () => {
+  const c = loadCoach();
+  const sched = ['push', null, 'pull', null, 'legs', null, null];
+  const days = [26, 24, 21, 19, 17, 12, 10, 5];   // 6 жима, 2 тяги, 0 ног за 4 недели
+  const types = ['push', 'push', 'push', 'push', 'push', 'push', 'pull', 'pull'];
+  const h = hist(...days.map((n, i) => entry(ago(n), types[i])));
+  const r = c.coachAnalyze({ schedule: sched, history: h }, TODAY);
+  const b = r.advice.filter(a => a.id.startsWith('balance:'));
+  assert(b.length === 1 && b[0].id === 'balance:legs' && b[0].title === 'Ноги отстают', 'only legs must be flagged, got ' + JSON.stringify(b.map(x => x.id)));
+  // если ног нет в расписании, это выбор пользователя
+  const noLegs = c.coachAnalyze({ schedule: ['push', null, 'pull', null, null, null, null], history: h }, TODAY);
+  assert(!ids(noLegs).some(i => i === 'balance:legs'), 'legs are not scheduled, so they are not "lagging"');
+  info('Imbalance is judged only among scheduled days');
+});
+
+test('Coach: volume spike, deload reminder, streak of weeks on plan', () => {
+  const c = loadCoach();
+  const vol = v => [['bench', 'Жим', [v]]];   // один подход: объём = вес
+  // ago(2) = понедельник текущей недели (5 окт); o = смещение вперёд от понедельника; weeksBack = недель назад
+  const mk = (weeksBack, dayOffsets, v) => dayOffsets.map(o => entry(ago(2 + weeksBack * 7 - o), 'push', vol(v)));
+  // 3 прошлые недели по 1000, текущая 1600 -> рост 60%
+  const spike = c.coachAnalyze({ history: hist(...mk(3, [0, 2], 500), ...mk(2, [0, 2], 500), ...mk(1, [0, 2], 500), ...mk(0, [0, 2], 800)) }, TODAY);
+  const s = spike.advice.find(a => a.id === 'spike');
+  assert(s && s.kind === 'warn' && s.title === 'Объём недели вырос на 60%', 'spike expected, got ' + JSON.stringify(spike.advice.map(a => a.title)));
+  // 7 недель подряд одинаково, без лёгкой недели -> разгрузка
+  const flat = [];
+  for (let w = 1; w <= 7; w++) flat.push(...mk(w, [0, 2], 500));
+  const dl = c.coachAnalyze({ history: hist(...flat) }, TODAY).advice.find(a => a.id === 'deload');
+  assert(dl && dl.kind === 'tip' && dl.title === '7 недель подряд без разгрузки', 'deload expected, got ' + (dl && dl.title));
+  // одна из недель лёгкая -> разгрузка уже была
+  const withLight = [];
+  for (let w = 1; w <= 7; w++) withLight.push(...mk(w, [0, 2], w === 4 ? 200 : 500));
+  assert(!ids(c.coachAnalyze({ history: hist(...withLight) }, TODAY)).includes('deload'), 'a light week counts as a deload');
+  // три прошлые недели по 3 тренировки при плане 3 -> серия
+  const sched = ['push', null, 'pull', null, 'legs', null, null];
+  const plan = [];
+  for (let w = 1; w <= 3; w++) plan.push(...mk(w, [0, 2, 4], 500));
+  const st = c.coachAnalyze({ schedule: sched, history: hist(...plan) }, TODAY).advice.find(a => a.id.startsWith('streak:'));
+  assert(st && st.id === 'streak:3' && st.kind === 'good' && st.title === '3 недели подряд по плану', 'streak expected, got ' + (st && st.title));
+  info('Spike +60%, 7 weeks without deload, 3-week streak');
+});
+
+test('Coach: advice is ordered, capped, never mutates data, and can be snoozed for a week', () => {
+  const c = loadCoach();
+  const d = { schedule: ['push', null, 'pull', null, 'legs', null, null], history: hist(entry(ago(17), 'push', [['bench', 'Жим', [60]]]), entry(ago(24), 'push', [['bench', 'Жим', [60]]])) };
+  const before = JSON.stringify(d);
+  const r = c.coachAnalyze(d, TODAY);
+  assert(JSON.stringify(d) === before, 'coachAnalyze must not mutate the data');
+  assert(r.advice.length <= 6, 'at most 6 pieces of advice');
+  const order = { warn: 0, tip: 1, good: 2 };
+  assert(r.advice.every((a, i) => i === 0 || order[r.advice[i - 1].kind] <= order[a.kind]), 'warnings must come before tips and praise');
+  const adv = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+  const vis = (dis, today) => c.coachVisible(adv, dis, today).map(a => a.id).join('');
+  assert(vis({ a: '2026-10-07' }, TODAY) === 'bc', 'snoozed today -> hidden');
+  assert(vis({ a: '2026-10-01' }, TODAY) === 'bc', 'snoozed 6 days ago -> still hidden');
+  assert(vis({ a: '2026-09-30' }, TODAY) === 'abc', 'snoozed 7 days ago -> back');
+  assert(vis(undefined, TODAY) === 'abc', 'no dismissals -> all visible');
+  info('Sorted, capped at 6, pure, snooze = 7 days');
+});
+
+test('Coach UI: panel is wired into the beta tab and its dismiss button is a 44pt target', () => {
+  const coach = fs.readFileSync(path.join(BETA_SRC_DIR, 'coach.jsx'), 'utf8');
+  assert(/function CoachPanel/.test(betaApp), 'CoachPanel missing from the beta page');
+  assert(betaSrc.includes('typeof CoachPanel === "function" && <CoachPanel'), 'BetaTab must render CoachPanel');
+  assert(coach.includes('coachDismissed') && coach.includes('СКРЫТЬ НА НЕДЕЛЮ'), 'dismiss action missing');
+  assert(/minHeight: 44[^}]*\}\}>\s*СКРЫТЬ/.test(coach), 'dismiss button needs minHeight 44');
+  assertNot(/function CoachPanel|coachAnalyze/.test(app), 'the coach must not leak into the production page');
+  info('Wired in, no leak into production');
+});
+
 test('Compilation waits for the whole page, otherwise Babel reads a half-loaded app source', () => {
   // Гонка: библиотеки из vendor/ и кэша воркера приходят мгновенно, а inline-скрипт приложения
   // (~290 КБ) в конце страницы ещё разбирается. Тогда textContent оборван и Babel падает с
