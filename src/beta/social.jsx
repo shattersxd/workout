@@ -1,4 +1,4 @@
-// ==== ЗАГОТОВКИ ПОД СОЦ-ФУНКЦИИ (общий модуль: основная и тестовая версии) ====
+// ==== ЗАГОТОВКИ ПОД СОЦ-ФУНКЦИИ (тестовая версия) ====
 // Сервера пока нет, поэтому ничего не отправляется. Здесь зафиксировано то, что нельзя
 // безболезненно менять потом: идентификатор, согласия, ровно тот пакет данных, который в
 // будущем уйдёт на сервер, и интерфейс бэкенда. Варианты и обоснования - docs/social-design.md.
@@ -182,31 +182,31 @@ function SocialPanel(props) {
   };
   const shown = Object.keys(summary).filter(k => ["v", "userId", "asOf", "name"].indexOf(k) < 0);
   return (
-    <PanelSection title="ДРУЗЬЯ (СКОРО)">
-      <div style={{ fontSize: 11, color: "var(--tx-888)", lineHeight: 1.6, marginBottom: 12 }}>
-        Сервера пока нет, поэтому <span style={{ color: "var(--tx-f7a844)" }}>ничего не отправляется</span>. Здесь вы заранее выбираете, что будут видеть друзья, и сразу видите, как это будет выглядеть.
+    <BetaSection title="ДРУЗЬЯ (СКОРО)">
+      <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6, marginBottom: 12 }}>
+        Сервера пока нет, поэтому <span style={{ color: "#f7a844" }}>ничего не отправляется</span>. Здесь вы заранее выбираете, что будут видеть друзья, и сразу видите, как это будет выглядеть.
         {code ? " Ваш код друга: " + code + "." : ""}
       </div>
       <input value={soc.displayName || ""} onChange={e => setName(e.target.value)} placeholder="Имя для друзей"
-        style={{ width: "100%", boxSizing: "border-box", minHeight: 44, background: "var(--bg-0c0c0f)", border: "1px solid var(--bd-2a2a2a)", borderRadius: 10, padding: "10px 12px", color: "var(--tx-fff)", fontFamily: "inherit", marginBottom: 12 }} />
+        style={{ width: "100%", boxSizing: "border-box", minHeight: 44, background: "#0c0c0f", border: "1px solid #2a2a2a", borderRadius: 10, padding: "10px 12px", color: "#fff", fontFamily: "inherit", marginBottom: 12 }} />
       {SOCIAL_SHARE_KEYS.map(k => {
         const on = !!(soc.share && soc.share[k[0]]);
         return (
           <button key={k[0]} onClick={() => setShare(k[0], !on)}
-            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", minHeight: 44, marginBottom: 6, padding: "0 12px", borderRadius: 9, border: "1px solid " + (on ? "#4a9a6a" : "var(--bd-2a2a2a)"), background: on ? "#4a9a6a18" : "var(--bg-0c0c0f)", color: on ? "var(--tx-7fc79a)" : "var(--tx-999)", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
+            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", minHeight: 44, marginBottom: 6, padding: "0 12px", borderRadius: 9, border: "1px solid " + (on ? "#4a9a6a" : "#2a2a2a"), background: on ? "#4a9a6a18" : "#0c0c0f", color: on ? "#7fc79a" : "#999", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
             <span>{k[1]}</span><span style={{ fontWeight: 700 }}>{on ? "ВИДНО" : "СКРЫТО"}</span>
           </button>
         );
       })}
-      <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-777)", margin: "14px 0 6px" }}>ЧТО УВИДЯТ ДРУЗЬЯ</div>
-      <div style={{ background: "var(--bg-0c0c0f)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "10px 12px", fontSize: 11, color: "var(--tx-bbb)", lineHeight: 1.8 }}>
+      <div style={{ fontSize: 9, letterSpacing: 2, color: "#777", margin: "14px 0 6px" }}>ЧТО УВИДЯТ ДРУЗЬЯ</div>
+      <div style={{ background: "#0c0c0f", border: "1px solid #1a1a22", borderRadius: 10, padding: "10px 12px", fontSize: 11, color: "#bbb", lineHeight: 1.8 }}>
         {shown.length === 0 ? "Ничего: все категории скрыты." : shown.map(k => (
           <div key={k}>{LABELS[k] || k}: {k === "prs" ? (summary.prs.length ? summary.prs.map(r => r.name + " " + r.kg + " кг").join(", ") : "нет") : (summary[k] === null ? "-" : String(summary[k]))}</div>
         ))}
       </div>
-      <div style={{ fontSize: 10, color: "var(--tx-666)", lineHeight: 1.6, marginTop: 8 }}>
+      <div style={{ fontSize: 10, color: "#666", lineHeight: 1.6, marginTop: 8 }}>
         Профиль, вес тела, самочувствие и журнал целиком друзьям не показываются никогда.
       </div>
-    </PanelSection>
+    </BetaSection>
   );
 }

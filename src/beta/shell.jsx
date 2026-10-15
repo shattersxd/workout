@@ -35,6 +35,17 @@ function betaMergeFile(text, cur) {
   return { data: pruneOldKeys(m.data), added: m.added };
 }
 
+function BetaSection(props) {
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <div style={{ fontSize: 9, letterSpacing: 2, color: "#666", marginBottom: 10 }}>{props.title}</div>
+      <div style={{ background: "#0f0f12", border: "1px solid #1a1a22", borderRadius: 10, padding: "14px 14px" }}>
+        {props.children}
+      </div>
+    </div>
+  );
+}
+
 function BetaTab(props) {
   const data = props.data;
   const setData = props.setData;
@@ -66,39 +77,45 @@ function BetaTab(props) {
 
   return (
     <div style={{ paddingTop: 20 }}>
-      <div style={{ background: "var(--bg-1a1206)", border: "1px solid #f7a84440", borderRadius: 12, padding: "12px 14px", marginBottom: 20 }}>
-        <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-f7a844)", marginBottom: 4 }}>ТЕСТОВАЯ ВЕРСИЯ</div>
-        <div style={{ fontSize: 11, color: "var(--tx-ccc)", lineHeight: 1.6 }}>
+      <div style={{ background: "#1a1206", border: "1px solid #f7a84440", borderRadius: 12, padding: "12px 14px", marginBottom: 20 }}>
+        <div style={{ fontSize: 9, letterSpacing: 2, color: "#f7a844", marginBottom: 4 }}>ТЕСТОВАЯ ВЕРСИЯ</div>
+        <div style={{ fontSize: 11, color: "#ccc", lineHeight: 1.6 }}>
           Здесь мы пробуем новые возможности. Данные этой версии хранятся отдельно и основную версию не затрагивают.
         </div>
       </div>
 
-      <PanelSection title="ДАННЫЕ">
-        <div style={{ fontSize: 11, color: "var(--tx-888)", lineHeight: 1.6, marginBottom: 10 }}>
+      <BetaSection title="ДАННЫЕ">
+        <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6, marginBottom: 10 }}>
           Чтобы тренер видел вашу историю, перенесите её из основной версии. На iPhone каждое приложение на экране «Домой» хранит данные отдельно, поэтому делается это через файл:
         </div>
-        <div style={{ fontSize: 11, color: "var(--tx-aaa)", lineHeight: 1.7, marginBottom: 12 }}>
+        <div style={{ fontSize: 11, color: "#aaa", lineHeight: 1.7, marginBottom: 12 }}>
           1. В основной версии откройте меню, затем «Настройки», нажмите СОХРАНИТЬ и выберите «Сохранить в Файлы».<br />
           2. Здесь нажмите кнопку ниже и выберите этот файл.<br />
           Загрузка только добавляет недостающие тренировки: ничего не удаляется и не дублируется.
         </div>
-        <div style={{ fontSize: 10, color: "var(--tx-666)", marginBottom: 12 }}>
+        <div style={{ fontSize: 10, color: "#666", marginBottom: 12 }}>
           Здесь сейчас тренировок: {countEntries(data)}{prod.error ? "" : " | в основной версии: " + prodCount}
         </div>
         <button onClick={() => fileRef.current && fileRef.current.click()}
-          style={{ width: "100%", padding: "12px 8px", borderRadius: 9, border: "1px solid #f7a84460", background: "#f7a84412", color: "var(--tx-f7a844)", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", minHeight: 48 }}>
+          style={{ width: "100%", padding: "12px 8px", borderRadius: 9, border: "1px solid #f7a84460", background: "#f7a84412", color: "#f7a844", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", minHeight: 48 }}>
           ЗАГРУЗИТЬ ФАЙЛ ИЗ ОСНОВНОЙ ВЕРСИИ
         </button>
         <input ref={fileRef} type="file" accept="application/json,.json" style={{ display: "none" }}
           onChange={e => { onFile(e.target.files && e.target.files[0]); e.target.value = ""; }} />
         {!prod.error && (
           <button onClick={copyFromProd}
-            style={{ width: "100%", marginTop: 8, padding: "12px 8px", borderRadius: 9, border: "1px solid var(--bd-2a2a2a)", background: "var(--bg-0c0c0f)", color: "var(--tx-999)", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 48 }}>
+            style={{ width: "100%", marginTop: 8, padding: "12px 8px", borderRadius: 9, border: "1px solid #2a2a2a", background: "#0c0c0f", color: "#999", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit", minHeight: 48 }}>
             СКОПИРОВАТЬ НАПРЯМУЮ (ЕСЛИ ВИДНА ОСНОВНАЯ ВЕРСИЯ)
           </button>
         )}
-      </PanelSection>
+      </BetaSection>
 
+      {typeof ProfilePanel === "function" && <ProfilePanel data={data} setData={setData} showToast={showToast} />}
+      {typeof BodyPanel === "function" && <BodyPanel data={data} setData={setData} showToast={showToast} />}
+      {typeof CoachPanel === "function" && <CoachPanel data={data} setData={setData} />}
+      {typeof SocialPanel === "function" && <SocialPanel data={data} setData={setData} />}
+      {typeof ArenaPanel === "function" && <ArenaPanel data={data} setData={setData} />}
+      {typeof CompetePanel === "function" && <CompetePanel data={data} />}
       {typeof SpotifyPanel === "function" && <SpotifyPanel data={data} setData={setData} showToast={showToast} />}
     </div>
   );

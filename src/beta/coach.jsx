@@ -1,4 +1,4 @@
-// ==== ТРЕНЕР (общий модуль: основная и тестовая версии) ====
+// ==== ТРЕНЕР (тестовая версия) ====
 // Локальный тренер на правилах: работает на телефоне, без сети и без ключей, данные никуда
 // не уходят. Читает журнал (data.history) и расписание (data.schedule) и выдаёт сводку и советы.
 // Правила и пороги - константы ниже; каждый совет имеет id, чтобы его можно было скрыть.
@@ -282,9 +282,9 @@ function coachVisible(advice, dismissed, today) {
 }
 
 const COACH_KIND_STYLE = {
-  warn: { color: "var(--tx-f7a844)", border: "#f7a84440", bg: "var(--bg-1a1206)", icon: "🟠" },
-  tip: { color: "var(--tx-6ab0ff)", border: "#6ab0ff40", bg: "var(--bg-0a1220)", icon: "💡" },
-  good: { color: "var(--tx-4a9a6a)", border: "#4a9a6a40", bg: "var(--bg-0e1a13)", icon: "🏆" }
+  warn: { color: "#f7a844", border: "#f7a84440", bg: "#1a1206", icon: "🟠" },
+  tip: { color: "#6ab0ff", border: "#6ab0ff40", bg: "#0a1220", icon: "💡" },
+  good: { color: "#4a9a6a", border: "#4a9a6a40", bg: "#0e1a13", icon: "🏆" }
 };
 
 function CoachPanel(props) {
@@ -305,19 +305,19 @@ function CoachPanel(props) {
   }
 
   return (
-    <PanelSection title="ТРЕНЕР">
+    <BetaSection title="ТРЕНЕР">
       {st.total > 0 && (
         <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
           {tiles.map(t => (
-            <div key={t[0]} style={{ flex: 1, background: "var(--bg-0c0c0f)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "10px 6px", textAlign: "center" }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--tx-ddd)", marginBottom: 3 }}>{t[1]}</div>
-              <div style={{ fontSize: 8, color: "var(--tx-666)", letterSpacing: 1 }}>{t[0]}</div>
+            <div key={t[0]} style={{ flex: 1, background: "#0c0c0f", border: "1px solid #1a1a22", borderRadius: 10, padding: "10px 6px", textAlign: "center" }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#ddd", marginBottom: 3 }}>{t[1]}</div>
+              <div style={{ fontSize: 8, color: "#666", letterSpacing: 1 }}>{t[0]}</div>
             </div>
           ))}
         </div>
       )}
       {visible.length === 0 && (
-        <div style={{ fontSize: 11, color: "var(--tx-888)", lineHeight: 1.6 }}>
+        <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6 }}>
           {st.total === 0
             ? "Пока данных для анализа нет. Перенесите историю из основной версии (блок ДАННЫЕ выше) или завершите пару тренировок здесь."
             : "Замечаний нет, всё в порядке. Тренер следит за перерывами, пропусками, застоем в весах, перекосами между днями, ростом нагрузки, весом тела и самочувствием."}
@@ -328,16 +328,16 @@ function CoachPanel(props) {
         return (
           <div key={a.id} style={{ background: k.bg, border: "1px solid " + k.border, borderRadius: 10, padding: "12px 12px 10px 14px", marginBottom: 8 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: k.color, marginBottom: 5 }}>{k.icon} {a.title}</div>
-            <div style={{ fontSize: 11, color: "var(--tx-bbb)", lineHeight: 1.6 }}>{a.text}</div>
+            <div style={{ fontSize: 11, color: "#bbb", lineHeight: 1.6 }}>{a.text}</div>
             <div style={{ textAlign: "right", marginTop: 2 }}>
               <button onClick={() => dismiss(a.id)}
-                style={{ minHeight: 44, padding: "0 12px", background: "none", border: "none", color: "var(--tx-666)", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" }}>
+                style={{ minHeight: 44, padding: "0 12px", background: "none", border: "none", color: "#666", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" }}>
                 СКРЫТЬ НА НЕДЕЛЮ
               </button>
             </div>
           </div>
         );
       })}
-    </PanelSection>
+    </BetaSection>
   );
 }

@@ -1,7 +1,7 @@
-// ==== ПРОФИЛЬ, ПОДБОР ПРОГРАММЫ, ВЕС ТЕЛА И САМОЧУВСТВИЕ (общий модуль: основная и тестовая версии) ====
+// ==== ПРОФИЛЬ, ПОДБОР ПРОГРАММЫ, ВЕС ТЕЛА И САМОЧУВСТВИЕ (тестовая версия) ====
 // Анкета при первом запуске -> рекомендация программы и расписания, ориентиры по питанию и
 // безопасные заметки по травмам. Всё считается на телефоне; данные лежат в data.profile,
-// data.bodyLog и data.feelLog (общие данные приложения). Это общие ориентиры, не медицинская рекомендация.
+// data.bodyLog и data.feelLog (бета-хранилище). Это общие ориентиры, не медицинская рекомендация.
 
 const PROFILE_GOALS = [["mass", "Набор массы"], ["strength", "Сила"], ["cut", "Похудение"], ["fit", "Форма и здоровье"]];
 const PROFILE_LEVELS = [["new", "Новичок (до 6 мес)"], ["mid", "Опыт 6 мес - 2 года"], ["pro", "Опыт больше 2 лет"]];
@@ -171,7 +171,7 @@ function ChipRow(props) {
         const on = props.multi ? (val || []).indexOf(o[0]) >= 0 : val === o[0];
         return (
           <button key={String(o[0])} onClick={() => props.onChange(o[0])}
-            style={{ minHeight: 44, padding: "0 14px", borderRadius: 10, border: "1px solid " + (on ? "#f7a844" : "var(--bd-2a2a2a)"), background: on ? "#f7a84418" : "var(--bg-0c0c0f)", color: on ? "var(--tx-f7a844)" : "var(--tx-999)", fontSize: 11, fontWeight: on ? 700 : 400, cursor: "pointer", fontFamily: "inherit" }}>
+            style={{ minHeight: 44, padding: "0 14px", borderRadius: 10, border: "1px solid " + (on ? "#f7a844" : "#2a2a2a"), background: on ? "#f7a84418" : "#0c0c0f", color: on ? "#f7a844" : "#999", fontSize: 11, fontWeight: on ? 700 : 400, cursor: "pointer", fontFamily: "inherit" }}>
             {o[1]}
           </button>
         );
@@ -181,10 +181,10 @@ function ChipRow(props) {
 }
 
 function FieldLabel(props) {
-  return <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-777)", margin: "16px 0 8px" }}>{props.children}</div>;
+  return <div style={{ fontSize: 9, letterSpacing: 2, color: "#777", margin: "16px 0 8px" }}>{props.children}</div>;
 }
 
-const PROFILE_INPUT_STYLE = { width: "100%", boxSizing: "border-box", minHeight: 44, background: "var(--bg-0c0c0f)", border: "1px solid var(--bd-2a2a2a)", borderRadius: 10, padding: "10px 12px", color: "var(--tx-fff)", fontFamily: "inherit" };
+const PROFILE_INPUT_STYLE = { width: "100%", boxSizing: "border-box", minHeight: 44, background: "#0c0c0f", border: "1px solid #2a2a2a", borderRadius: 10, padding: "10px 12px", color: "#fff", fontFamily: "inherit" };
 
 function ProfileForm(props) {
   const init = props.initial || {};
@@ -227,12 +227,12 @@ function ProfileForm(props) {
       <FieldLabel>ЕСТЬ ЛИ ОГРАНИЧЕНИЯ? (МОЖНО ВЫБРАТЬ НЕСКОЛЬКО)</FieldLabel>
       <ChipRow multi options={PROFILE_INJURIES} value={f.injuries} onChange={toggleInjury} />
       {errors.length > 0 && (
-        <div style={{ fontSize: 11, color: "var(--tx-ff8a6a)", lineHeight: 1.7, marginTop: 14 }}>
+        <div style={{ fontSize: 11, color: "#ff8a6a", lineHeight: 1.7, marginTop: 14 }}>
           {errors.map(m => <div key={m}>{m}</div>)}
         </div>
       )}
       <button onClick={submit}
-        style={{ width: "100%", minHeight: 48, marginTop: 18, padding: "12px 8px", borderRadius: 9, border: "1px solid #f7a84460", background: "#f7a84412", color: "var(--tx-f7a844)", fontSize: 11, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+        style={{ width: "100%", minHeight: 48, marginTop: 18, padding: "12px 8px", borderRadius: 9, border: "1px solid #f7a84460", background: "#f7a84412", color: "#f7a844", fontSize: 11, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
         ГОТОВО
       </button>
     </div>
@@ -249,37 +249,37 @@ function RecommendationView(props) {
   const goal = (PROFILE_GOALS.filter(g => g[0] === p.goal)[0] || [0, ""])[1];
   return (
     <div>
-      <div style={{ fontSize: 14, fontWeight: 700, color: "var(--tx-fff)", marginBottom: 6 }}>{rec.title}</div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: "#fff", marginBottom: 6 }}>{rec.title}</div>
       <div style={{ display: "flex", gap: 4, margin: "10px 0" }}>
         {PROFILE_DAY_LABELS.map((d, i) => (
-          <div key={d} style={{ flex: 1, textAlign: "center", padding: "6px 0", borderRadius: 6, background: rec.schedule[i] ? "#f7a84412" : "var(--bg-0c0c0f)", border: "1px solid " + (rec.schedule[i] ? "#f7a84440" : "var(--bd-1a1a22)") }}>
-            <div style={{ fontSize: 9, color: "var(--tx-777)", marginBottom: 3 }}>{d}</div>
-            <div style={{ fontSize: 8, color: rec.schedule[i] ? "var(--tx-f7a844)" : "var(--tx-333)", minHeight: 20, lineHeight: 1.3 }}>{rec.schedule[i] ? PROFILE_PRESET_NAMES[rec.schedule[i]] : "-"}</div>
+          <div key={d} style={{ flex: 1, textAlign: "center", padding: "6px 0", borderRadius: 6, background: rec.schedule[i] ? "#f7a84412" : "#0c0c0f", border: "1px solid " + (rec.schedule[i] ? "#f7a84440" : "#1a1a22") }}>
+            <div style={{ fontSize: 9, color: "#777", marginBottom: 3 }}>{d}</div>
+            <div style={{ fontSize: 8, color: rec.schedule[i] ? "#f7a844" : "#333", minHeight: 20, lineHeight: 1.3 }}>{rec.schedule[i] ? PROFILE_PRESET_NAMES[rec.schedule[i]] : "-"}</div>
           </div>
         ))}
       </div>
-      {rec.why.map(t => <div key={t} style={{ fontSize: 11, color: "var(--tx-aaa)", lineHeight: 1.6, marginBottom: 6 }}>{t}</div>)}
-      {rec.goalTip && <div style={{ fontSize: 11, color: "var(--tx-aaa)", lineHeight: 1.6, marginBottom: 6 }}>{rec.goalTip}</div>}
-      <div style={{ fontSize: 11, color: "var(--tx-888)", lineHeight: 1.6, margin: "10px 0 6px" }}>
+      {rec.why.map(t => <div key={t} style={{ fontSize: 11, color: "#aaa", lineHeight: 1.6, marginBottom: 6 }}>{t}</div>)}
+      {rec.goalTip && <div style={{ fontSize: 11, color: "#aaa", lineHeight: 1.6, marginBottom: 6 }}>{rec.goalTip}</div>}
+      <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6, margin: "10px 0 6px" }}>
         ИМТ {bmi} ({profileBmiLabel(bmi)}){goal ? ", цель: " + goal.toLowerCase() : ""}. ИМТ не учитывает мышечную массу.
       </div>
       {en ? (
-        <div style={{ fontSize: 11, color: "var(--tx-888)", lineHeight: 1.6, marginBottom: 6 }}>
+        <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6, marginBottom: 6 }}>
           Ориентир: около {en.target} ккал в день и {en.protein} г белка (поддержание {en.tdee} ккал). Это оценка, а не рекомендация врача: следите за самочувствием и динамикой веса.
         </div>
       ) : (
-        <div style={{ fontSize: 11, color: "var(--tx-888)", lineHeight: 1.6, marginBottom: 6 }}>
+        <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6, marginBottom: 6 }}>
           Для вашего возраста или показателей мы не считаем калории по формуле: с питанием лучше помогут врач или тренер.
         </div>
       )}
-      {rec.notes.map(t => <div key={t} style={{ fontSize: 11, color: "var(--tx-c9a96a)", lineHeight: 1.6, marginBottom: 6 }}>{t}</div>)}
-      {rec.notes.length > 0 && <div style={{ fontSize: 10, color: "var(--tx-666)", lineHeight: 1.6 }}>Это общие советы. Если боль не проходит, обратитесь к врачу.</div>}
+      {rec.notes.map(t => <div key={t} style={{ fontSize: 11, color: "#c9a96a", lineHeight: 1.6, marginBottom: 6 }}>{t}</div>)}
+      {rec.notes.length > 0 && <div style={{ fontSize: 10, color: "#666", lineHeight: 1.6 }}>Это общие советы. Если боль не проходит, обратитесь к врачу.</div>}
     </div>
   );
 }
 
 // Экран первого запуска и редактирования анкеты. Показывается поверх всего, пока нет профиля.
-function ProfileOverlay(props) {
+function BetaOverlay(props) {
   const data = props.data;
   const setData = props.setData;
   const showToast = props.showToast;
@@ -312,41 +312,41 @@ function ProfileOverlay(props) {
     setDone(null);
   }
 
-  const wrap = { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 300, background: "var(--bg-0c0c0f)", overflowY: "auto", WebkitOverflowScrolling: "touch", paddingTop: "env(safe-area-inset-top)", paddingBottom: "calc(40px + env(safe-area-inset-bottom))" };
+  const wrap = { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 300, background: "#0c0c0f", overflowY: "auto", WebkitOverflowScrolling: "touch", paddingTop: "env(safe-area-inset-top)", paddingBottom: "calc(40px + env(safe-area-inset-bottom))" };
   return ReactDOM.createPortal(
     <div style={wrap}>
       <div style={{ maxWidth: 560, margin: "0 auto", padding: "24px 20px 0" }}>
         {done ? (
           <>
-            <div style={{ fontSize: 9, letterSpacing: 3, color: "var(--tx-f7a844)", marginBottom: 6 }}>РЕКОМЕНДАЦИЯ</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: "var(--tx-fff)", marginBottom: 14 }}>Ваша программа</div>
+            <div style={{ fontSize: 9, letterSpacing: 3, color: "#f7a844", marginBottom: 6 }}>РЕКОМЕНДАЦИЯ</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#fff", marginBottom: 14 }}>Ваша программа</div>
             <RecommendationView profile={done} />
             <button onClick={applySchedule}
-              style={{ width: "100%", minHeight: 48, marginTop: 18, padding: "12px 8px", borderRadius: 9, border: "1px solid #f7a84460", background: "#f7a84412", color: "var(--tx-f7a844)", fontSize: 11, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+              style={{ width: "100%", minHeight: 48, marginTop: 18, padding: "12px 8px", borderRadius: 9, border: "1px solid #f7a84460", background: "#f7a84412", color: "#f7a844", fontSize: 11, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
               ПРИМЕНИТЬ РАСПИСАНИЕ
             </button>
             <button onClick={() => setDone(null)}
-              style={{ width: "100%", minHeight: 48, marginTop: 8, padding: "12px 8px", borderRadius: 9, border: "1px solid var(--bd-2a2a2a)", background: "var(--bg-0c0c0f)", color: "var(--tx-999)", fontSize: 11, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" }}>
+              style={{ width: "100%", minHeight: 48, marginTop: 8, padding: "12px 8px", borderRadius: 9, border: "1px solid #2a2a2a", background: "#0c0c0f", color: "#999", fontSize: 11, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" }}>
               ОСТАВИТЬ КАК ЕСТЬ
             </button>
           </>
         ) : (
           <>
-            <div style={{ fontSize: 9, letterSpacing: 3, color: "var(--tx-f7a844)", marginBottom: 6 }}>ПЕРВЫЙ ЗАПУСК</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: "var(--tx-fff)", marginBottom: 8 }}>Расскажите о себе</div>
-            <div style={{ fontSize: 11, color: "var(--tx-888)", lineHeight: 1.7 }}>
+            <div style={{ fontSize: 9, letterSpacing: 3, color: "#f7a844", marginBottom: 6 }}>ПЕРВЫЙ ЗАПУСК</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#fff", marginBottom: 8 }}>Расскажите о себе</div>
+            <div style={{ fontSize: 11, color: "#888", lineHeight: 1.7 }}>
               Подберём программу под вашу цель и опыт, а тренер будет учитывать их в советах. Данные хранятся только на этом телефоне.
             </div>
             <ProfileForm initial={data.profile} onSubmit={save} />
             {!data.profileEdit && (
               <button onClick={skip}
-                style={{ width: "100%", minHeight: 44, marginTop: 8, background: "none", border: "none", color: "var(--tx-666)", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" }}>
+                style={{ width: "100%", minHeight: 44, marginTop: 8, background: "none", border: "none", color: "#666", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" }}>
                 ПОТОМ
               </button>
             )}
             {data.profileEdit && (
               <button onClick={() => setData(prev => ({ ...prev, profileEdit: false }))}
-                style={{ width: "100%", minHeight: 44, marginTop: 8, background: "none", border: "none", color: "var(--tx-666)", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" }}>
+                style={{ width: "100%", minHeight: 44, marginTop: 8, background: "none", border: "none", color: "#666", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" }}>
                 ОТМЕНА
               </button>
             )}
@@ -364,14 +364,14 @@ function ProfilePanel(props) {
   const showToast = props.showToast;
   const p = data.profile;
   return (
-    <PanelSection title="ПРОФИЛЬ И ПРОГРАММА">
+    <BetaSection title="ПРОФИЛЬ И ПРОГРАММА">
       {!p ? (
         <>
-          <div style={{ fontSize: 11, color: "var(--tx-888)", lineHeight: 1.6, marginBottom: 12 }}>
+          <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6, marginBottom: 12 }}>
             Анкета поможет подобрать программу под вашу цель и опыт, а тренеру - давать более точные советы.
           </div>
           <button onClick={() => setData(prev => ({ ...prev, profileEdit: true }))}
-            style={{ width: "100%", minHeight: 48, borderRadius: 9, border: "1px solid #f7a84460", background: "#f7a84412", color: "var(--tx-f7a844)", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+            style={{ width: "100%", minHeight: 48, borderRadius: 9, border: "1px solid #f7a84460", background: "#f7a84412", color: "#f7a844", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
             ЗАПОЛНИТЬ АНКЕТУ
           </button>
         </>
@@ -380,17 +380,17 @@ function ProfilePanel(props) {
           <RecommendationView profile={p} weight={bodyLatest(data.bodyLog, p.weight)} />
           <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
             <button onClick={() => { setData(prev => ({ ...prev, schedule: profileRecommend(p).schedule })); showToast("Расписание применено"); }}
-              style={{ flex: 1, minHeight: 48, borderRadius: 9, border: "1px solid #f7a84460", background: "#f7a84412", color: "var(--tx-f7a844)", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+              style={{ flex: 1, minHeight: 48, borderRadius: 9, border: "1px solid #f7a84460", background: "#f7a84412", color: "#f7a844", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
               ПРИМЕНИТЬ РАСПИСАНИЕ
             </button>
             <button onClick={() => setData(prev => ({ ...prev, profileEdit: true }))}
-              style={{ flex: 1, minHeight: 48, borderRadius: 9, border: "1px solid var(--bd-2a2a2a)", background: "var(--bg-0c0c0f)", color: "var(--tx-999)", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" }}>
+              style={{ flex: 1, minHeight: 48, borderRadius: 9, border: "1px solid #2a2a2a", background: "#0c0c0f", color: "#999", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" }}>
               ИЗМЕНИТЬ АНКЕТУ
             </button>
           </div>
         </>
       )}
-    </PanelSection>
+    </BetaSection>
   );
 }
 
@@ -416,42 +416,42 @@ function BodyPanel(props) {
 
   const last = log.slice(-5).reverse();
   return (
-    <PanelSection title="ВЕС ТЕЛА И САМОЧУВСТВИЕ">
+    <BetaSection title="ВЕС ТЕЛА И САМОЧУВСТВИЕ">
       <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
         <input value={kg} onChange={e => setKg(e.target.value)} inputMode="decimal" placeholder={log.length ? String(log[log.length - 1].kg).replace(".", ",") + " кг" : "Вес, кг"}
           style={{ ...PROFILE_INPUT_STYLE, flex: 1, width: "auto" }} />
         <button onClick={addWeight}
-          style={{ minWidth: 110, minHeight: 44, borderRadius: 9, border: "1px solid #f7a84460", background: "#f7a84412", color: "var(--tx-f7a844)", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+          style={{ minWidth: 110, minHeight: 44, borderRadius: 9, border: "1px solid #f7a84460", background: "#f7a84412", color: "#f7a844", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
           ЗАПИСАТЬ
         </button>
       </div>
       {trend ? (
-        <div style={{ fontSize: 11, color: "var(--tx-aaa)", lineHeight: 1.6, marginBottom: 8 }}>
+        <div style={{ fontSize: 11, color: "#aaa", lineHeight: 1.6, marginBottom: 8 }}>
           За {trend.span} дн.: {trend.delta > 0 ? "+" : ""}{String(trend.delta).replace(".", ",")} кг ({trend.perWeek > 0 ? "+" : ""}{String(trend.perWeek).replace(".", ",")} кг в неделю)
         </div>
       ) : (
-        <div style={{ fontSize: 11, color: "var(--tx-777)", lineHeight: 1.6, marginBottom: 8 }}>Динамика появится, когда будут две записи с промежутком от двух недель. Взвешивайтесь раз в 1-2 недели, утром, в одинаковых условиях.</div>
+        <div style={{ fontSize: 11, color: "#777", lineHeight: 1.6, marginBottom: 8 }}>Динамика появится, когда будут две записи с промежутком от двух недель. Взвешивайтесь раз в 1-2 недели, утром, в одинаковых условиях.</div>
       )}
       {last.length > 0 && (
-        <div style={{ fontSize: 10, color: "var(--tx-666)", lineHeight: 1.8, marginBottom: 14 }}>
+        <div style={{ fontSize: 10, color: "#666", lineHeight: 1.8, marginBottom: 14 }}>
           {last.map(r => new Date(r.date + "T12:00:00").toLocaleDateString("ru", { day: "numeric", month: "short" }) + ": " + String(r.kg).replace(".", ",") + " кг").join("  |  ")}
         </div>
       )}
-      <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-777)", marginBottom: 8 }}>КАК ПРОШЛА ТРЕНИРОВКА СЕГОДНЯ</div>
+      <div style={{ fontSize: 9, letterSpacing: 2, color: "#777", marginBottom: 8 }}>КАК ПРОШЛА ТРЕНИРОВКА СЕГОДНЯ</div>
       <div style={{ display: "flex", gap: 6 }}>
         {[1, 2, 3, 4, 5].map(n => {
           const on = todayFeel && todayFeel.score === n;
           return (
             <button key={n} onClick={() => setData(prev => ({ ...prev, feelLog: feelLogSet(prev.feelLog || [], today, n) }))}
-              style={{ flex: 1, minHeight: 48, borderRadius: 9, border: "1px solid " + (on ? "#f7a844" : "var(--bd-2a2a2a)"), background: on ? "#f7a84418" : "var(--bg-0c0c0f)", color: on ? "var(--tx-f7a844)" : "var(--tx-999)", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+              style={{ flex: 1, minHeight: 48, borderRadius: 9, border: "1px solid " + (on ? "#f7a844" : "#2a2a2a"), background: on ? "#f7a84418" : "#0c0c0f", color: on ? "#f7a844" : "#999", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
               {n}
             </button>
           );
         })}
       </div>
-      <div style={{ fontSize: 10, color: "var(--tx-666)", lineHeight: 1.6, marginTop: 8 }}>
+      <div style={{ fontSize: 10, color: "#666", lineHeight: 1.6, marginTop: 8 }}>
         {todayFeel ? FEEL_LABELS[todayFeel.score - 1] + ". Тренер смотрит на последние три оценки." : (hadWorkoutToday ? "1 - очень тяжело, 5 - отлично. Тренер учтёт это в советах." : "Оценка появится в советах, когда будет хотя бы три тренировки с оценкой.")}
       </div>
-    </PanelSection>
+    </BetaSection>
   );
 }
