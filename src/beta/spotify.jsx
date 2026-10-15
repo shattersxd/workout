@@ -344,7 +344,7 @@ function SpotifyPanel(props) {
   const msg = feed.msg || bootMsg;
 
   return (
-    <BetaSection title="МУЗЫКА (SPOTIFY)">
+    <PanelSection title="МУЗЫКА (SPOTIFY)">
       {!connected ? (
         <>
           <div style={{ fontSize: 11, color: "#888", lineHeight: 1.7, marginBottom: 12 }}>
@@ -392,7 +392,7 @@ function SpotifyPanel(props) {
         </>
       )}
       {msg && <div style={{ fontSize: 11, color: "#f7a844", lineHeight: 1.6, marginTop: 12 }}>{msg}</div>}
-    </BetaSection>
+    </PanelSection>
   );
 }
 

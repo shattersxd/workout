@@ -1331,7 +1331,19 @@ function parseBackup(text) {
   BACKUP_BUCKETS.forEach(function (b) {
     out[b] = d[b] && typeof d[b] === "object" && !Array.isArray(d[b]) ? d[b] : {};
   });
+  // анкета и замеры (профиль, вес тела, самочувствие): берём только то, что похоже на правду
+  out.bodyLog = backupLog(d.bodyLog, "kg", 30, 250);
+  out.feelLog = backupLog(d.feelLog, "score", 1, 5);
+  out.profile = d.profile && typeof d.profile === "object" && !Array.isArray(d.profile) ? d.profile : null;
   return { data: out };
+}
+
+// Записи замеров [{ date, <key> }] с датой YYYY-MM-DD и числом в пределах lo..hi, по возрастанию даты
+function backupLog(arr, key, lo, hi) {
+  if (!Array.isArray(arr)) return [];
+  return arr.filter(function (r) {
+    return r && typeof r.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.date) && typeof r[key] === "number" && r[key] >= lo && r[key] <= hi;
+  }).sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
 }
 
 // Добавляет в cur то, чего там нет. Возвращает { data, added } - added это число новых тренировок
@@ -1354,6 +1366,17 @@ function mergeBackup(cur, inc) {
     if (!out[b]) out[b] = {};
     Object.keys(inc[b]).forEach(function (k) { if (out[b][k] === undefined) out[b][k] = inc[b][k]; });
   });
+  // Замеры: недостающие даты добавляем, запись на ту же дату остаётся своя. Анкету берём, только если своей нет
+  [["bodyLog", "kg"], ["feelLog", "score"]].forEach(function (pair) {
+    const incoming = Array.isArray(inc[pair[0]]) ? inc[pair[0]] : [];
+    if (!incoming.length) return;
+    const have = Array.isArray(out[pair[0]]) ? out[pair[0]] : [];
+    const dates = {};
+    have.forEach(function (r) { dates[r.date] = true; });
+    incoming.forEach(function (r) { if (!dates[r.date]) { dates[r.date] = true; have.push(r); } });
+    out[pair[0]] = have.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+  });
+  if (!out.profile && inc.profile) { out.profile = inc.profile; out.profileSkipped = ""; }
   // Настройки берём из файла только на пустом устройстве: иначе перетрём свежие
   if (!hadHistory) {
     if (inc.schedule) out.schedule = inc.schedule;
@@ -1591,7 +1614,7 @@ export default function App() {
   const lastPromptedExDone = useRef(0);
   const [toast, setToast] = useState(null);
   const [editMode, setEditMode] = useState(false);
-  // planScreen: null | "list" | "settings" (оба открываются из меню) | "builder" | {editing: id}
+  // planScreen: null | "list" | "settings" | "coach" | "profile" | "community" (все открываются из меню) | "builder" | {editing: id}
   const [planScreen, setPlanScreen] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);   // боковое меню в шапке
   const [builderName, setBuilderName] = useState("");
@@ -3999,18 +4022,33 @@ export default function App() {
           );
         }
 
-        // Экран "Настройки": открывается из меню
+        // Экраны из меню. Настройки - один блок settingsSections; тренер, профиль и сообщество - панели из
+        // src/features (общие для основной и тестовой версий)
         if (planScreen === "settings") {
+          return <MenuScreen title="НАСТРОЙКИ" onBack={() => setPlanScreen(null)}>{settingsSections}</MenuScreen>;
+        }
+        if (planScreen === "coach") {
           return (
-            <div style={{ position: "fixed", inset: 0, background: "var(--bg-0c0c0f)", zIndex: 100, overflowY: "auto", WebkitOverflowScrolling: "touch", paddingTop: "env(safe-area-inset-top)", paddingBottom: "calc(40px + env(safe-area-inset-bottom))" }}>
-              <div style={{ maxWidth: 560, margin: "0 auto", padding: "20px 20px 0" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
-                  <button onClick={() => setPlanScreen(null)} style={{ background: "none", border: "none", color: "var(--tx-666)", fontSize: 20, cursor: "pointer", padding: "4px 8px 4px 0" }}>{"<"}</button>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: "var(--tx-fff)" }}>НАСТРОЙКИ</div>
-                </div>
-                {settingsSections}
-              </div>
-            </div>
+            <MenuScreen title="ТРЕНЕР" onBack={() => setPlanScreen(null)}>
+              <CoachPanel data={data} setData={setData} />
+              <BodyPanel data={data} setData={setData} showToast={showToast} />
+            </MenuScreen>
+          );
+        }
+        if (planScreen === "profile") {
+          return (
+            <MenuScreen title="ПРОФИЛЬ" onBack={() => setPlanScreen(null)}>
+              <ProfilePanel data={data} setData={setData} showToast={showToast} />
+            </MenuScreen>
+          );
+        }
+        if (planScreen === "community") {
+          return (
+            <MenuScreen title="СООБЩЕСТВО" onBack={() => setPlanScreen(null)}>
+              <SocialPanel data={data} setData={setData} />
+              <ArenaPanel data={data} setData={setData} />
+              <CompetePanel data={data} />
+            </MenuScreen>
           );
         }
 
@@ -4169,8 +4207,8 @@ export default function App() {
         );
       })()}
 
-      {/* Анкета первого запуска: BetaOverlay есть только в тестовой сборке (src/beta/profile.jsx) */}
-      {typeof BetaOverlay === "function" && <BetaOverlay data={data} setData={setData} showToast={showToast} />}
+      {/* Анкета первого запуска (src/features/profile.jsx) */}
+      <ProfileOverlay data={data} setData={setData} showToast={showToast} />
 
       {savePrompt && (
         <div style={{ position: "fixed", inset: 0, background: "var(--scrim-lite)", zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: "0 0 calc(40px + env(safe-area-inset-bottom))" }}
@@ -4331,11 +4369,14 @@ export default function App() {
 // Кнопка в шапке и боковая панель справа. Пункты - данные (menuItems), а что открыть, решает App по
 // item.screen (значение planScreen: "list" - Мой план, "settings" - Настройки). Цвета - только токены
 // темы. Анимации (menuFade, menuSlide) и отключение движения лежат в head.html.
-const MENU_SCREENS = ["list", "settings"];
+const MENU_SCREENS = ["list", "coach", "profile", "community", "settings"];
 
 function menuItems() {
   return [
     { id: "plan", screen: "list", title: "МОЙ ПЛАН", sub: "Расписание недели, программы, свои тренировки" },
+    { id: "coach", screen: "coach", title: "ТРЕНЕР", sub: "Советы по тренировкам, вес тела, самочувствие" },
+    { id: "profile", screen: "profile", title: "ПРОФИЛЬ", sub: "Анкета, цель, подбор программы" },
+    { id: "community", screen: "community", title: "СООБЩЕСТВО", sub: "Друзья, зал и соревнования (демо)" },
     { id: "settings", screen: "settings", title: "НАСТРОЙКИ", sub: "Тема, экран, вес гантелей, резервная копия" },
   ];
 }
@@ -4348,6 +4389,21 @@ function MenuButton(props) {
       style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, width: 44, height: 44, padding: 0, borderRadius: 8, border: "1px solid var(--bd-2a2a2a)", background: "var(--bg-0f0f12)", cursor: "pointer", flexShrink: 0 }}>
       <span style={bar} /><span style={bar} /><span style={bar} />
     </button>
+  );
+}
+
+// Каркас экрана, открытого из меню: на весь экран, стрелка назад и заголовок
+function MenuScreen(props) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "var(--bg-0c0c0f)", zIndex: 100, overflowY: "auto", WebkitOverflowScrolling: "touch", paddingTop: "env(safe-area-inset-top)", paddingBottom: "calc(40px + env(safe-area-inset-bottom))" }}>
+      <div style={{ maxWidth: 560, margin: "0 auto", padding: "20px 20px 0" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
+          <button onClick={props.onBack} style={{ background: "none", border: "none", color: "var(--tx-666)", fontSize: 20, cursor: "pointer", padding: "4px 8px 4px 0" }}>{"<"}</button>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--tx-fff)" }}>{props.title}</div>
+        </div>
+        {props.children}
+      </div>
+    </div>
   );
 }
 

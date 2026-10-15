@@ -1,4 +1,4 @@
-// ==== СОРЕВНОВАНИЯ ДЛЯ ТЕХ, КТО ТРЕНИРУЕТСЯ ПРЯМО СЕЙЧАС (тестовая версия) ====
+// ==== СОРЕВНОВАНИЯ ДЛЯ ТЕХ, КТО ТРЕНИРУЕТСЯ ПРЯМО СЕЙЧАС (общий модуль: основная и тестовая версии) ====
 // Сервера пока нет, сеть не используется. Здесь: форматы, подсчёт живого прогресса из текущей
 // тренировки, боты для «холодного старта» и табло. Варианты и обоснования - docs/social-design.md.
 //
@@ -347,59 +347,59 @@ function CompetePanel(props) {
   }
 
   return (
-    <BetaSection title="КОМНАТЫ ДРУЗЕЙ (СКОРО)">
-      <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6, marginBottom: 12 }}>
-        Закрытые комнаты: попасть можно только по коду, видят вас только участники. Работают отдельно от общего зала, поэтому можно быть скрытым от зала и играть с друзьями. Веса не публикуются: только подходы, процент плана и рекорды. Боты-партнёры (значок 🤖) по умолчанию выключены: среди друзей они не нужны. <span style={{ color: "#f7a844" }}>Сервера пока нет, ничего не отправляется.</span>
+    <PanelSection title="КОМНАТЫ ДРУЗЕЙ (СКОРО)">
+      <div style={{ fontSize: 11, color: "var(--tx-888)", lineHeight: 1.6, marginBottom: 12 }}>
+        Закрытые комнаты: попасть можно только по коду, видят вас только участники. Работают отдельно от общего зала, поэтому можно быть скрытым от зала и играть с друзьями. Веса не публикуются: только подходы, процент плана и рекорды. Боты-партнёры (значок 🤖) по умолчанию выключены: среди друзей они не нужны. <span style={{ color: "var(--tx-f7a844)" }}>Сервера пока нет, ничего не отправляется.</span>
       </div>
       <ChipRow options={SOCIAL_FORMATS.map(x => [x.id, x.name])} value={fmt} onChange={setFmt} />
       <div style={{ height: 10 }} />
       <ChipRow options={[[false, "Без ботов"], [true, "С ботами-партнёрами"]]} value={withBots} onChange={setWithBots} />
-      <div style={{ fontSize: 11, color: "#aaa", lineHeight: 1.6, margin: "10px 0 4px" }}>{f.desc}</div>
-      <div style={{ fontSize: 10, color: "#666", lineHeight: 1.6, marginBottom: 12 }}>В комнату уходит: {f.shares}.</div>
-      <div style={{ background: "#0c0c0f", border: "1px solid #1a1a22", borderRadius: 10, padding: "10px 12px", fontSize: 11, color: "#bbb", lineHeight: 1.7, marginBottom: 12 }}>
+      <div style={{ fontSize: 11, color: "var(--tx-aaa)", lineHeight: 1.6, margin: "10px 0 4px" }}>{f.desc}</div>
+      <div style={{ fontSize: 10, color: "var(--tx-666)", lineHeight: 1.6, marginBottom: 12 }}>В комнату уходит: {f.shares}.</div>
+      <div style={{ background: "var(--bg-0c0c0f)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "10px 12px", fontSize: 11, color: "var(--tx-bbb)", lineHeight: 1.7, marginBottom: 12 }}>
         Ваш прогресс сегодня: {live.setsDone}{live.setsPlanned ? " из " + live.setsPlanned : ""} {live.setsDone === 1 ? "подход" : "подходов"}{live.setsPlanned ? " (" + live.pct + "%)" : ""}, рекордов: {live.recordsToday}
       </div>
       {!demo ? (
         <button onClick={startDemo}
-          style={{ width: "100%", minHeight: 48, borderRadius: 9, border: "1px solid #6ab0ff60", background: "#6ab0ff12", color: "#6ab0ff", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+          style={{ width: "100%", minHeight: 48, borderRadius: 9, border: "1px solid #6ab0ff60", background: "#6ab0ff12", color: "var(--tx-6ab0ff)", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
           ДЕМО-КОМНАТА ДРУЗЕЙ
         </button>
       ) : (
         <>
-          <div style={{ fontSize: 9, letterSpacing: 2, color: "#6ab0ff", marginBottom: 4 }}>ДЕМО: ОКНО {board.minutes} ИЗ {COMPETE_DEMO_MINUTES} МИН (УСКОРЕННО)</div>
-          <div style={{ fontSize: 10, color: "#888", marginBottom: 8 }}>
+          <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-6ab0ff)", marginBottom: 4 }}>ДЕМО: ОКНО {board.minutes} ИЗ {COMPETE_DEMO_MINUTES} МИН (УСКОРЕННО)</div>
+          <div style={{ fontSize: 10, color: "var(--tx-888)", marginBottom: 8 }}>
             В комнате: {board.filter(r => !r.bot).length} {coachPlural(board.filter(r => !r.bot).length, "человек", "человека", "человек")}
             {board.some(r => r.bot) ? " и " + board.filter(r => r.bot).length + " " + coachPlural(board.filter(r => r.bot).length, "бот-партнёр", "бота-партнёра", "ботов-партнёров") : ""}
           </div>
           {team && (
             <div style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 11, color: "#bbb", marginBottom: 4 }}>Общая цель: {team.total} из {team.goal} подходов{team.reached ? " - достигнута!" : ""}</div>
-              <div style={{ height: 6, background: "#1a1a22", borderRadius: 3, overflow: "hidden" }}><div style={{ height: "100%", width: team.pct + "%", background: "#4a9a6a" }} /></div>
+              <div style={{ fontSize: 11, color: "var(--tx-bbb)", marginBottom: 4 }}>Общая цель: {team.total} из {team.goal} подходов{team.reached ? " - достигнута!" : ""}</div>
+              <div style={{ height: 6, background: "var(--bg-1a1a22)", borderRadius: 3, overflow: "hidden" }}><div style={{ height: "100%", width: team.pct + "%", background: "#4a9a6a" }} /></div>
             </div>
           )}
           {board.map(r => (
-            <div key={r.userId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", marginBottom: 6, borderRadius: 9, background: r.userId === "me" ? "#f7a84412" : "#0c0c0f", border: "1px solid " + (r.userId === "me" ? "#f7a84440" : "#1a1a22") }}>
-              <div style={{ width: 22, fontSize: 13, fontWeight: 700, color: r.rank === 1 ? "#f7a844" : "#777" }}>{f.team ? "-" : r.rank}</div>
-              <div style={{ flex: 1, fontSize: 12, color: "#ddd" }}>{r.name || "Без имени"}{r.bot && <span title="бот-партнёр" style={{ marginLeft: 6, fontSize: 11 }}>🤖</span>}</div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{r.score}{fmt === "plan" ? "%" : ""}</div>
+            <div key={r.userId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", marginBottom: 6, borderRadius: 9, background: r.userId === "me" ? "#f7a84412" : "var(--bg-0c0c0f)", border: "1px solid " + (r.userId === "me" ? "#f7a84440" : "var(--bd-1a1a22)") }}>
+              <div style={{ width: 22, fontSize: 13, fontWeight: 700, color: r.rank === 1 ? "var(--tx-f7a844)" : "var(--tx-777)" }}>{f.team ? "-" : r.rank}</div>
+              <div style={{ flex: 1, fontSize: 12, color: "var(--tx-ddd)" }}>{r.name || "Без имени"}{r.bot && <span title="бот-партнёр" style={{ marginLeft: 6, fontSize: 11 }}>🤖</span>}</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--tx-fff)" }}>{r.score}{fmt === "plan" ? "%" : ""}</div>
             </div>
           ))}
           <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
             <button onClick={addHuman} disabled={demo.extra.length >= COMPETE_DEMO_CAPACITY - 1}
-              style={{ flex: 1, minHeight: 48, borderRadius: 9, border: "1px solid #2a2a2a", background: "#0c0c0f", color: "#ddd", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" }}>
+              style={{ flex: 1, minHeight: 48, borderRadius: 9, border: "1px solid var(--bd-2a2a2a)", background: "var(--bg-0c0c0f)", color: "var(--tx-ddd)", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" }}>
               ПОДКЛЮЧИТЬ ЧЕЛОВЕКА
             </button>
             <button onClick={() => setDemo(null)}
-              style={{ flex: 1, minHeight: 48, borderRadius: 9, border: "1px solid #2a2a2a", background: "#0c0c0f", color: "#999", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" }}>
+              style={{ flex: 1, minHeight: 48, borderRadius: 9, border: "1px solid var(--bd-2a2a2a)", background: "var(--bg-0c0c0f)", color: "var(--tx-999)", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" }}>
               ЗАКРЫТЬ ДЕМО
             </button>
           </div>
-          <div style={{ fontSize: 10, color: "#666", lineHeight: 1.6, marginTop: 8 }}>
+          <div style={{ fontSize: 10, color: "var(--tx-666)", lineHeight: 1.6, marginTop: 8 }}>
             Ваши подходы настоящие, берутся из текущей тренировки. Соперники и «подключённые люди» - имитация, боты отмечены значком 🤖. Каждый подключившийся человек вытесняет одного бота.
           </div>
         </>
       )}
-    </BetaSection>
+    </PanelSection>
   );
 }
 
@@ -456,74 +456,74 @@ function ArenaPanel(props) {
   }
 
   const row = r => (
-    <div key={r.userId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", marginBottom: 5, borderRadius: 9, background: r.userId === "me" ? "#f7a84412" : "#0c0c0f", border: "1px solid " + (r.userId === "me" ? "#f7a84440" : "#1a1a22") }}>
-      <div style={{ width: 26, fontSize: 12, fontWeight: 700, color: r.rank === 1 ? "#f7a844" : "#777" }}>{fmt === "team" ? "-" : r.rank}</div>
-      <div style={{ flex: 1, fontSize: 12, color: "#ddd" }}>{r.name || "Без имени"}{r.bot && <span title="бот-партнёр" style={{ marginLeft: 6, fontSize: 11 }}>🤖</span>}</div>
-      <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{r.score}{fmt === "plan" ? "%" : ""}</div>
+    <div key={r.userId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", marginBottom: 5, borderRadius: 9, background: r.userId === "me" ? "#f7a84412" : "var(--bg-0c0c0f)", border: "1px solid " + (r.userId === "me" ? "#f7a84440" : "var(--bd-1a1a22)") }}>
+      <div style={{ width: 26, fontSize: 12, fontWeight: 700, color: r.rank === 1 ? "var(--tx-f7a844)" : "var(--tx-777)" }}>{fmt === "team" ? "-" : r.rank}</div>
+      <div style={{ flex: 1, fontSize: 12, color: "var(--tx-ddd)" }}>{r.name || "Без имени"}{r.bot && <span title="бот-партнёр" style={{ marginLeft: 6, fontSize: 11 }}>🤖</span>}</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: "var(--tx-fff)" }}>{r.score}{fmt === "plan" ? "%" : ""}</div>
     </div>
   );
 
   return (
-    <BetaSection title="ЗАЛ: ВСЁ ПРИЛОЖЕНИЕ - ОДНА КОМНАТА (СКОРО)">
-      <div style={{ fontSize: 11, color: "#888", lineHeight: 1.6, marginBottom: 12 }}>
-        Все, кто тренируется сейчас, находятся в одном зале. Чтобы он не превратился в толпу, вас сводят в группу до {ARENA_SHARD_SIZE} человек вашего уровня и формата, а общий счётчик зала виден всем. Пока людей мало, места занимают боты-партнёры (значок 🤖), а настоящие участники вытесняют их. <span style={{ color: "#f7a844" }}>Сервера пока нет, ничего не отправляется.</span>
+    <PanelSection title="ЗАЛ: ВСЁ ПРИЛОЖЕНИЕ - ОДНА КОМНАТА (СКОРО)">
+      <div style={{ fontSize: 11, color: "var(--tx-888)", lineHeight: 1.6, marginBottom: 12 }}>
+        Все, кто тренируется сейчас, находятся в одном зале. Чтобы он не превратился в толпу, вас сводят в группу до {ARENA_SHARD_SIZE} человек вашего уровня и формата, а общий счётчик зала виден всем. Пока людей мало, места занимают боты-партнёры (значок 🤖), а настоящие участники вытесняют их. <span style={{ color: "var(--tx-f7a844)" }}>Сервера пока нет, ничего не отправляется.</span>
       </div>
       {!consented ? (
-        <div style={{ background: "#1a1206", border: "1px solid #f7a84440", borderRadius: 12, padding: "12px 14px", marginBottom: 12 }}>
-          <div style={{ fontSize: 9, letterSpacing: 2, color: "#f7a844", marginBottom: 6 }}>КТО ВАС УВИДИТ</div>
-          <div style={{ fontSize: 11, color: "#ccc", lineHeight: 1.7, marginBottom: 10 }}>
+        <div style={{ background: "var(--bg-1a1206)", border: "1px solid #f7a84440", borderRadius: 12, padding: "12px 14px", marginBottom: 12 }}>
+          <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-f7a844)", marginBottom: 6 }}>КТО ВАС УВИДИТ</div>
+          <div style={{ fontSize: 11, color: "var(--tx-ccc)", lineHeight: 1.7, marginBottom: 10 }}>
             По умолчанию в зале все видят всех: ваше имя (если не задали, это нейтральное «{socialDisplayName(data)}»), число подходов, процент плана и рекорды за сегодня. Веса, профиль, вес тела и самочувствие не видит никто. Выбор можно сменить в любой момент. Пока вы не выберете, ничего не публикуется.
           </div>
           {SOCIAL_VISIBILITY.map(v => (
             <button key={v[0]} onClick={() => choose(v[0])}
-              style={{ display: "block", width: "100%", minHeight: 48, marginBottom: 6, borderRadius: 9, border: "1px solid " + (v[0] === "public" ? "#f7a84460" : "#2a2a2a"), background: v[0] === "public" ? "#f7a84412" : "#0c0c0f", color: v[0] === "public" ? "#f7a844" : "#999", fontSize: 10, letterSpacing: 1, fontWeight: v[0] === "public" ? 700 : 400, cursor: "pointer", fontFamily: "inherit" }}>
+              style={{ display: "block", width: "100%", minHeight: 48, marginBottom: 6, borderRadius: 9, border: "1px solid " + (v[0] === "public" ? "#f7a84460" : "var(--bd-2a2a2a)"), background: v[0] === "public" ? "#f7a84412" : "var(--bg-0c0c0f)", color: v[0] === "public" ? "var(--tx-f7a844)" : "var(--tx-999)", fontSize: 10, letterSpacing: 1, fontWeight: v[0] === "public" ? 700 : 400, cursor: "pointer", fontFamily: "inherit" }}>
               {v[1].toUpperCase()}{v[0] === "public" ? " (ПО УМОЛЧАНИЮ)" : ""}
             </button>
           ))}
         </div>
       ) : (
         <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 9, letterSpacing: 2, color: "#777", marginBottom: 8 }}>КТО ВАС ВИДИТ</div>
+          <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-777)", marginBottom: 8 }}>КТО ВАС ВИДИТ</div>
           <ChipRow options={SOCIAL_VISIBILITY} value={vis} onChange={choose} />
-          {vis === "public" && !targets.arena && <div style={{ fontSize: 10, color: "#f7a844", lineHeight: 1.6, marginTop: 8 }}>Открытый зал доступен с 16 лет: по анкете вам пока подходят только комнаты друзей.</div>}
+          {vis === "public" && !targets.arena && <div style={{ fontSize: 10, color: "var(--tx-f7a844)", lineHeight: 1.6, marginTop: 8 }}>Открытый зал доступен с 16 лет: по анкете вам пока подходят только комнаты друзей.</div>}
         </div>
       )}
       <ChipRow options={SOCIAL_FORMATS.map(x => [x.id, x.name])} value={fmt} onChange={setFmt} />
-      <div style={{ fontSize: 10, color: "#888", lineHeight: 1.6, margin: "10px 0 12px" }}>
+      <div style={{ fontSize: 10, color: "var(--tx-888)", lineHeight: 1.6, margin: "10px 0 12px" }}>
         Ваша группа: {levelName}, формат «{SOCIAL_FORMATS.filter(x => x.id === fmt)[0].name}». Уровень берётся из анкеты{data.profile ? "" : " (анкета не заполнена, поэтому средний)"}.
       </div>
       {!demo ? (
         <button onClick={() => setDemo({ seed: "arena:" + cohort + ":" + Date.now(), startedAt: Date.now(), extra: [] })}
-          style={{ width: "100%", minHeight: 48, borderRadius: 9, border: "1px solid #6ab0ff60", background: "#6ab0ff12", color: "#6ab0ff", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+          style={{ width: "100%", minHeight: 48, borderRadius: 9, border: "1px solid #6ab0ff60", background: "#6ab0ff12", color: "var(--tx-6ab0ff)", fontSize: 10, letterSpacing: 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
           ВОЙТИ В ЗАЛ (ДЕМО)
         </button>
       ) : (
         <>
-          <div style={{ fontSize: 9, letterSpacing: 2, color: "#6ab0ff", marginBottom: 4 }}>ДЕМО: ОКНО {Math.round(minutes)} ИЗ {COMPETE_DEMO_MINUTES} МИН (УСКОРЕННО)</div>
-          <div style={{ fontSize: 10, color: "#888", marginBottom: 8 }}>
+          <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-6ab0ff)", marginBottom: 4 }}>ДЕМО: ОКНО {Math.round(minutes)} ИЗ {COMPETE_DEMO_MINUTES} МИН (УСКОРЕННО)</div>
+          <div style={{ fontSize: 10, color: "var(--tx-888)", marginBottom: 8 }}>
             В вашей группе: {view.people} {coachPlural(view.people, "человек", "человека", "человек")} и {view.bots} {coachPlural(view.bots, "бот-партнёр", "бота-партнёра", "ботов-партнёров")}
           </div>
-          <div style={{ fontSize: 12, color: "#fff", marginBottom: 8 }}>
+          <div style={{ fontSize: 12, color: "var(--tx-fff)", marginBottom: 8 }}>
             {fmt === "team" ? "Командный режим: места не считаются" : "Ваше место: " + view.rank + " из " + view.total + (view.betterThan !== null ? " (лучше, чем " + view.betterThan + "% группы)" : "")}
           </div>
           {view.top.map(row)}
-          {view.gap && <div style={{ textAlign: "center", color: "#444", fontSize: 12, margin: "2px 0 5px" }}>...</div>}
+          {view.gap && <div style={{ textAlign: "center", color: "var(--tx-444)", fontSize: 12, margin: "2px 0 5px" }}>...</div>}
           {view.near.map(row)}
           <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
             <button onClick={addPeople} disabled={demo.extra.length >= ARENA_SHARD_SIZE - 1}
-              style={{ flex: 1, minHeight: 48, borderRadius: 9, border: "1px solid #2a2a2a", background: "#0c0c0f", color: "#ddd", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" }}>
+              style={{ flex: 1, minHeight: 48, borderRadius: 9, border: "1px solid var(--bd-2a2a2a)", background: "var(--bg-0c0c0f)", color: "var(--tx-ddd)", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" }}>
               ПОДКЛЮЧИТЬ 5 ЛЮДЕЙ
             </button>
             <button onClick={() => setDemo(null)}
-              style={{ flex: 1, minHeight: 48, borderRadius: 9, border: "1px solid #2a2a2a", background: "#0c0c0f", color: "#999", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" }}>
+              style={{ flex: 1, minHeight: 48, borderRadius: 9, border: "1px solid var(--bd-2a2a2a)", background: "var(--bg-0c0c0f)", color: "var(--tx-999)", fontSize: 10, letterSpacing: 1, cursor: "pointer", fontFamily: "inherit" }}>
               ЗАКРЫТЬ ДЕМО
             </button>
           </div>
-          <div style={{ fontSize: 10, color: "#666", lineHeight: 1.6, marginTop: 8 }}>
+          <div style={{ fontSize: 10, color: "var(--tx-666)", lineHeight: 1.6, marginTop: 8 }}>
             Ваши подходы настоящие. Остальные участники - имитация, боты отмечены значком 🤖. Каждый подключившийся человек вытесняет одного бота. Общий счётчик «сейчас в зале» появится вместе с сервером: показывать выдуманное число было бы нечестно.
           </div>
         </>
       )}
-    </BetaSection>
+    </PanelSection>
   );
 }

@@ -14,8 +14,9 @@ system, so the build rewrites the module boundary:
     import { ... } from "react";   ->   const { ... } = React;
     export default function App()  ->   function App()
 
-Тестовая версия (beta) - тот же код плюс файлы из src/beta/, вставленные перед App.
-Боевая сборка их не содержит. Отличия beta, больше ничего не трансформируется:
+Модули src/features/ (тренер, профиль, сообщество, общие части экранов) вставляются перед App в ОБЕ
+страницы. Тестовая версия (beta) - то же плюс файлы src/beta/ (Spotify, вкладка БЕТА), их в боевой
+сборке нет. Отличия beta, больше ничего не трансформируется:
 
     const APP_VARIANT = "prod";        ->  "beta"  (ключи localStorage свои, см. STORAGE_KEY)
     <title> / имя на экране "Домой"    ->  Workout BETA
@@ -37,7 +38,8 @@ ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src" / "workout_tracker.jsx"
 HEAD = ROOT / "src" / "shell" / "head.html"
 TAIL = ROOT / "src" / "shell" / "tail.html"
-BETA_DIR = ROOT / "src" / "beta"
+FEATURES_DIR = ROOT / "src" / "features"   # модули, общие для основной и тестовой версий
+BETA_DIR = ROOT / "src" / "beta"           # только тестовая версия
 SW = ROOT / "sw.js"
 DEFAULT_OUT = ROOT / "index.html"
 BETA_OUT = ROOT / "beta" / "index.html"
@@ -76,14 +78,22 @@ def replace_once(text: str, old: str, new: str, what: str) -> str:
     return text.replace(old, new)
 
 
-def beta_modules() -> str:
-    files = sorted(BETA_DIR.glob("*.jsx"))
+def modules(folder: Path) -> str:
+    files = sorted(folder.glob("*.jsx"))
     if not files:
-        sys.exit("build: src/beta/ has no .jsx files")
+        sys.exit("build: %s has no .jsx files" % folder.relative_to(ROOT))
     parts = []
     for f in files:
-        parts.append("// ---- src/beta/%s ----\n%s\n" % (f.name, f.read_text(encoding="utf-8")))
+        parts.append("// ---- src/%s/%s ----\n%s\n" % (folder.name, f.name, f.read_text(encoding="utf-8")))
     return "\n".join(parts)
+
+
+def feature_modules() -> str:
+    return modules(FEATURES_DIR)
+
+
+def beta_modules() -> str:
+    return modules(BETA_DIR)
 
 
 def build(beta: bool = False) -> str:
@@ -98,9 +108,12 @@ def build(beta: bool = False) -> str:
     if 'id="app-src"' not in head:
         sys.exit('build: head.html must end with the <script ... id="app-src"> tag')
 
+    if not beta:
+        body = replace_once(body, "function App(", feature_modules() + "\nfunction App(", "function App(")
+
     if beta:
         body = replace_once(body, 'const APP_VARIANT = "prod";', 'const APP_VARIANT = "beta";', "APP_VARIANT")
-        body = replace_once(body, "function App(", beta_modules() + "\nfunction App(", "function App(")
+        body = replace_once(body, "function App(", feature_modules() + "\n" + beta_modules() + "\nfunction App(", "function App(")
         head = replace_once(head, "<title>Workout Routine</title>", "<title>Workout BETA</title>", "<title>")
         head = replace_once(
             head,

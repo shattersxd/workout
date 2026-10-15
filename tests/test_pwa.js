@@ -2823,20 +2823,26 @@ section('23 · TEST VERSION (beta/)');
 
 const BETA_HTML_PATH = path.join(ROOT, 'beta', 'index.html');
 const BETA_SW_PATH = path.join(ROOT, 'beta', 'sw.js');
-const BETA_SRC_DIR = path.join(ROOT, 'src', 'beta');
+const BETA_SRC_DIR = path.join(ROOT, 'src', 'beta');           // только тестовая версия (Spotify, вкладка БЕТА)
+const FEATURES_SRC_DIR = path.join(ROOT, 'src', 'features');   // тренер, профиль, сообщество: в обеих версиях
+// читает модуль из features/ или beta/ (тесты не должны знать, где он лежит)
+const readModule = f => fs.readFileSync(path.join(fs.existsSync(path.join(FEATURES_SRC_DIR, f)) ? FEATURES_SRC_DIR : BETA_SRC_DIR, f), 'utf8');
 const betaHtml = fs.existsSync(BETA_HTML_PATH) ? fs.readFileSync(BETA_HTML_PATH, 'utf8') : '';
 const betaApp = betaHtml.slice(betaHtml.indexOf(APP_MARKER) + APP_MARKER.length, betaHtml.indexOf('</script>', betaHtml.indexOf(APP_MARKER)));
 const betaFiles = fs.existsSync(BETA_SRC_DIR) ? fs.readdirSync(BETA_SRC_DIR).filter(f => f.endsWith('.jsx')).sort() : [];
-const betaSrc = betaFiles.map(f => fs.readFileSync(path.join(BETA_SRC_DIR, f), 'utf8')).join('\n');
+const featureFiles = fs.existsSync(FEATURES_SRC_DIR) ? fs.readdirSync(FEATURES_SRC_DIR).filter(f => f.endsWith('.jsx')).sort() : [];
+const featureSrc = featureFiles.map(f => fs.readFileSync(path.join(FEATURES_SRC_DIR, f), 'utf8')).join('\n');
+// весь код модулей, как он попадает в бета-страницу: общие модули и модули только беты
+const betaSrc = featureSrc + '\n' + betaFiles.map(f => fs.readFileSync(path.join(BETA_SRC_DIR, f), 'utf8')).join('\n');
 
 // ── Тренер: настоящий код src/beta/coach.jsx на синтетических журналах ────────
 function loadCoach() {
   const dnFrom = src.indexOf('function dayNum');
   const dnSrc = src.slice(dnFrom, src.indexOf('function backupAgeDays', dnFrom));
-  const coachSrc = fs.readFileSync(path.join(BETA_SRC_DIR, 'coach.jsx'), 'utf8');
+  const coachSrc = readModule('coach.jsx');
   const body = coachSrc.slice(0, coachSrc.indexOf('const COACH_KIND_STYLE'));
   // тренер использует расчёты из profile.jsx (динамика веса, самочувствие, рекомендация)
-  const profSrc = fs.readFileSync(path.join(BETA_SRC_DIR, 'profile.jsx'), 'utf8');
+  const profSrc = readModule('profile.jsx');
   const prof = profSrc.slice(0, profSrc.indexOf('// ---- Интерфейс ----'));
   return new Function(dnSrc + prof + body + '; return { coachAnalyze, coachVisible, coachPlural, coachWeekday, coachStuck, dayNum, profileValidate, profileBmi, profileBmiLabel, profileEnergy, profileRecommend, bodyLogAdd, bodyTrend, bodyLatest, feelLogSet, feelRecent, profileNum };')();
 }
@@ -2980,7 +2986,7 @@ test('Coach: advice is ordered, capped, never mutates data, and can be snoozed f
 
 // ── Spotify: настоящий код src/beta/spotify.jsx на заглушках ──────────────────
 function loadSpotify(env) {
-  const code = fs.readFileSync(path.join(BETA_SRC_DIR, 'spotify.jsx'), 'utf8');
+  const code = readModule('spotify.jsx');
   const body = code.slice(0, code.indexOf('function SpotifyPanel'));
   const mem = (env && env.mem) || {};
   const localStorage = { getItem: k => (k in mem ? mem[k] : null), setItem: (k, v) => { mem[k] = String(v); }, removeItem: k => { delete mem[k]; } };
@@ -3264,7 +3270,7 @@ test('Music design doc records the iPhone limit, the options and the decision to
 });
 
 test('Spotify main-screen player: wired into App as a beta-only seam, picker offers playlists and search, no server needed', () => {
-  const sp = fs.readFileSync(path.join(BETA_SRC_DIR, 'spotify.jsx'), 'utf8');
+  const sp = readModule('spotify.jsx');
   assert(src.includes('{typeof BetaMiniPlayer === "function" && <BetaMiniPlayer />}'), 'the mini player seam is missing in App');
   assert(src.indexOf('BetaMiniPlayer') < src.indexOf('{/* ===== WORKOUT ===== */}') + 400 && src.indexOf('BetaMiniPlayer') < src.indexOf('activeTab === "workout" &&'), 'the mini player sits above every tab content, not inside one tab');
   assertNot(/function BetaMiniPlayer|function SpotifyPicker/.test(app), 'the mini player must not exist in the production page');
@@ -3282,7 +3288,7 @@ test('Spotify main-screen player: wired into App as a beta-only seam, picker off
 });
 
 test('Spotify: tokens stay out of the app data and the backup file, UI is wired and tappable', () => {
-  const sp = fs.readFileSync(path.join(BETA_SRC_DIR, 'spotify.jsx'), 'utf8');
+  const sp = readModule('spotify.jsx');
   assert(sp.includes('const SPOTIFY_STORAGE_KEY = "ppl_spotify_beta"'), 'tokens need their own key');
   assertNot(/setData|props\.data|data\./.test(sp.slice(sp.indexOf('function SpotifyPanel'))), 'SpotifyPanel must not touch app data: tokens would end up in the backup file');
   assert(!sp.includes('client_secret'), 'no secret anywhere');
@@ -3358,7 +3364,7 @@ test('Profile: goal advice and injury notes are included and stay cautious', () 
   assert(r.notes.every(n => n.includes('остановитесь')), 'every injury note tells to stop on pain');
   assert(c.profileRecommend(goodProfile({ injuries: [] })).notes.length === 0, 'no injuries, no notes');
   assert(c.profileRecommend(goodProfile({ injuries: ['unknown'] })).notes.length === 0, 'unknown keys are ignored, not crashed on');
-  const ui = fs.readFileSync(path.join(BETA_SRC_DIR, 'profile.jsx'), 'utf8');
+  const ui = readModule('profile.jsx');
   assert(ui.includes('не рекомендация врача') && ui.includes('обратитесь к врачу'), 'the disclaimers must stay in the UI');
   info('Goal tip, cautious injury notes, disclaimers present');
 });
@@ -3422,11 +3428,13 @@ test('Coach with a profile: weigh-in reminder, weight trend vs goal, feel, sched
   info('Weigh-in, goal trend (+/-), feel, schedule mismatch');
 });
 
-test('Onboarding UI: first-launch overlay is a beta-only seam, skippable, and every control is tappable', () => {
-  const ui = fs.readFileSync(path.join(BETA_SRC_DIR, 'profile.jsx'), 'utf8');
-  assert(src.includes('typeof BetaOverlay === "function" && <BetaOverlay data={data} setData={setData} showToast={showToast} />'), 'overlay seam missing in App');
-  assertNot(/function BetaOverlay|function ProfilePanel|function BodyPanel|function profileRecommend|function ProfileForm/.test(app), 'the questionnaire must not leak into the production page (only the guarded seam is allowed there)');
-  assert(/function BetaOverlay/.test(betaApp) && betaSrc.includes('typeof ProfilePanel === "function"') && betaSrc.includes('typeof BodyPanel === "function"'), 'overlay and panels wired into the beta page');
+test('Onboarding UI: the first-launch overlay and the panels are part of the app, skippable, and every control is tappable', () => {
+  const ui = readModule('profile.jsx');
+  assert(src.includes('<ProfileOverlay data={data} setData={setData} showToast={showToast} />'), 'the overlay must be mounted in App');
+  assert(!/typeof (Profile|Body)[A-Za-z]* === "function"/.test(src), 'no guard: the questionnaire is part of the production app');
+  assert(/function ProfileOverlay/.test(app) && /function ProfilePanel/.test(app) && /function BodyPanel/.test(app) && /function profileRecommend/.test(app), 'the questionnaire is in the production page');
+  assert(/function ProfileOverlay/.test(betaApp), 'and in the test page too: it is the same code');
+  assert(src.includes('<ProfilePanel data={data} setData={setData} showToast={showToast} />') && src.includes('<BodyPanel data={data} setData={setData} showToast={showToast} />'), 'profile and body panels have a home in the menu screens');
   assert(ui.includes('(!data.profile && !data.profileSkipped) || !!data.profileEdit'), 'the form opens on first launch and on explicit edit only');
   assert(ui.includes('profileSkipped: todayKey()') && ui.includes('ПОТОМ'), 'the questionnaire can be skipped');
   assert(ui.includes('Данные хранятся только на этом телефоне'), 'the privacy promise stays visible');
@@ -3439,11 +3447,11 @@ test('Onboarding UI: first-launch overlay is a beta-only seam, skippable, and ev
 function loadSocial() {
   const dnFrom = src.indexOf('function dayNum');
   const dnSrc = src.slice(dnFrom, src.indexOf('function backupAgeDays', dnFrom));
-  const coachSrc = fs.readFileSync(path.join(BETA_SRC_DIR, 'coach.jsx'), 'utf8');
+  const coachSrc = readModule('coach.jsx');
   const coachPure = coachSrc.slice(0, coachSrc.indexOf('const COACH_KIND_STYLE'));
-  const profSrc = fs.readFileSync(path.join(BETA_SRC_DIR, 'profile.jsx'), 'utf8');
+  const profSrc = readModule('profile.jsx');
   const profPure = profSrc.slice(0, profSrc.indexOf('// ---- Интерфейс ----'));
-  const socSrc = fs.readFileSync(path.join(BETA_SRC_DIR, 'social.jsx'), 'utf8');
+  const socSrc = readModule('social.jsx');
   const socPure = socSrc.slice(0, socSrc.indexOf('function SocialPanel'));
   return new Function('todayKey', dnSrc + profPure + coachPure + socPure +
     '; return { socialUuid, socialFriendCode, socialEnsure, socialSummary, socialLeaderboard, socialLocalBackend, SOCIAL_BACKEND_METHODS, SOCIAL_SCHEMA_VERSION, SOCIAL_SHARE_KEYS, SOCIAL_VISIBILITY, socialPublishTargets, socialDisplayName };')(() => TODAY);
@@ -3590,12 +3598,12 @@ testAsync('Social backend: the local stand-in implements the whole interface (so
 });
 
 test('Social: nothing leaves the phone, the panel is wired and explained, the design doc exists', () => {
-  const soc = fs.readFileSync(path.join(BETA_SRC_DIR, 'social.jsx'), 'utf8');
+  const soc = readModule('social.jsx');
   ['fetch(', 'XMLHttpRequest', 'sendBeacon', 'WebSocket', 'EventSource', 'navigator.share', 'location.href'].forEach(x => assertNot(soc.includes(x), 'social.jsx must not touch the network or navigate: ' + x));
   assert(soc.includes('ничего не отправляется'), 'the panel must say that nothing is sent');
   assert(soc.includes('Профиль, вес тела, самочувствие и журнал целиком друзьям не показываются никогда'), 'the privacy promise must stay visible');
-  assert(betaSrc.includes('typeof SocialPanel === "function" && <SocialPanel'), 'SocialPanel not wired into BetaTab');
-  assertNot(/function Social|socialSummary|socialEnsure/.test(app), 'the social groundwork must not exist in the production page');
+  assert(src.includes('<SocialPanel data={data} setData={setData} />'), 'SocialPanel is not wired into the community screen');
+  assert(/function SocialPanel/.test(app) && /function socialSummary/.test(app) && /function socialEnsure/.test(app), 'the social groundwork is part of the production page');
   assert((soc.slice(soc.indexOf('function SocialPanel')).match(/minHeight: 44/g) || []).length >= 2, 'inputs and toggles need 44pt targets');
   const doc = fs.readFileSync(path.join(ROOT, 'docs', 'social-design.md'), 'utf8');
   ['Supabase', 'Firebase', 'Cloudflare', 'PocketBase', 'Анонимный аккаунт', 'Sign in with Apple', 'Что закладываем СЕЙЧАС', 'Дорожная карта'].forEach(x => assert(doc.includes(x), 'design doc is missing: ' + x));
@@ -3606,7 +3614,7 @@ test('Social: nothing leaves the phone, the panel is wired and explained, the de
 function loadCompete() {
   const dnFrom = src.indexOf('function dayNum');
   const dnSrc = src.slice(dnFrom, src.indexOf('function backupAgeDays', dnFrom));
-  const read = f => fs.readFileSync(path.join(BETA_SRC_DIR, f), 'utf8');
+  const read = f => readModule(f);
   const cut = (s, marker) => s.slice(0, s.indexOf(marker));
   const profPure = cut(read('profile.jsx'), '// ---- Интерфейс ----');
   const coachPure = cut(read('coach.jsx'), 'const COACH_KIND_STYLE');
@@ -3816,7 +3824,7 @@ testAsync('Live rooms: the local stand-in supports create, join, publish and sub
 });
 
 test('Arena and friends rooms UI: consent screen, visibility choice, friends rooms without bots by default', () => {
-  const comp = fs.readFileSync(path.join(BETA_SRC_DIR, 'compete.jsx'), 'utf8');
+  const comp = readModule('compete.jsx');
   assert(comp.includes('КТО ВАС УВИДИТ') && comp.includes('По умолчанию в зале все видят всех'), 'the first-use consent text must say what everyone sees');
   assert(comp.includes('Пока вы не выберете, ничего не публикуется'), 'and that nothing is published before the choice');
   assert(comp.includes('Веса, профиль, вес тела и самочувствие не видит никто'), 'and that health data is never shown');
@@ -3826,7 +3834,7 @@ test('Arena and friends rooms UI: consent screen, visibility choice, friends roo
   assert(comp.includes('КОМНАТЫ ДРУЗЕЙ (СКОРО)') && comp.includes('Закрытые комнаты: попасть можно только по коду'), 'friends rooms are described as private by code');
   assert(comp.includes('const [withBots, setWithBots] = useState(false)'), 'bots are OFF by default in friends rooms');
   assert(comp.includes('demo.withBots ? COMPETE_DEMO_CAPACITY : humans.length'), 'with bots off the room holds only people');
-  assert(betaSrc.includes('<ArenaPanel data={data} setData={setData} />'), 'the arena panel needs setData to store the choice');
+  assert(src.includes('<ArenaPanel data={data} setData={setData} />'), 'the arena panel needs setData to store the choice');
   assertNot(/fetch\(|WebSocket|sendBeacon/.test(comp), 'still no network');
   info('Consent first, three equal choices, under-16 note, friends rooms bot-free by default');
 });
@@ -3882,8 +3890,8 @@ test('Arena + friends rooms: the design doc records the decisions', () => {
   info('Section 10 covers scale variants, consent, age rule, honest counter, moderation');
 });
 
-test('Live competition UI: bots are labelled, no network, wired in, privacy stated, beta only', () => {
-  const comp = fs.readFileSync(path.join(BETA_SRC_DIR, 'compete.jsx'), 'utf8');
+test('Live competition UI: bots are labelled, no network, wired in, privacy stated, demo wording', () => {
+  const comp = readModule('compete.jsx');
   ['fetch(', 'XMLHttpRequest', 'sendBeacon', 'WebSocket', 'EventSource', 'navigator.share'].forEach(x => assertNot(comp.includes(x), 'compete.jsx must not touch the network: ' + x));
   // Боты ведут себя по-человечески, но НЕ выдаются за людей: значок у имени и строка в шапке комнаты обязательны
   assert(comp.includes('{r.bot && <span title="бот-партнёр"') && comp.includes('🤖'), 'every bot row must carry the robot marker');
@@ -3895,20 +3903,21 @@ test('Live competition UI: bots are labelled, no network, wired in, privacy stat
   assert(comp.includes('Каждый подключившийся человек вытесняет одного бота'), 'the replacement rule is explained to the user');
   assert(comp.includes('Веса не публикуются'), 'the weights-never-published promise is visible');
   assert(comp.includes('Сервера пока нет, ничего не отправляется'), 'the panel says nothing is sent');
-  assert(betaSrc.includes('typeof CompetePanel === "function" && <CompetePanel'), 'CompetePanel not wired into BetaTab');
-  assertNot(/function Compete|socialRoomBoard|socialBot/.test(app), 'competitions must not exist in the production page');
+  assert(src.includes('<CompetePanel data={data} />'), 'CompetePanel is not wired into the community screen');
+  assert(/function CompetePanel/.test(app) && /function socialRoomBoard/.test(app), 'competitions are part of the production page');
+  assert(comp.includes('ДЕМО-КОМНАТА ДРУЗЕЙ') && comp.includes('ВОЙТИ В ЗАЛ (ДЕМО)'), 'without a server the rooms are honestly called a demo');
   assert((comp.slice(comp.indexOf('function CompetePanel')).match(/minHeight: 48/g) || []).length >= 3, 'demo buttons need 44pt+ targets');
-  info('Labelled bots, no network, wired in, beta only');
+  info('Labelled bots, no network, wired in, called a demo');
 });
 
-test('Coach UI: panel is wired into the beta tab and its dismiss button is a 44pt target', () => {
-  const coach = fs.readFileSync(path.join(BETA_SRC_DIR, 'coach.jsx'), 'utf8');
-  assert(/function CoachPanel/.test(betaApp), 'CoachPanel missing from the beta page');
-  assert(betaSrc.includes('typeof CoachPanel === "function" && <CoachPanel'), 'BetaTab must render CoachPanel');
+test('Coach UI: panel is wired into the menu screen and its dismiss button is a 44pt target', () => {
+  const coach = readModule('coach.jsx');
+  assert(/function CoachPanel/.test(betaApp) && /function CoachPanel/.test(app), 'CoachPanel is in both pages');
+  assert(src.includes('<CoachPanel data={data} setData={setData} />'), 'the coach screen must render CoachPanel');
   assert(coach.includes('coachDismissed') && coach.includes('СКРЫТЬ НА НЕДЕЛЮ'), 'dismiss action missing');
   assert(/minHeight: 44[^}]*\}\}>\s*СКРЫТЬ/.test(coach), 'dismiss button needs minHeight 44');
-  assertNot(/function CoachPanel|coachAnalyze/.test(app), 'the coach must not leak into the production page');
-  info('Wired in, no leak into production');
+  assert(/function coachAnalyze/.test(app), 'the coach logic is part of the production page');
+  info('Wired in, part of the production app');
 });
 
 test('Compilation waits for the whole page, otherwise Babel reads a half-loaded app source', () => {
@@ -3980,7 +3989,7 @@ test('Test version never writes to production storage keys', () => {
 test('Copy from production only reads it and merges additively', () => {
   const from = src.indexOf('const BACKUP_APP');
   const prodBody = src.slice(from, src.indexOf('export default function App', from));
-  const betaBody = betaSrc.slice(betaSrc.indexOf('const PROD_STORAGE_KEY'), betaSrc.indexOf('function BetaSection'));
+  const betaBody = betaSrc.slice(betaSrc.indexOf('const PROD_STORAGE_KEY'), betaSrc.indexOf('function BetaTab'));
   const calls = [];
   const mk = raw => ({ getItem: k => { calls.push(['get', k]); return k === 'ppl_tracker_v4' ? raw : null; }, setItem: k => calls.push(['set', k]), removeItem: k => calls.push(['remove', k]) });
   const load = ls => new Function('localStorage', 'HISTORY_LIMIT', prodBody + betaBody + '; return { readProdBackup, countEntries };')(ls, 200);
@@ -4010,7 +4019,7 @@ test('Copy from production only reads it and merges additively', () => {
 test('Moving data into the test app by file (home-screen apps on iPhone do not share storage)', () => {
   const from = src.indexOf('const BACKUP_APP');
   const prodBody = src.slice(from, src.indexOf('export default function App', from));
-  const betaBody = betaSrc.slice(betaSrc.indexOf('const PROD_STORAGE_KEY'), betaSrc.indexOf('function BetaSection'));
+  const betaBody = betaSrc.slice(betaSrc.indexOf('const PROD_STORAGE_KEY'), betaSrc.indexOf('function BetaTab'));
   let pruned = 0;
   const f = new Function('localStorage', 'HISTORY_LIMIT', 'pruneOldKeys', prodBody + betaBody + '; return { betaMergeFile, readProdBackup, buildBackup };')(
     { getItem: () => null }, 200, d => { pruned++; return d; });
@@ -4038,11 +4047,11 @@ test('Moving data into the test app by file (home-screen apps on iPhone do not s
 });
 
 test('Test app data section explains the file route and the questionnaire is rendered on its own', () => {
-  const shell = fs.readFileSync(path.join(BETA_SRC_DIR, 'shell.jsx'), 'utf8');
+  const shell = readModule('shell.jsx');
   assert(shell.includes('type="file" accept="application/json,.json"') && shell.includes('ЗАГРУЗИТЬ ФАЙЛ ИЗ ОСНОВНОЙ ВЕРСИИ'), 'a file picker for the main version copy');
   assert(shell.includes('хранит данные отдельно') && shell.includes('СОХРАНИТЬ'), 'the section tells how to produce the file');
   assert(shell.includes('{!prod.error && ('), 'the direct copy button is shown only where the main version is actually readable');
-  const prof = fs.readFileSync(path.join(BETA_SRC_DIR, 'profile.jsx'), 'utf8');
+  const prof = readModule('profile.jsx');
   assert(prof.includes('ReactDOM.createPortal(') && prof.includes('document.body'), 'the questionnaire is rendered in body, outside the app tree');
   assert(prof.includes('r.style.visibility = "hidden"') && prof.includes('r.style.visibility = ""'), 'the app underneath is hidden while the questionnaire is open and restored afterwards');
   assert(/top: 0, left: 0, right: 0, bottom: 0/.test(prof), 'explicit edges instead of the inset shorthand');
@@ -4165,7 +4174,7 @@ test('Theme: a token name is its dark value, so the dark theme is the original l
 test('Theme: every var(--token) is defined, and no token is left unused', () => {
   const tail = headSrc.replace(/:root\{[\s\S]*?\}\s*:root\[data-theme="light"\]\{[\s\S]*?\}/, '');
   const used = new Set();
-  for (const text of [src, tail]) for (const m of text.matchAll(/var\(--([a-z0-9-]+)\)/g)) used.add(m[1]);
+  for (const text of [src, tail, betaSrc]) for (const m of text.matchAll(/var\(--([a-z0-9-]+)\)/g)) used.add(m[1]);
   const LOCAL = ['dx', 'rot'];   // переменные конфетти: задаются на каждой частице и читаются в @keyframes achConf, к палитре не относятся
   const undef = [...used].filter(k => !(k in DARK) && !LOCAL.includes(k));
   const dead = Object.keys(DARK).filter(k => !used.has(k));
@@ -4648,6 +4657,146 @@ test('Achievements: the seen-map is per device and is not merged from backups', 
   assert(!/achSeen/.test(merge), 'mergeBackup must not import achSeen (a restored device runs its own silent migration)');
   assert(src.includes('const ACH_BATCH_MAX = 4;'), 'bulk threshold constant');
   info('A restored device starts its own silent migration');
+});
+
+// ── SECTION 27: FEATURES MOVED FROM BETA TO THE MAIN APP ────────────────────
+section('27 · FEATURES IN THE MAIN APP (everything except music)');
+
+function loadBackupAll() {
+  const from = src.indexOf('const BACKUP_APP');
+  const body = src.slice(from, src.indexOf('export default function App'));
+  return new Function('HISTORY_LIMIT', body + '; return { parseBackup, mergeBackup, backupLog };')(200);
+}
+const fileOf = d => JSON.stringify({ app: 'workout-tracker', version: 1, data: d });
+
+test('Backup carries the questionnaire and the body measurements (they are real data now)', () => {
+  const { parseBackup, mergeBackup } = loadBackupAll();
+  const file = {
+    history: { push: [{ date: '2026-09-01', ts: 1, workout: 'push' }] },
+    profile: { sex: 'm', age: 30, height: 180, weight: 80, goal: 'mass', level: 'mid', days: 3, injuries: [] },
+    bodyLog: [{ date: '2026-09-10', kg: 80.5 }, { date: '2026-09-01', kg: 81 }],
+    feelLog: [{ date: '2026-09-02', score: 4 }],
+  };
+  const r = parseBackup(fileOf(file));
+  assert(r.data && r.data.profile.goal === 'mass', 'profile survives the cleaning');
+  assert(r.data.bodyLog.map(x => x.date).join() === '2026-09-01,2026-09-10', 'body log is kept and sorted by date');
+  assert(r.data.feelLog.length === 1, 'feel log is kept');
+  // пустое устройство: всё приходит из файла, а вопросы анкеты второй раз не задаются
+  const empty = { sessions: {}, history: {}, swaps: {}, skipped: {}, customWorkouts: {}, customSets: {}, addedEx: {}, profileSkipped: '2026-01-01' };
+  const m = mergeBackup(empty, r.data).data;
+  assert(m.profile && m.profile.age === 30 && m.profileSkipped === '', 'the profile is restored, "skipped" is cleared');
+  assert(m.bodyLog.length === 2 && m.feelLog.length === 1, 'measurements are restored');
+  // своё не перетираем: запись на ту же дату остаётся локальной, новые даты добавляются, своя анкета остаётся
+  const mine = { history: {}, sessions: {}, swaps: {}, skipped: {}, customWorkouts: {}, customSets: {}, addedEx: {},
+    profile: { goal: 'cut', age: 31 }, bodyLog: [{ date: '2026-09-10', kg: 79 }, { date: '2026-09-20', kg: 78 }], feelLog: [{ date: '2026-09-02', score: 2 }] };
+  const n = mergeBackup(mine, r.data).data;
+  assert(n.profile.goal === 'cut', 'a local questionnaire is never replaced');
+  assert(n.bodyLog.find(x => x.date === '2026-09-10').kg === 79, 'the local weight on the same date wins');
+  assert(n.bodyLog.map(x => x.date).join() === '2026-09-01,2026-09-10,2026-09-20', 'missing dates are added in order');
+  assert(n.feelLog.length === 1 && n.feelLog[0].score === 2, 'local feel wins on the same date');
+  // повторная загрузка ничего не меняет
+  assert(JSON.stringify(mergeBackup(n, r.data).data.bodyLog) === JSON.stringify(n.bodyLog), 'loading twice does not duplicate');
+  info('profile + body + feel restored; local data never overwritten; idempotent');
+});
+
+test('Backup: garbage in measurements and in the questionnaire is dropped, an old file without them still loads', () => {
+  const { parseBackup, mergeBackup, backupLog } = loadBackupAll();
+  assert(backupLog([{ date: '2026-01-01', kg: 10 }, { date: '2026-01-01', kg: 400 }, { date: 'x', kg: 80 }, { date: '2026-01-02', kg: '80' }, null, { kg: 80 }, { date: '2026-01-03', kg: 80 }], 'kg', 30, 250).map(r => r.date).join() === '2026-01-03', 'only valid dates with in-range numbers pass');
+  assert(backupLog('nope', 'kg', 30, 250).length === 0 && backupLog(undefined, 'kg', 30, 250).length === 0, 'non-arrays give an empty log');
+  const bad = parseBackup(fileOf({ history: {}, profile: 'hacker', bodyLog: { a: 1 }, feelLog: [{ date: '2026-01-01', score: 9 }] }));
+  assert(bad.data && bad.data.profile === null && bad.data.bodyLog.length === 0 && bad.data.feelLog.length === 0, 'bad shapes are ignored, the file still loads');
+  const old = parseBackup(fileOf({ history: { push: [{ date: '2026-09-01', ts: 1 }] } }));
+  assert(old.data && old.data.bodyLog.length === 0 && old.data.profile === null, 'a file from before the questionnaire loads fine');
+  const cur = { history: {}, sessions: {}, swaps: {}, skipped: {}, customWorkouts: {}, customSets: {}, addedEx: {}, bodyLog: [{ date: '2026-01-05', kg: 70 }] };
+  assert(mergeBackup(cur, old.data).data.bodyLog.length === 1, 'nothing is lost when the file has no measurements');
+  assert(mergeBackup(cur, { history: {}, sessions: {}, swaps: {}, skipped: {}, customWorkouts: {}, customSets: {}, addedEx: {} }).data.bodyLog.length === 1, 'a hand-made incoming object without the new fields is fine too');
+  info('garbage ignored, old files load');
+});
+
+test('Features live in src/features and reach both pages; only music stays beta-only', () => {
+  assert(fs.existsSync(FEATURES_SRC_DIR) && featureFiles.join() === 'coach.jsx,compete.jsx,panel.jsx,profile.jsx,social.jsx', 'src/features has the five shared modules, got: ' + featureFiles.join());
+  assert(betaFiles.join() === 'shell.jsx,spotify.jsx', 'src/beta has only the beta shell and music, got: ' + betaFiles.join());
+  [['production', app], ['beta', betaApp]].forEach(([name, page]) => {
+    ['CoachPanel', 'ProfilePanel', 'BodyPanel', 'ProfileOverlay', 'SocialPanel', 'ArenaPanel', 'CompetePanel', 'PanelSection', 'coachAnalyze', 'profileRecommend', 'socialSummary', 'socialRoomBoard'].forEach(f =>
+      assert(new RegExp('function ' + f + '\\(').test(page), f + ' is missing from the ' + name + ' page'));
+  });
+  assert(!/function SpotifyPanel|spStartLogin|function BetaTab|function BetaMiniPlayer|PROD_STORAGE_KEY/.test(app), 'music and the beta shell never reach production');
+  assert(/function SpotifyPanel/.test(betaApp) && /function BetaTab/.test(betaApp), 'but they are in the test page');
+  assert(/FEATURES_DIR/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'build.py'), 'utf8')), 'build.py knows about src/features');
+  info('5 shared modules in both pages; music and the data-transfer tab only in beta');
+});
+
+test('Features do not depend on beta-only code (otherwise production breaks at runtime)', () => {
+  const beta = betaFiles.map(f => fs.readFileSync(path.join(BETA_SRC_DIR, f), 'utf8')).join('\n');
+  // имена, определённые только в бета-модулях
+  const betaNames = [...new Set([...beta.matchAll(/^(?:async )?function ([A-Za-z0-9_]+)/gm)].map(m => m[1]).concat([...beta.matchAll(/^const ([A-Za-z0-9_]+) =/gm)].map(m => m[1])))];
+  assert(betaNames.length > 20, 'beta names found: ' + betaNames.length);
+  const code = featureSrc.replace(/\/\/.*$/gm, '');
+  const leaks = betaNames.filter(n => new RegExp('\\b' + n + '\\b').test(code));
+  assert(leaks.length === 0, 'shared modules use beta-only names: ' + leaks.join(', '));
+  assert(!/APP_VARIANT|PROD_STORAGE_KEY|localStorage/.test(code), 'shared modules do not touch storage keys or the variant: data comes in through props');
+  assert((featureSrc.match(/function PanelSection\(/g) || []).length === 1, 'PanelSection is defined once');
+  assert(!/function PanelSection|function BetaSection/.test(beta), 'the beta shell has no private copy of the section card');
+  info(betaNames.length + ' beta names checked against the shared modules');
+});
+
+test('Menu: the new screens are wired and match the menu items', () => {
+  const data = menuSrc.slice(menuSrc.indexOf('const MENU_SCREENS'), menuSrc.indexOf('// Три полоски'));
+  const { menuItems, MENU_SCREENS } = new Function(data + '; return { menuItems, MENU_SCREENS };')();
+  const ids = menuItems().map(i => i.id);
+  assert(ids.join() === 'plan,coach,profile,community,settings', 'menu order: ' + ids.join());
+  assert(MENU_SCREENS.join() === 'list,coach,profile,community,settings', 'screens: ' + MENU_SCREENS.join());
+  MENU_SCREENS.filter(x => x !== 'list').forEach(sc => assert(src.includes('if (planScreen === "' + sc + '")'), 'App must render the ' + sc + ' screen'));
+  assert((src.match(/<MenuScreen title=/g) || []).length === 4, 'all four screens use the shared frame');
+  assert(src.includes('<MenuScreen title="ТРЕНЕР"') && src.includes('<MenuScreen title="ПРОФИЛЬ"') && src.includes('<MenuScreen title="СООБЩЕСТВО"') && src.includes('<MenuScreen title="НАСТРОЙКИ"'), 'titles');
+  const coachScreen = src.slice(src.indexOf('if (planScreen === "coach")'), src.indexOf('if (planScreen === "profile")'));
+  assert(coachScreen.includes('<CoachPanel') && coachScreen.includes('<BodyPanel'), 'the coach screen shows advice and the weight/feel log');
+  const community = src.slice(src.indexOf('if (planScreen === "community")'), src.indexOf('// List screen: choose template or create custom'));
+  assert(community.includes('<SocialPanel') && community.includes('<ArenaPanel') && community.includes('<CompetePanel'), 'the community screen has friends, the arena and the rooms');
+  assert(!src.includes('setPlanScreen("coach")') && !src.includes('setPlanScreen("community")') && !src.includes('setPlanScreen("profile")'), 'screens open only through the menu item data');
+  assert(/const MenuScreen|function MenuScreen\(/.test(menuSrc) && menuSrc.includes('onClick={props.onBack}'), 'the frame has a back button');
+  info('plan, coach, profile, community, settings');
+});
+
+test('The beta tab keeps only what is still beta: moving data and music', () => {
+  const shell = readModule('shell.jsx');
+  const tab = shell.slice(shell.indexOf('function BetaTab'));
+  ['ProfilePanel', 'BodyPanel', 'CoachPanel', 'SocialPanel', 'ArenaPanel', 'CompetePanel'].forEach(n => assert(!tab.includes(n), n + ' moved to the menu: it must not be shown twice'));
+  assert(tab.includes('typeof SpotifyPanel === "function" && <SpotifyPanel') && tab.includes('ЗАГРУЗИТЬ ФАЙЛ ИЗ ОСНОВНОЙ ВЕРСИИ'), 'the beta tab still has the data transfer and music');
+  assert(src.includes('typeof BetaTab === "function"') && src.includes('typeof BetaMiniPlayer === "function"') && src.includes('typeof betaInitialTab === "function"'), 'the remaining beta seams stay guarded');
+  info('Beta tab: data transfer + Spotify');
+});
+
+test('Colours in the shared modules and the beta shell are theme tokens (the light theme reaches every screen)', () => {
+  const bad = [];
+  [...featureFiles.map(f => ['features/' + f, fs.readFileSync(path.join(FEATURES_SRC_DIR, f), 'utf8')]), ['beta/shell.jsx', readModule('shell.jsx')]].forEach(([name, text]) => {
+    text.split('\n').forEach((line, i) => {
+      const code = line.replace(/\/\/.*$/, '');
+      for (const m of code.matchAll(/#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})(?![0-9a-fA-F])/g)) {
+        const c = hexRgb(m[0]);
+        if (Math.max(...c) - Math.min(...c) <= 24 && m[0].toLowerCase() !== '#000') bad.push(name + ':' + (i + 1) + ' ' + m[0]);
+      }
+    });
+  });
+  assert(bad.length === 0, 'raw grey hex stays dark in the light theme: ' + bad.slice(0, 8).join(', '));
+  const used = new Set();
+  [featureSrc, readModule('shell.jsx')].forEach(t => { for (const m of t.matchAll(/var\(--([a-z0-9-]+)\)/g)) used.add(m[1]); });
+  const undef = [...used].filter(k => !(k in DARK));
+  assert(undef.length === 0, 'unknown tokens in the modules: ' + undef.join(', '));
+  ['bg-0a1220', 'tx-6ab0ff', 'tx-ff8a6a', 'tx-c9a96a'].forEach(k => assert(k in DARK && k in LIGHT, k + ' is defined in both themes'));
+  info(used.size + ' tokens used by the modules; no raw greys');
+});
+
+test('The moved screens keep their promises: demo wording, no network, privacy, polite tone is kept as written', () => {
+  ['social.jsx', 'compete.jsx', 'profile.jsx', 'coach.jsx', 'panel.jsx'].forEach(f => {
+    const t = readModule(f).replace(/\/\/.*$/gm, '');
+    ['fetch(', 'XMLHttpRequest', 'sendBeacon', 'WebSocket', 'EventSource'].forEach(x => assertNot(t.includes(x), f + ' must not touch the network: ' + x));
+  });
+  const compete = readModule('compete.jsx');
+  assert(compete.includes('Сервера пока нет, ничего не отправляется') && compete.includes('🤖'), 'the community screen says there is no server and marks bots');
+  assert(readModule('social.jsx').includes('Профиль, вес тела, самочувствие и журнал целиком друзьям не показываются никогда'), 'the privacy promise');
+  assert(menuSrc.includes('Друзья, зал и соревнования (демо)'), 'the menu itself calls the community a demo');
+  info('No network, bots marked, privacy promise, demo wording');
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
