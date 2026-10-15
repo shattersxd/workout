@@ -22,7 +22,12 @@
  *   8. JSX structure           (balanced braces/parens, self-closing tags)
  */
 
-const fs   = require('fs');
+// Тексты читаем без \r: в рабочей копии на Windows файлы бывают с CRLF, а тесты ищут многострочные подстроки
+// (например, '  return (\n    <div ...') и без этого давали ложные падения. Бинарные чтения (vendor/) не трогаем.
+const fsReal = require('fs');
+const fs   = Object.assign({}, fsReal, {
+  readFileSync: function () { const r = fsReal.readFileSync.apply(fsReal, arguments); return typeof r === 'string' ? r.replace(/\r\n/g, '\n') : r; },
+});
 const path = require('path');
 
 const GREEN  = s => `\x1b[32m${s}\x1b[0m`;
