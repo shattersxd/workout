@@ -1223,7 +1223,7 @@ function pruneOldKeys(d) {
   // Ключи вида YYYY-MM-DD_день. Старше SESSION_KEEP_DAYS - удаляем,
   // иначе localStorage растёт бесконечно.
   const cutoff = Date.now() - SESSION_KEEP_DAYS * 86400000;
-  ["sessions", "customSets", "addedEx", "skipped", "swaps"].forEach(function (bucket) {
+  ["sessions", "customSets", "addedEx", "skipped", "swaps", "started"].forEach(function (bucket) {
     if (!d[bucket]) return;
     Object.keys(d[bucket]).forEach(function (k) {
       const m = /^(\d{4}-\d{2}-\d{2})_/.exec(k);
@@ -1580,6 +1580,9 @@ export default function App() {
   const [expandedEx, setExpandedEx] = useState(null);
   const [swapModal, setSwapModal] = useState(null);
   const [savePrompt, setSavePrompt] = useState(false);
+  // Удобства тренировки (src/beta/ux.jsx, пока только в тестовой сборке): всплывашка рекорда и итог после сохранения
+  const [recordPop, setRecordPop] = useState(null);
+  const [summary, setSummary] = useState(null);
   const [addExModal, setAddExModal] = useState(false);
   const [journalMode, setJournalMode] = useState("log");
   const [journalEx, setJournalEx] = useState(null);
@@ -1661,7 +1664,8 @@ export default function App() {
     setAchQueue(q => q.slice(1));
     setData(prev => ({ ...prev, achSeen: { ...(prev.achSeen || {}), [id]: todayKey() } }));
   }
-  const achNow = achQueue.length ? ACHIEVEMENTS.find(a => a.id === achQueue[0]) : null;
+  // пока открыт итог тренировки, праздник ачивки ждёт: иначе он закроет итог
+  const achNow = achQueue.length && !summary ? ACHIEVEMENTS.find(a => a.id === achQueue[0]) : null;
 
   // Экран не гаснет, пока открыта тренировка или разминка (Screen Wake Lock, iOS 16.4+).
   // Система снимает замок при сворачивании приложения - берём его заново, когда вернулись.
@@ -1703,6 +1707,7 @@ export default function App() {
         if (left <= 0) {
           clearInterval(timerRef.current);
           try { if (navigator.vibrate) navigator.vibrate([150, 80, 150, 80, 300]); } catch(e) {}
+          try { if (typeof uxRestDone === "function") uxRestDone(); } catch(e) {}
           setTimer(function(t) { return t ? Object.assign({}, t, { left: 0, running: false }) : null; });
         } else {
           setTimer(function(t) { return t ? Object.assign({}, t, { left: left }) : null; });
@@ -2263,8 +2268,9 @@ export default function App() {
       return { ...prev, sessions: s };
     });
   }
-  function toggleDone(exId, setIdx, restStr) {
+  function toggleDone(exId, setIdx, restStr, exName) {
     const cur = getSetData(exId, setIdx);
+    let usedWeight = cur.weight;
     if (!cur.done && (!cur.weight || cur.weight === "")) {
       // Поле пустое: берём серую подсказку. Нет подсказки (первая тренировка) - просим вписать.
       const sug = getSuggestedWeight(exId, setIdx);
@@ -2273,12 +2279,15 @@ export default function App() {
         return;
       }
       updateSet(exId, setIdx, "weight", sug);
+      usedWeight = sug;
     }
     const newDone = !cur.done;
     updateSet(exId, setIdx, "done", newDone);
     if (newDone) {
       // Каждый закрытый подход начинает отдых заново
       startTimer(restStr);
+      // Звук (нужно нажатие), начало тренировки и рекорд: src/beta/ux.jsx, только в тестовой сборке
+      if (typeof uxOnSetDone === "function") uxOnSetDone({ data: data, setData: setData, sessionKey: sessionKey, activeDay: activeDay, session: session, exId: exId, setIdx: setIdx, weight: usedWeight, name: exName, unit: weightUnit(exName), show: setRecordPop });
       // Check if a new exercise just became fully done
       setTimeout(() => {
         const prog = getDayProgress();
@@ -2451,6 +2460,8 @@ export default function App() {
       return { id: rex.id, name: rex.name, reps: rex.reps, sets: sets, added: !!e._added };
     });
     const entry = { date: today, workout: activeDay, name: (getWorkout(activeDay) || {}).name || activeDay, done: prog.done, total: prog.total, ts: Date.now(), detail: detail, src: "manual", dbMode: (data.dbMode || "single") };
+    // сколько шла тренировка (src/beta/ux.jsx, только в тестовой сборке); Object.assign молча пропускает null
+    if (typeof uxEntryExtra === "function") Object.assign(entry, uxEntryExtra(data, sessionKey, data.resuming));
     const res = data.resuming;
     const isUpdate = res
       ? true
@@ -2477,7 +2488,10 @@ export default function App() {
       delete sessions[sessionKey];
       return { ...prev, history, sessions, resuming: null };
     });
-    lastPromptedExDone.current = 0; setSavePrompt(false); showToast(isUpdate ? "Тренировка обновлена!" : "Тренировка сохранена!");
+    lastPromptedExDone.current = 0; setSavePrompt(false);
+    // итог тренировки вместо тоста (src/beta/ux.jsx, только в тестовой сборке)
+    const summaryShown = typeof uxOnFinish === "function" && uxOnFinish({ entry: entry, data: data, sessionKey: sessionKey, setData: setData, show: setSummary, update: isUpdate });
+    if (!summaryShown) showToast(isUpdate ? "Тренировка обновлена!" : "Тренировка сохранена!");
   }
 
 
@@ -2859,6 +2873,9 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Звук: UxSettings есть только в тестовой сборке (src/beta/ux.jsx) */}
+              {typeof UxSettings === "function" && <UxSettings />}
+
               <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-666)", marginBottom: 10 }}>РЕЗЕРВНАЯ КОПИЯ</div>
               <div style={{ background: "var(--bg-0f0f12)", border: "1px solid var(--bd-1a1a22)", borderRadius: 10, padding: "14px 14px", marginBottom: 24 }}>
                 <div style={{ fontSize: 11, color: "var(--tx-888)", lineHeight: 1.6, marginBottom: 10 }}>
@@ -3120,7 +3137,7 @@ export default function App() {
                             <span style={{ flex: 1 }} />
                             <span style={{ fontSize: 12, color: "var(--tx-888)" }}>{ex.reps} повт.</span>
                           </div>
-                          <button onClick={() => toggleDone(ex.id, i, ex.rest)}
+                          <button onClick={() => toggleDone(ex.id, i, ex.rest, ex.name)}
                             style={{ width: 44, height: 44, borderRadius: 11, border: `2px solid ${sd.done ? w.color : "var(--bd-252530)"}`, background: sd.done ? w.color : "var(--bg-0c0c0f)", cursor: "pointer", color: sd.done ? "#000" : "var(--tx-444)", fontSize: sd.done ? 17 : 13, fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", flexShrink: 0 }}>
                             {sd.done ? "OK" : "O"}
                           </button>
@@ -3299,13 +3316,28 @@ export default function App() {
           return (
             <div style={{ paddingTop: 20 }}>
               <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-                {[["log","ЖУРНАЛ"],["progress","ПРОГРЕССИЯ"]].map(m => (
+                {(typeof UxCalendar === "function" ? [["log","ЖУРНАЛ"],["calendar","КАЛЕНДАРЬ"],["progress","ПРОГРЕССИЯ"]] : [["log","ЖУРНАЛ"],["progress","ПРОГРЕССИЯ"]]).map(m => (
                   <button key={m[0]} onClick={() => { setJournalMode(m[0]); setJournalEx(null); }}
                     style={{ flex: 1, padding: "12px 8px", borderRadius: 10, border: `1px solid ${journalMode === m[0] ? w.color : "var(--bd-1a1a22)"}`, background: journalMode === m[0] ? `${w.color}18` : "var(--bg-0c0c0f)", color: journalMode === m[0] ? "var(--tx-fff)" : "var(--tx-777)", fontSize: 11, letterSpacing: 2, cursor: "pointer", fontFamily: "inherit", fontWeight: journalMode === m[0] ? 700 : 400 }}>
                     {m[1]}
                   </button>
                 ))}
               </div>
+
+              {/* Календарь: UxCalendar есть только в тестовой сборке (src/beta/ux.jsx) */}
+              {journalMode === "calendar" && typeof UxCalendar === "function" && (
+                entries.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--tx-555)", fontSize: 13, lineHeight: 1.7 }}>
+                    Журнал пуст.<br />Завершённые тренировки появятся здесь отметками по дням.
+                  </div>
+                ) : (
+                  <UxCalendar entries={entries} today={todayKey()} colorOf={getPlanColor} ink={ink}
+                    onOpen={en => {
+                      setJournalMode("log"); setJournalDay(null); setJournalQ(""); setOpenEntry(en.ts);
+                      setTimeout(() => { const el = document.getElementById("jr-" + en.ts); if (el && el.scrollIntoView) el.scrollIntoView({ block: "center" }); }, 80);
+                    }} />
+                )
+              )}
 
               {journalMode === "log" && entries.length > 0 && (
                 <div style={{ marginBottom: 14 }}>
@@ -3366,7 +3398,7 @@ export default function App() {
                     const totalVol = detail.reduce((sum, ex) =>
                       sum + (ex.sets || []).filter(s => s.done && s.w).reduce((a, s) => a + (parseFloat(s.w) || 0), 0), 0);
                     return (
-                      <div key={i} style={{ background: "var(--bg-0f0f12)", border: `1px solid ${incomplete ? "var(--bd-2a1a1a)" : "var(--bd-1a1a22)"}`, borderLeft: `3px solid ${day.color}`, borderRadius: 12, marginBottom: 10, overflow: "hidden" }}>
+                      <div key={i} id={"jr-" + entry.ts} style={{ background: "var(--bg-0f0f12)", border: `1px solid ${incomplete ? "var(--bd-2a1a1a)" : "var(--bd-1a1a22)"}`, borderLeft: `3px solid ${day.color}`, borderRadius: 12, marginBottom: 10, overflow: "hidden" }}>
                         <div onClick={() => detail.length > 0 && setOpenEntry(isOpen ? null : entry.ts)}
                           style={{ padding: "16px 16px", cursor: detail.length > 0 ? "pointer" : "default", display: "flex", alignItems: "center", gap: 12 }}>
                           <div style={{ width: 46, height: 46, borderRadius: 10, background: `${day.color}15`, border: `1px solid ${day.color}40`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -4258,7 +4290,7 @@ export default function App() {
         const done = timer.left === 0;
         const circumference = 2 * Math.PI * 26;
         return (
-          <div style={{ position: "fixed", bottom: "calc(24px + env(safe-area-inset-bottom))", left: "50%", transform: "translateX(-50%)", zIndex: 500, display: "flex", alignItems: "center", gap: 14,
+          <div className={done && typeof uxRestDoneClass === "string" ? uxRestDoneClass : undefined} style={{ position: "fixed", bottom: "calc(24px + env(safe-area-inset-bottom))", left: "50%", transform: "translateX(-50%)", zIndex: 500, display: "flex", alignItems: "center", gap: 14,
             background: done ? "var(--bg-0e1a13)" : "var(--bg-111)", border: `1px solid ${done ? "#00d4aa50" : "var(--bd-2a2a35)"}`,
             borderRadius: 20, padding: "12px 20px 12px 14px", boxShadow: "var(--shadow-pop)",
             minWidth: 260, transition: "border-color 0.3s" }}>
@@ -4310,6 +4342,9 @@ export default function App() {
           </div>
         );
       })()}
+
+      {/* Всплывашка рекорда и итог тренировки: UxLayer есть только в тестовой сборке (src/beta/ux.jsx) */}
+      {typeof UxLayer === "function" && <UxLayer recordPop={recordPop} onRecordClose={() => setRecordPop(null)} summary={summary} onSummaryClose={() => setSummary(null)} color={w.color} ink={ink} />}
 
       {toast && (
         <div style={{ position: "fixed", bottom: timer ? "calc(130px + env(safe-area-inset-bottom))" : "calc(50px + env(safe-area-inset-bottom))", left: "50%", transform: "translateX(-50%)", background: "var(--bg-1a1a22)", border: "1px solid var(--bd-2a2a2a)", borderRadius: 8, padding: "10px 20px", fontSize: 11, color: "var(--tx-ccc)", letterSpacing: 1, zIndex: 999, pointerEvents: "none" }}>

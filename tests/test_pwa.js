@@ -507,7 +507,9 @@ test('Core state: data, activeDay, activeTab, timer, notifEnabled', () => {
 });
 test('toggleDone passes rest string to startTimer', () => {
   assert(src.includes('function toggleDone'), 'toggleDone missing');
-  assert(src.includes('toggleDone(ex.id, i, ex.rest)'), 'toggleDone not called with ex.rest');
+  // четвёртый аргумент - название упражнения для всплывашки рекорда (src/beta/ux.jsx)
+  assert(/toggleDone\(ex\.id, i, ex\.rest(, ex\.name)?\)/.test(src), 'toggleDone not called with ex.rest');
+  assert(/startTimer\(restStr\)/.test(src), 'toggleDone must start the rest timer with its rest string');
 });
 test('addTime updates endsAt (not just left)', () => {
   assert(src.includes('function addTime'), 'addTime missing');
@@ -4653,6 +4655,488 @@ test('Achievements: the seen-map is per device and is not merged from backups', 
   assert(!/achSeen/.test(merge), 'mergeBackup must not import achSeen (a restored device runs its own silent migration)');
   assert(src.includes('const ACH_BATCH_MAX = 4;'), 'bulk threshold constant');
   info('A restored device starts its own silent migration');
+});
+
+// ── SECTION 27: TRAINING CONVENIENCES (src/beta/ux.jsx) ─────────────────────
+section('27 · SOUND, RECORD, SUMMARY, CALENDAR (test version)');
+
+const uxFile = fs.readFileSync(path.join(BETA_SRC_DIR, 'ux.jsx'), 'utf8');
+const uxMark = uxFile.indexOf('// ---- Интерфейс ----');
+const uxPure = uxFile.slice(0, uxMark);
+const uxUi = uxFile.slice(uxMark);
+
+// Чистая часть модуля исполняется как есть; глобальные localStorage, window, APP_VARIANT и todayKey подставляем
+function loadUx(env) {
+  env = env || {};
+  const store = env.store || {};
+  const ls = {
+    getItem: k => { if (env.lsThrows) throw new Error('blocked'); return Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null; },
+    setItem: (k, v) => { if (env.lsThrows) throw new Error('blocked'); store[k] = String(v); },
+  };
+  const names = 'uxTones, uxSoundOn, uxSoundSet, uxContext, uxAudioUnlock, uxPlay, uxRestDone, uxFlat, uxPriorBest, uxRecordCheck, uxNum, uxOnSetDone, uxSummary, uxEntryExtra, uxOnFinish, uxDur, uxDurParts, uxVolumeOf, uxWeek, uxCalMonth, uxCalShift, uxCalFirst, UX_SOUND_KEY, UX_MONTHS, UX_WEEKDAYS, UX_DUR_MAX, UX_RECORDS_SHOWN';
+  const f = new Function('localStorage', 'window', 'APP_VARIANT', 'todayKey', uxPure + '; return { ' + names + ' };');
+  const api = f(ls, env.window || {}, env.variant || 'beta', () => env.today || '2026-10-07');
+  api.store = store;
+  return api;
+}
+
+// Заглушка Web Audio: считает, что создано и запущено
+function makeAudio(opts) {
+  opts = opts || {};
+  const log = { created: 0, resumed: 0, osc: [], gains: [], starts: [], stops: [], buffers: 0 };
+  class Ctx {
+    constructor() { log.created++; this.state = opts.state || 'suspended'; this.currentTime = 10; this.destination = { dest: true }; }
+    resume() { log.resumed++; if (opts.resumeThrows) throw new Error('nope'); this.state = 'running'; return Promise.resolve(); }
+    createBuffer() { log.buffers++; return {}; }
+    createBufferSource() { return { connect() {}, start() {}, set buffer(b) {} }; }
+    createOscillator() {
+      const o = { type: '', frequency: { value: 0 }, connect() {}, start(t) { log.starts.push(t); }, stop(t) { log.stops.push(t); } };
+      log.osc.push(o); return o;
+    }
+    createGain() {
+      const g = { gain: { calls: [], setValueAtTime(v, t) { this.calls.push(['set', v, t]); }, exponentialRampToValueAtTime(v, t) { this.calls.push(['ramp', v, t]); } }, connect() {} };
+      log.gains.push(g); return g;
+    }
+  }
+  return { Ctx, log };
+}
+
+test('Sound: both melodies are short, quiet and well formed', () => {
+  const ux = loadUx();
+  const done = ux.uxTones('done'), rec = ux.uxTones('record');
+  assert(done.length === 2 && rec.length === 4, 'rest signal is two notes, record is four, got ' + done.length + '/' + rec.length);
+  assert(ux.uxTones('nope').length === 0, 'an unknown kind is silent, not a crash');
+  [done, rec].forEach(list => {
+    list.forEach(n => {
+      assert(n.f >= 200 && n.f <= 4000, 'pitch in the audible, non-piercing range: ' + n.f);
+      assert(n.at >= 0 && n.len > 0, 'start and length must be positive');
+      assert(n.vol > 0 && n.vol <= 0.3, 'volume stays modest (people are nearby): ' + n.vol);
+    });
+    assert(Math.max.apply(null, list.map(n => n.at + n.len)) < 1, 'the whole signal is shorter than a second');
+  });
+  assert(rec.every((n, i) => i === 0 || n.f > rec[i - 1].f), 'the record melody rises');
+  info('rest: ' + done.map(n => n.f).join('/') + ' Hz; record: ' + rec.map(n => n.f).join('/') + ' Hz');
+});
+
+test('Sound: the audio context is made once, only when sound is on, and its absence is harmless', () => {
+  const a = makeAudio();
+  const ux = loadUx({ window: { AudioContext: a.Ctx } });
+  assert(a.log.created === 0, 'nothing is created at load time (iOS allows sound only after a tap)');
+  const c = ux.uxAudioUnlock();
+  assert(c && a.log.created === 1 && a.log.resumed === 1 && a.log.buffers === 1, 'first tap creates, wakes and primes the context: ' + JSON.stringify([a.log.created, a.log.resumed, a.log.buffers]));
+  ux.uxAudioUnlock(); ux.uxAudioUnlock();
+  assert(a.log.created === 1 && a.log.resumed === 1, 'a running context is reused and not woken again');
+  // iOS переводит контекст в "interrupted" после сворачивания - следующее касание будит его снова
+  c.state = 'interrupted'; ux.uxAudioUnlock();
+  assert(a.log.created === 1 && a.log.resumed === 2, 'an interrupted context is resumed on the next tap');
+  // звук выключен - контекст даже не создаётся
+  const b = makeAudio();
+  const off = loadUx({ window: { AudioContext: b.Ctx }, store: { sila_sound_beta: 'off' } });
+  assert(off.uxAudioUnlock() === null && b.log.created === 0, 'with sound off nothing is created');
+  // Safari старше 14.1 знает только webkitAudioContext
+  const w = makeAudio();
+  assert(loadUx({ window: { webkitAudioContext: w.Ctx } }).uxAudioUnlock() && w.log.created === 1, 'webkitAudioContext fallback');
+  // нет Web Audio или resume() падает - тишина, а не ошибка
+  assert(loadUx({ window: {} }).uxAudioUnlock() === null, 'no Web Audio -> null');
+  const bad = makeAudio({ resumeThrows: true });
+  const badUx = loadUx({ window: { AudioContext: bad.Ctx } });
+  assert(badUx.uxPlay('done') === false && badUx.uxOnSetDone({ data: { history: {} }, exId: 'x', weight: '1' }) === undefined, 'a throwing resume() must not break the app');
+  info('Created lazily and once, resumed when needed, never throws');
+});
+
+test('Sound: every note gets an envelope that never reaches zero; off means silent except the test button', () => {
+  const a = makeAudio();
+  const ux = loadUx({ window: { AudioContext: a.Ctx } });
+  assert(ux.uxPlay('done') === true, 'rest signal plays');
+  assert(a.log.osc.length === 2 && a.log.osc.map(o => o.frequency.value).join() === '880,1175', 'two sine notes at the tone frequencies');
+  assert(a.log.osc.every(o => o.type === 'sine'), 'sine waves (no harsh buzz)');
+  a.log.starts.forEach((t, i) => assert(t >= 10 && a.log.stops[i] > t, 'each note starts after "now" and stops after it starts'));
+  a.log.gains.forEach(g => {
+    const [s, up, down] = g.gain.calls;
+    // вызов записан как [имя, значение, время]
+    assert(s[0] === 'set' && up[0] === 'ramp' && down[0] === 'ramp', 'set, then two ramps');
+    assert(s[1] > 0 && up[1] > s[1] && down[1] > 0 && down[1] < up[1], 'exponential ramps cannot touch zero: ' + JSON.stringify(g.gain.calls));
+    assert(up[2] > s[2] && down[2] > up[2], 'attack, then decay');
+  });
+  // выключено: тишина, но кнопка "проверить" играет всегда
+  const b = makeAudio();
+  const off = loadUx({ window: { AudioContext: b.Ctx }, store: { sila_sound_beta: 'off' } });
+  assert(off.uxPlay('record') === false && b.log.osc.length === 0, 'off -> nothing plays');
+  off.uxRestDone();
+  assert(b.log.osc.length === 0, 'rest end is silent too');
+  assert(off.uxPlay('record', true) === true && b.log.osc.length === 4, 'the test button plays even when sound is off');
+  info('Envelopes ramp 0.0001 -> volume -> 0.0001; off is respected');
+});
+
+test('Sound: the choice has its own key (differs in beta and production) and never lives in data', () => {
+  assert(loadUx({ variant: 'beta' }).UX_SOUND_KEY === 'sila_sound_beta', 'beta key');
+  assert(loadUx({ variant: 'prod' }).UX_SOUND_KEY === 'sila_sound', 'production key is separate from the beta one');
+  const ux = loadUx();
+  assert(ux.uxSoundOn() === true, 'on by default');
+  ux.uxSoundSet(false); assert(ux.store.sila_sound_beta === 'off' && ux.uxSoundOn() === false, 'off is stored');
+  ux.uxSoundSet(true); assert(ux.store.sila_sound_beta === 'on' && ux.uxSoundOn() === true, 'and on again');
+  const blocked = loadUx({ lsThrows: true });
+  assert(blocked.uxSoundOn() === true && blocked.uxSoundSet(false) === undefined, 'storage blocked (private window) -> default, no crash');
+  assertNot(/sila_sound/.test(src), 'the sound key is not part of the main source: the choice is not in data, so it stays out of backups');
+  info('sila_sound_beta / sila_sound, outside data and backups');
+});
+
+test('Record: higher than everything before; the first time and ties are not records', () => {
+  const ux = loadUx();
+  const e = (date, ws, id) => ({ date, ts: Date.parse(date), workout: 'push', detail: [{ id: id || 'bench', name: 'Жим', sets: ws.map(w => ({ w: String(w), done: w > 0 })) }] });
+  const hist = [e('2026-09-16', [70, 72.5]), e('2026-09-23', [80, 77.5])];
+  const chk = (w, extra) => ux.uxRecordCheck(Object.assign({ entries: hist, exId: 'bench', weight: w }, extra || {}));
+  assert(chk('82.5') && chk('82.5').prior === 80 && chk('82.5').gain === 2.5 && chk('82.5').weight === 82.5, 'new maximum is a record, gain is measured from the old maximum');
+  assert(chk('80') === null && chk('75') === null, 'a tie or a lighter weight is not a record');
+  assert(ux.uxRecordCheck({ entries: hist, exId: 'squat', weight: '100' }) === null, 'the first time ever is not a record (same as the achievements)');
+  assert(ux.uxRecordCheck({ entries: [], exId: 'bench', weight: '100' }) === null, 'empty journal -> no records');
+  ['', '0', '-5', 'abc', undefined, null].forEach(w => assert(chk(w) === null, 'bad weight ' + w + ' is not a record'));
+  // неотмеченные подходы прошлых тренировок не считаются: 200 кг, который "не сделан", не рекорд
+  const unmarked = [{ date: '2026-09-30', ts: 1, workout: 'push', detail: [{ id: 'bench', name: 'Жим', sets: [{ w: '200', done: false }, { w: '60', done: true }] }] }];
+  assert(ux.uxRecordCheck({ entries: unmarked, exId: 'bench', weight: '65' }).prior === 60, 'only marked sets form the old maximum');
+  // подходы этой же тренировки: рекорд только если выше уже сделанных сегодня
+  assert(chk('82.5', { others: [82.5] }) === null, 'the same weight as an earlier set today is not another record');
+  assert(chk('85', { others: [82.5] }).prior === 80 && chk('85', { others: [82.5] }).gain === 5, 'a heavier set today beats the earlier one; gain stays relative to the old maximum');
+  assert(chk('82.5', { celebrated: 85 }) === null, 'a weight below what was already celebrated stays quiet (undo and redo)');
+  // вес с запятой/пробелами из ручного ввода
+  assert(chk('82.5 ') && chk('82.5 ').weight === 82.5, 'trailing space is fine');
+  assert(ux.uxNum(2.5) === '2.5' && ux.uxNum(5) === '5' && ux.uxNum(82.50000001) === '82.5', 'numbers are printed without float noise');
+  info('Record = marked weight above all earlier marked weights');
+});
+
+test('Record: tapping a set shows the pop-up once, ignores today\'s autosave and the entry being edited', () => {
+  const a = makeAudio();
+  const ux = loadUx({ window: { AudioContext: a.Ctx } });
+  const old = { date: '2026-09-30', ts: 100, workout: 'push', detail: [{ id: 'bench', name: 'Жим', sets: [{ w: '80', done: true }, { w: '77.5', done: true }] }] };
+  const auto = { date: '2026-10-07', ts: 300, workout: 'push', src: 'auto', detail: [{ id: 'bench', name: 'Жим', sets: [{ w: '90', done: true }] }] };   // автосохранение сегодняшней же тренировки
+  const data = { history: { push: [auto, old] }, resuming: null };
+  const shows = [], setters = [];
+  const tap = over => ux.uxOnSetDone(Object.assign({ data, setData: f => setters.push(f), sessionKey: '2026-10-07_push', activeDay: 'push', session: {}, exId: 'bench', setIdx: 0, weight: '82.5', name: 'Жим штанги лёжа', unit: 'кг', show: x => shows.push(x) }, over || {}));
+  tap();
+  assert(shows.length === 1, 'a record shows one pop-up (today\'s own autosave of 90 must not hide it), got ' + shows.length);
+  const p = shows[0];
+  assert(p.name === 'Жим штанги лёжа' && p.weight === 82.5 && p.prior === 80 && p.gain === 2.5 && p.unit === 'кг' && typeof p.id === 'number', 'pop-up carries name, weight, old maximum, gain and unit: ' + JSON.stringify(p));
+  assert(a.log.created === 1 && a.log.osc.length === 4, 'the tap wakes the audio and the record fanfare plays');
+  tap({ setIdx: 1 });
+  assert(shows.length === 1, 'the same weight again (already celebrated) stays quiet');
+  tap({ setIdx: 2, weight: '85' });
+  assert(shows.length === 2 && shows[1].gain === 5 && shows[1].prior === 80, 'a heavier set is a new record');
+  tap({ exId: 'squat', weight: '100' });
+  assert(shows.length === 2, 'an exercise without history is not a record');
+  tap({ sessionKey: '2026-10-08_push', exId: 'bench', weight: '80' });
+  assert(shows.length === 2, 'a tie with the old maximum is not a record');
+  // дополняемая запись не сравнивается сама с собой
+  const resumed = { history: { push: [{ date: '2026-10-01', ts: 200, workout: 'push', detail: [{ id: 'ohp', name: 'Жим стоя', sets: [{ w: '50', done: true }] }] }] }, resuming: { workout: 'push', ts: 200, date: '2026-10-01' } };
+  tap({ data: resumed, exId: 'ohp', weight: '52.5', sessionKey: '2026-10-07_x' });
+  assert(shows.length === 2, 'the entry being edited is not "the past" (its own 50 kg would otherwise look like an old record)');
+  // другие отмеченные подходы этой тренировки
+  const b = makeAudio();
+  const ux2 = loadUx({ window: { AudioContext: b.Ctx } });
+  const s2 = [];
+  const sess = { bench: { 0: { weight: '85', done: true }, 1: { weight: '70', done: false }, 2: { weight: '', done: false } } };
+  ux2.uxOnSetDone({ data, setData() {}, sessionKey: 'k', activeDay: 'push', session: sess, exId: 'bench', setIdx: 1, weight: '85', name: 'Жим', unit: 'кг', show: x => s2.push(x) });
+  assert(s2.length === 0, 'an earlier marked set of 85 today means 85 is not a new record');
+  info('One pop-up per new maximum; autosave, edited entry and ties are ignored');
+});
+
+test('Record: the pop-up is visual even with sound off, and a broken call never throws', () => {
+  const a = makeAudio();
+  const ux = loadUx({ window: { AudioContext: a.Ctx }, store: { sila_sound_beta: 'off' } });
+  const shows = [];
+  const data = { history: { push: [{ date: '2026-09-30', ts: 1, workout: 'push', detail: [{ id: 'bench', name: 'Жим', sets: [{ w: '80', done: true }] }] }] } };
+  ux.uxOnSetDone({ data, setData() {}, sessionKey: 'k', activeDay: 'push', session: {}, exId: 'bench', setIdx: 0, weight: '85', name: 'Жим', unit: 'кг', show: x => shows.push(x) });
+  assert(shows.length === 1 && a.log.created === 0 && a.log.osc.length === 0, 'sound off: the pop-up still shows, no audio is touched');
+  [undefined, null, {}, { data: null }, { data: { history: null }, exId: 'a' }].forEach(p => ux.uxOnSetDone(p));
+  assert(true);
+  info('Silent mode keeps the visual; malformed calls are swallowed');
+});
+
+test('Start time: the first marked set records when the workout began, and never overwrites it', () => {
+  const ux = loadUx();
+  const ups = [];
+  ux.uxOnSetDone({ data: { history: {} }, setData: f => ups.push(f), sessionKey: '2026-10-07_push', activeDay: 'push', session: {}, exId: 'a', setIdx: 0, weight: '10', name: 'A', unit: 'кг', show() {} });
+  assert(ups.length === 1, 'one state update');
+  const t0 = Date.now();
+  const next = ups[0]({ foo: 1 });
+  assert(next.foo === 1 && typeof next.started['2026-10-07_push'] === 'number' && next.started['2026-10-07_push'] >= t0 - 5, 'start time stored next to the other data, others untouched');
+  const prev = { started: { '2026-10-07_push': 5 }, foo: 1 };
+  assert(ups[0](prev) === prev, 'a start time already there is kept (same object -> no needless re-render)');
+  assert(ups[0]({ started: { other: 1 } }).started.other === 1, 'other days are kept');
+  info('data.started[sessionKey] = ms of the first marked set');
+});
+
+test('Duration: minutes from the first set, capped, kept when an entry is edited', () => {
+  const ux = loadUx();
+  const now = 1000000000000;
+  const d = m => ({ started: { k: now - m * 60000 }, history: {} });
+  assert(ux.uxEntryExtra(d(52), 'k', null, now).dur === 52, '52 minutes');
+  assert(ux.uxEntryExtra(d(0.4), 'k', null, now) === null, 'under a minute is noise');
+  assert(ux.uxEntryExtra(d(240), 'k', null, now).dur === 240 && ux.uxEntryExtra(d(241), 'k', null, now) === null, 'over 4 hours means the workout was forgotten open, so no time is shown');
+  assert(ux.uxEntryExtra({ history: {} }, 'k', null, now) === null, 'no start recorded -> nothing (old data, other devices)');
+  assert(ux.uxEntryExtra({ started: {}, history: {} }, 'k', null, now) === null, 'empty map -> nothing');
+  const withOld = { history: { push: [{ ts: 7, dur: 70 }, { ts: 8 }] }, started: { k: now - 5 * 60000 } };
+  assert(ux.uxEntryExtra(withOld, 'k', { workout: 'push', ts: 7 }, now).dur === 70, 'editing an entry keeps its original time (the new part alone would be misleading)');
+  assert(ux.uxEntryExtra(withOld, 'k', { workout: 'push', ts: 8 }, now) === null && ux.uxEntryExtra(withOld, 'k', { workout: 'gone', ts: 8 }, now) === null, 'an entry without a time stays without one');
+  assert(ux.uxEntryExtra({ started: { k: Date.now() - 3 * 60000 }, history: {} }, 'k', null).dur === 3, 'default clock works');
+  const e = { name: 'PUSH' }; Object.assign(e, ux.uxEntryExtra({ history: {} }, 'k', null, now));
+  assert(JSON.stringify(e) === '{"name":"PUSH"}', 'Object.assign with null leaves the entry as it was (this is how finishWorkout uses it)');
+  assert(ux.UX_DUR_MAX === 240, 'cap is 240 minutes');
+  info('52 min ok; <1 and >240 ignored; edits keep the old time');
+});
+
+test('Duration text: minutes under an hour, h:mm above', () => {
+  const ux = loadUx();
+  assert([7, 52, 60, 65, 125].map(ux.uxDur).join('|') === '7 мин|52 мин|1 ч 00 мин|1 ч 05 мин|2 ч 05 мин', 'long form: ' + [7, 52, 60, 65, 125].map(ux.uxDur).join('|'));
+  const p = ux.uxDurParts(52), q = ux.uxDurParts(65);
+  assert(p.value === '52' && p.unit === 'МИН' && q.value === '1:05' && q.unit === 'Ч', 'tile form: ' + JSON.stringify([p, q]));
+  info('52 мин / 1 ч 05 мин / 1:05 Ч');
+});
+
+// Журнал для итога: две прошлые "push", одна "pull" на этой неделе
+const sumSets = (...ws) => ws.map(w => ({ w: String(w), done: w > 0 }));
+const sumEntry = (date, ts, workout, exs, extra) => Object.assign({ date, ts, workout, name: workout.toUpperCase(), done: 9, total: 9, src: 'manual',
+  detail: exs.map(([id, name, ws]) => ({ id, name, sets: sumSets(...ws) })) }, extra || {});
+const sumHist = () => ({
+  push: [sumEntry('2026-09-30', 20, 'push', [['bench', 'Жим', [80, 80]], ['ohp', 'Жим стоя', [40]]]), sumEntry('2026-09-23', 10, 'push', [['bench', 'Жим', [70, 70]], ['ohp', 'Жим стоя', [40]]])],
+  pull: [sumEntry('2026-10-05', 30, 'pull', [['row', 'Тяга', [60]]])],
+});
+const SCHED = ['push', null, 'pull', null, 'legs', null, null];
+
+test('Summary: volume, sets, finished exercises, change against the last same workout', () => {
+  const ux = loadUx();
+  // сегодня: жим 90+90, жим стоя 40 и ещё подход 45 не отмечен -> 220 кг, 3 подхода, целиком сделано одно упражнение из двух
+  const entry = sumEntry('2026-10-07', 40, 'push', [['bench', 'Жим', [90, 90]], ['ohp', 'Жим стоя', [40, 0]]], { total: 4, done: 3, dur: 52 });
+  const s = ux.uxSummary(entry, sumHist(), SCHED);
+  assert(s.volume === 220 && s.sets === 3 && s.exDone === 1 && s.exTotal === 2 && s.setsTotal === 4, 'counts: ' + JSON.stringify(s));
+  assert(s.hasPrev === true && s.delta === 10, 'compared with the 30 Sept push (200 kg): +10%, got ' + s.delta);
+  assert(s.dur === 52 && s.name === 'PUSH' && s.workout === 'push' && s.date === '2026-10-07', 'identity and time carried over');
+  assert(s.weekCount === 2 && s.planned === 3, 'second workout of the week (the pull on Monday), plan has 3 days: ' + s.weekCount + '/' + s.planned);
+  assert(ux.uxVolumeOf(entry.detail) === 220, 'volume helper agrees');
+  info('220 kg, 3 sets, +10% to last push, week 2 of 3');
+});
+
+test('Summary: records are measured against the past only, biggest gain first', () => {
+  const ux = loadUx();
+  const entry = sumEntry('2026-10-07', 40, 'push', [['bench', 'Жим', [90, 85]], ['ohp', 'Жим стоя', [40]], ['sq', 'Присед', [120]], ['curl', 'Бицепс', [20]]]);
+  const h = sumHist();
+  h.legs = [sumEntry('2026-09-25', 15, 'legs', [['sq', 'Присед', [100]]])];
+  const s = ux.uxSummary(entry, h, SCHED);
+  assert(s.records.map(r => r.id).join() === 'sq,bench', 'squat (+20) before bench (+10); 40 on OHP is a tie; curl has no history: ' + JSON.stringify(s.records));
+  assert(s.records[0].prior === 100 && s.records[0].gain === 20 && s.records[1].prior === 80 && s.records[1].weight === 90, 'prior and gain per record');
+  assert(ux.UX_RECORDS_SHOWN === 4, 'the list on screen is capped at four');
+  // дополнение старой записи: "прошлое" - только то, что было ДО неё
+  const old = ux.uxSummary(sumEntry('2026-09-30', 20, 'push', [['bench', 'Жим', [80, 80]]]), sumHist(), SCHED);
+  assert(old.records.length === 1 && old.records[0].prior === 70, 'an old entry is judged by what came before it: bench 80 vs 70, got ' + JSON.stringify(old.records));
+  info('Records: ' + s.records.map(r => r.id + ' +' + r.gain).join(', '));
+});
+
+test('Summary: the entry never compares with itself or with its own earlier version', () => {
+  const ux = loadUx();
+  const entry = sumEntry('2026-10-07', 40, 'push', [['bench', 'Жим', [90, 90]]]);
+  const base = ux.uxSummary(entry, sumHist(), SCHED);
+  const withSelf = sumHist();
+  withSelf.push.unshift(entry);                                                                        // сама запись уже в журнале
+  withSelf.push.unshift(sumEntry('2026-10-07', 35, 'push', [['bench', 'Жим', [200]]]));                   // прежняя версия за тот же день
+  const s = ux.uxSummary(entry, withSelf, SCHED);
+  assert(s.delta === base.delta && s.records.length === base.records.length && s.weekCount === base.weekCount, 'same result with the entry (and its older version) in the journal: ' + JSON.stringify([s.delta, s.records.length, s.weekCount]));
+  assert(s.records[0].prior === 80, 'the old 200 kg draft of the same day is not "the past"');
+  info('Self and same-day earlier version are excluded');
+});
+
+test('Summary: first workout, missing weights and half-empty data do not break it', () => {
+  const ux = loadUx();
+  const first = ux.uxSummary(sumEntry('2026-10-07', 40, 'push', [['bench', 'Жим', [60]]]), {}, null);
+  assert(first.hasPrev === false && first.delta === null && first.records.length === 0 && first.weekCount === 1 && first.planned === 0, 'first ever: ' + JSON.stringify(first));
+  const noW = sumHist(); noW.push[0].detail = [{ id: 'bench', name: 'Жим', sets: [{ w: '', done: true }] }];
+  const s2 = ux.uxSummary(sumEntry('2026-10-07', 40, 'push', [['bench', 'Жим', [60]]]), noW, SCHED);
+  assert(s2.hasPrev === true && s2.delta === null, 'a previous workout without weights gives no percentage (division by zero avoided)');
+  const bare = ux.uxSummary({ date: '2026-10-07', ts: 1, workout: 'push', name: 'PUSH' }, { push: [null, { date: '2026-10-01' }] }, SCHED);
+  assert(bare.volume === 0 && bare.sets === 0 && bare.exTotal === 0 && bare.dur === 0, 'no detail at all -> zeros');
+  const prevDown = ux.uxSummary(sumEntry('2026-10-07', 40, 'push', [['bench', 'Жим', [60]]]), sumHist(), SCHED);
+  assert(prevDown.delta < 0, 'a lighter workout gives a negative percentage: ' + prevDown.delta);
+  assert(ux.uxWeek('2026-10-05') === ux.uxWeek('2026-10-11') && ux.uxWeek('2026-10-12') === ux.uxWeek('2026-10-05') + 1, 'weeks run Monday to Sunday');
+  info('First workout, empty weights, bare entries');
+});
+
+test('Finish: the summary is shown, the start time is cleaned up, and a failure falls back to the toast', () => {
+  const ux = loadUx();
+  const shows = [], ups = [];
+  const entry = sumEntry('2026-10-07', 40, 'push', [['bench', 'Жим', [90]]], { dur: 40 });
+  const data = { history: sumHist(), schedule: SCHED, resuming: null };
+  const ok = ux.uxOnFinish({ entry, data, sessionKey: 'k', setData: f => ups.push(f), show: x => shows.push(x), update: false });
+  assert(ok === true && shows.length === 1 && shows[0].update === false && shows[0].volume === 90 && shows[0].planned === 3, 'summary handed to the screen');
+  const cleaned = ups[0]({ started: { k: 1, other: 2 }, a: 1 });
+  assert(!('k' in cleaned.started) && cleaned.started.other === 2 && cleaned.a === 1, 'only this workout\'s start time is removed');
+  const same = { a: 1 }; assert(ups[0](same) === same && ups[0]({ started: {} }).started !== undefined, 'nothing to clean -> same state');
+  ux.uxOnFinish({ entry, data, sessionKey: 'k', setData() {}, show: x => shows.push(x), update: true });
+  assert(shows[1].update === true, 'edited workout is marked as updated');
+  // дополнение: дата и время берутся из редактируемой записи
+  const resumedData = { history: sumHist(), schedule: SCHED, resuming: { workout: 'push', ts: 20, date: '2026-09-30' } };
+  const r = [];
+  ux.uxOnFinish({ entry: sumEntry('2026-10-07', 999, 'push', [['bench', 'Жим', [80, 80]]]), data: resumedData, sessionKey: 'k', setData() {}, show: x => r.push(x), update: true });
+  assert(r[0].date === '2026-09-30' && r[0].delta !== null && r[0].records.length === 1 && r[0].records[0].prior === 70, 'an edited entry is summarised as of its own date: ' + JSON.stringify(r[0]));
+  assert(ux.uxOnFinish({}) === false && ux.uxOnFinish(null) === false, 'a failure returns false, so the ordinary toast is shown instead');
+  info('uxOnFinish returns true only when the summary is on screen');
+});
+
+test('Calendar: a month is a Monday-first grid with padding, workouts, today and the future', () => {
+  const ux = loadUx();
+  const ent = [sumEntry('2026-10-05', 30, 'pull', [['row', 'Тяга', [60, 60]]]), sumEntry('2026-10-07', 50, 'push', [['bench', 'Жим', [80]]]), sumEntry('2026-10-07', 40, 'legs', [['sq', 'Присед', [100, 100]]]),
+    sumEntry('2026-09-30', 20, 'push', [['bench', 'Жим', [999]]]), { date: '2026-10-20', ts: 9, workout: 'push', name: 'PUSH', done: 5, total: 6 }];
+  const m = ux.uxCalMonth(ent, 2026, 9, '2026-10-07');
+  assert(m.title === 'Октябрь 2026' && m.rows === 5 && m.cells.length === 35 && m.cells.length % 7 === 0, 'October 2026 starts on Thursday: 3 padding cells, 31 days, 5 rows, got ' + m.cells.length);
+  assert(m.cells.slice(0, 3).every(c => c.date === null) && m.cells[3].date === '2026-10-01' && m.cells[3].day === 1, 'padding before the 1st');
+  assert(m.cells.slice(34).every(c => c.date === null) && m.cells[33].date === '2026-10-31', 'padding after the last day');
+  const at = d => m.cells.find(c => c.date === d);
+  assert(at('2026-10-07').today === true && at('2026-10-06').today === false && at('2026-10-08').future === true && at('2026-10-07').future === false, 'today and future flags');
+  assert(at('2026-10-07').items.map(e => e.workout).join() === 'legs,push', 'two workouts in one day, ordered by time (ts 40 before 50)');
+  assert(at('2026-10-05').items.length === 1 && at('2026-10-06').items.length === 0, 'single and empty days');
+  assert(!m.cells.some(c => c.items && c.items.some(e => e.date === '2026-09-30')), 'other months do not leak in');
+  assert(m.stats.workouts === 4 && m.stats.days === 3, 'four workouts on three days: ' + JSON.stringify(m.stats));
+  assert(m.stats.volume === 120 + 80 + 200 && m.stats.sets === 2 + 1 + 2 + 5, 'volume from marked sets; an old entry without detail still counts its sets: ' + JSON.stringify(m.stats));
+  // длина месяца и число строк
+  const rows = (y, mo) => ux.uxCalMonth([], y, mo, '2026-10-07').rows;
+  assert(rows(2027, 1) === 4 && ux.uxCalMonth([], 2027, 1, 'x').cells[0].date === '2027-02-01', 'February 2027 is exactly four Monday-to-Sunday rows');
+  assert(rows(2026, 7) === 6, 'August 2026 (starts on Saturday) needs six rows');
+  assert(ux.uxCalMonth([], 2028, 1, 'x').cells.filter(c => c.date).length === 29, 'leap February');
+  assert(ux.uxCalMonth([], 2026, 11, 'x').cells.filter(c => c.date).length === 31 && ux.uxCalMonth(null, 2026, 0, 'x').stats.workouts === 0, 'December, and a missing list is an empty month');
+  info('Oct 2026: 5 rows, 4 workouts on 3 days; Aug 2026: 6 rows; Feb 2027: 4 rows');
+});
+
+test('Calendar: month navigation crosses year borders and stops at the first journal month', () => {
+  const ux = loadUx();
+  assert(JSON.stringify(ux.uxCalShift({ y: 2026, m: 11 }, 1)) === '{"y":2027,"m":0}', 'December -> January');
+  assert(JSON.stringify(ux.uxCalShift({ y: 2026, m: 0 }, -1)) === '{"y":2025,"m":11}', 'January -> December');
+  assert(JSON.stringify(ux.uxCalShift({ y: 2026, m: 5 }, 13)) === '{"y":2027,"m":6}' && JSON.stringify(ux.uxCalShift({ y: 2026, m: 5 }, -6)) === '{"y":2025,"m":11}', 'long jumps');
+  assert(JSON.stringify(ux.uxCalFirst([{ date: '2026-03-02' }, { date: '2025-12-30' }, { date: '2026-10-01' }])) === '{"y":2025,"m":11}', 'earliest month of the journal');
+  assert(ux.uxCalFirst([]) === null && ux.uxCalFirst(undefined) === null && ux.uxCalFirst([null, {}]) === null, 'nothing to go back to');
+  assert(UX_UI_HAS('canPrev') && UX_UI_HAS('canNext'), 'the screen disables the arrows at both ends');
+  info('Dec->Jan, Jan->Dec, long jumps, first month');
+});
+function UX_UI_HAS(s) { return uxUi.includes(s); }
+
+test('Seams: every use in the main code is guarded by typeof, so the production page behaves as before', () => {
+  const lines = src.split('\n');
+  const used = {};
+  lines.forEach((l, i) => {
+    if (l.trim().startsWith('//') || l.trim().startsWith('{/*')) return;
+    for (const m of l.matchAll(/\b(ux[A-Z]\w*|Ux[A-Z]\w*)\b/g)) {
+      const name = m[1];
+      if (new RegExp('typeof ' + name + '\\b').test(l)) { used[name] = (used[name] || 0) + 1; continue; }
+      const near = lines.slice(Math.max(0, i - 12), i + 1).join('\n');
+      assert(new RegExp('typeof ' + name + ' ===').test(near), 'line ' + (i + 1) + ': ' + name + ' is used without a typeof guard (the production page has no such function): ' + l.trim().slice(0, 80));
+      used[name] = (used[name] || 0) + 1;
+    }
+  });
+  const names = Object.keys(used).sort();
+  ['uxRestDone', 'uxOnSetDone', 'uxEntryExtra', 'uxOnFinish', 'uxRestDoneClass', 'UxSettings', 'UxCalendar', 'UxLayer'].forEach(n => assert(used[n], n + ' is not wired into the app'));
+  assert(!/function ux[A-Z]|function Ux[A-Z]|const ux[A-Z]|const UX_/.test(src), 'the main source defines none of them: they live in src/beta/ux.jsx');
+  info('Guarded seams: ' + names.join(', '));
+});
+
+test('Seams: the production page carries no part of the new module and keeps its own behaviour', () => {
+  ['function uxOnSetDone', 'function UxLayer', 'function UxCalendar', 'function UxSettings', 'UX_CSS', 'sila_sound', 'AudioContext'].forEach(t => assertNot(app.includes(t), 'production page contains ' + t));
+  ['function uxOnSetDone', 'function UxLayer', 'function UxCalendar', 'function UxSettings', 'const UX_CSS', 'sila_sound_beta'].forEach(t => assert(betaApp.includes(t), 'beta page lacks ' + t));
+  assert(betaFiles.includes('ux.jsx'), 'ux.jsx is a beta module');
+  assert(src.includes('if (!summaryShown) showToast(isUpdate ? "Тренировка обновлена!" : "Тренировка сохранена!");'), 'without the module the old toast is shown');
+  assert(src.includes('"swaps", "started"]'), 'start times of abandoned workouts are pruned with the other dated keys');
+  assert(/const achNow = achQueue\.length && !summary \?/.test(src), 'an achievement celebration waits while the summary is open');
+  info('Production index.html: no new functions, no new keys');
+});
+
+test('Seams: sound settings, calendar tab, record target and rest-done class are wired where the user sees them', () => {
+  const block = src.slice(src.indexOf('const settingsSections = ('), src.indexOf('  return (\n    <div style={{ minHeight: "100vh"'));
+  assert(block.indexOf('<UxSettings />') > block.indexOf('>ЭКРАН<') && block.indexOf('<UxSettings />') < block.indexOf('>РЕЗЕРВНАЯ КОПИЯ<'), 'sound settings sit between the screen and the backup blocks');
+  assert(/\[\["log","ЖУРНАЛ"\],\["calendar","КАЛЕНДАРЬ"\],\["progress","ПРОГРЕССИЯ"\]\]/.test(src) && /: \[\["log","ЖУРНАЛ"\],\["progress","ПРОГРЕССИЯ"\]\]\)\.map/.test(src), 'three journal tabs with the module, the original two without');
+  assert(src.includes('id={"jr-" + entry.ts}') && src.includes('getElementById("jr-" + en.ts)'), 'the calendar scrolls to the opened journal entry');
+  assert(/setJournalMode\("log"\); setJournalDay\(null\); setJournalQ\(""\); setOpenEntry\(en\.ts\)/.test(src), 'opening from the calendar clears filters so the entry is certainly in the list');
+  assert(/<UxCalendar entries=\{entries\} today=\{todayKey\(\)\} colorOf=\{getPlanColor\} ink=\{ink\}/.test(src), 'calendar gets the entries, today, colours and theme ink');
+  assert(src.includes('className={done && typeof uxRestDoneClass === "string" ? uxRestDoneClass : undefined}'), 'the rest card gets a wave only when the rest is over');
+  assert(/<UxLayer recordPop=\{recordPop\} onRecordClose=\{\(\) => setRecordPop\(null\)\} summary=\{summary\} onSummaryClose=\{\(\) => setSummary\(null\)\} color=\{w\.color\} ink=\{ink\} \/>/.test(src), 'layer gets both states and their closers');
+  assert(/weight: usedWeight, name: exName, unit: weightUnit\(exName\), show: setRecordPop/.test(src), 'record check gets the weight that was really used (typed or suggested)');
+  assert(src.includes('usedWeight = sug;'), 'a suggested weight counts as the used weight');
+  assert(src.includes('uxEntryExtra(data, sessionKey, data.resuming)'), 'duration is stored in the saved entry');
+  info('Settings, tab, scroll target, rest wave, layer, used weight');
+});
+
+test('Visuals: every moving element can be switched off, nothing starts hidden, colours are theme tokens', () => {
+  const css = uxFile.slice(uxFile.indexOf('const UX_CSS = ['), uxFile.indexOf('].join("\\n");'));
+  const kf = [...css.matchAll(/@keyframes (ux[A-Za-z]+)\{/g)].map(m => m[1]);
+  assert(kf.length >= 8, 'keyframes declared: ' + kf.join());
+  kf.forEach(k => assert(new RegExp('\\.ux-[a-z-]+\\{[^}]*animation:' + k + '\\b').test(css), 'keyframes ' + k + ' is used by a class'));
+  const classes = [...uxUi.matchAll(/className="([^"]*\bux-[^"]*)"/g)].map(m => m[1]);
+  assert(classes.length >= 8, 'animated elements found: ' + classes.length);
+  classes.forEach(c => {
+    assert(/\bapp-anim\b/.test(c), 'animated element "' + c + '" lacks app-anim, so reduced motion would not stop it');
+    c.split(' ').filter(x => x.startsWith('ux-')).forEach(x => assert(css.includes('.' + x + '{'), 'class ' + x + ' has no CSS'));
+  });
+  assert(/const uxRestDoneClass = "app-anim ux-rest-done";/.test(uxUi) && css.includes('.ux-rest-done{'), 'rest-done class carries app-anim and exists');
+  assert(/@media \(prefers-reduced-motion: reduce\)\{\.app-anim,\.app-anim \*\{animation:none!important\}\}/.test(headSrc), 'the global reduced-motion rule is in head.html');
+  // "естественный" вид - итоговый: в стилях нет opacity: 0 / скрытых слоёв, в кадрах заданы только стартовые значения
+  assertNot(/opacity:\s*0[,\s}]/.test(uxUi.replace(css, '')), 'no inline layer starts invisible');
+  assert(!/Math\.random/.test(uxFile), 'no randomness: a re-render must not move anything');
+  assert(!/#[0-9a-fA-F]{3,8}\b/.test(uxUi.replace(/\/\/.*$/gm, '').replace(/#(f7a844|ffd98a)[0-9a-f]{0,2}\b|#000\b/gi, '')), 'only theme tokens plus the amber accent (with transparency) and black-on-colour text');
+  const grey = [...uxFile.replace(/\/\/.*$/gm, '').matchAll(/#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})(?![0-9a-fA-F])/g)].filter(m => { const c = hexRgb(m[0]); return Math.max(...c) - Math.min(...c) <= 24 && m[0].toLowerCase() !== '#000'; });
+  assert(grey.length === 0, 'no raw greys: ' + grey.map(m => m[0]).join());
+  [...uxUi.matchAll(/var\(--([a-z0-9-]+)\)/g)].forEach(m => assert(new RegExp('--' + m[1] + ':').test(headSrc), 'token --' + m[1] + ' does not exist in head.html'));
+  info(kf.length + ' keyframes, ' + classes.length + ' animated elements, all with app-anim; tokens exist');
+});
+
+test('Visuals: layers sit in the right order, respect the safe areas, and buttons are at least 44pt', () => {
+  const z = [...uxUi.matchAll(/zIndex: (\d+)/g)].map(m => +m[1]);
+  assert(z.length >= 3 && z.every(n => n === 650), 'record pop-up, summary and day sheet share one layer: ' + z.join());
+  assert(src.includes('zIndex: 500') && src.includes('zIndex: 700'), 'timer 500 below, celebration 700 above');
+  assert(uxUi.includes('env(safe-area-inset-top)') && (uxUi.match(/env\(safe-area-inset-bottom\)/g) || []).length >= 2, 'pop-up clears the status bar; sheets clear the home indicator');
+  assert(!/inset: 0/.test(uxUi), 'explicit edges instead of the inset shorthand (fixed windows on iPhone sometimes stop short of the bottom edge)');
+  assert((uxUi.match(/role="dialog" aria-modal="true"/g) || []).length === 2 && uxUi.includes('role="status"'), 'dialogs and the status message are announced');
+  // каждая кнопка: высота 44+ либо общий стиль с такой высотой
+  const buttons = [...uxUi.matchAll(/<button\b/g)].map(m => uxUi.slice(m.index, m.index + 760));
+  assert(buttons.length >= 7, 'buttons found: ' + buttons.length);
+  buttons.forEach((b, i) => assert(/(minHeight|height): (4[4-9]|[5-9]\d)\b/.test(b) || /Object\.assign\(\{\}, (nav|base)\b/.test(b), 'button #' + (i + 1) + ' is shorter than 44pt: ' + b.slice(0, 120).replace(/\s+/g, ' ')));
+  assert(/const nav = \{ width: 44, height: 44/.test(uxUi) && /const base = \{ height: 48/.test(uxUi), 'shared button styles are 44 and 48 high');
+  info('z=650 for all three, 44pt+ buttons, safe areas');
+});
+
+test('Texts: Russian, no addressing in either form, no characters that break Babel on iOS', () => {
+  const body = codeLines(uxUi).join('\n');
+  const ru = [...body.matchAll(/[А-ЯЁ][А-Яа-яЁё, ]{6,}/g)].map(m => m[0]);
+  assert(ru.length >= 20, 'Russian texts found: ' + ru.length);
+  const L = '(?<![А-Яа-яЁё])', R = '(?![А-Яа-яЁё])';
+  const addr = new RegExp(L + '(нажми|нажмите|сними|снимите|впиши|впишите|проверь|проверьте|выбери|выберите|ты|вы|тебе|вам|твой|ваш|ваши|твои)' + R, 'i');
+  const hit = body.split('\n').filter(l => /["'`>]/.test(l) && addr.test(l.replace(/\/\/.*$/, '')) && /[А-Яа-яЁё]/.test(l));
+  assert(hit.length === 0, 'texts must not address the reader ("ты" in the main app, "вы" in beta): ' + hit.slice(0, 3).map(s => s.trim().slice(0, 90)).join(' | '));
+  const bad = scanNonAsciiInStrings(uxFile);
+  assert(bad.length === 0, bad.length + ' bad characters in strings: ' + bad.slice(0, 5).join(', '));
+  assert(codeLines(uxFile).filter(l => l.includes('?.') || /[^?]\?\?[^?=]/.test(l)).length === 0, 'no optional chaining / nullish');
+  info(ru.length + ' Russian fragments; neutral wording');
+});
+
+test('Summary screen: shows time, volume, sets, exercises, comparison, records and week; closes by button and by tap outside', () => {
+  ['ВРЕМЯ', 'ОБЪЁМ', 'ПОДХОДОВ', 'УПРАЖНЕНИЙ', 'РЕКОРДЫ', 'ТРЕНИРОВКА СОХРАНЕНА', 'ТРЕНИРОВКА ОБНОВЛЕНА', 'ГОТОВО', 'НОВЫЙ РЕКОРД'].forEach(t => assert(uxUi.includes(t), t + ' is on screen'));
+  assert(uxUi.includes('formatVolume(s.volume)'), 'volume uses the same kg/tonnes rule as the journal');
+  assert(/onClick=\{props\.onClose\}\s*style=\{\{ position: "fixed"/.test(uxUi) && uxUi.includes('onClick={e => e.stopPropagation()}'), 'the dimmed area closes the summary, the sheet itself does not');
+  assert(uxUi.includes('s.records.slice(0, UX_RECORDS_SHOWN)') && uxUi.includes('и ещё {s.records.length - shown.length}'), 'long lists of records are shortened');
+  assert(uxUi.includes('Первая такая тренировка в журнале') && uxUi.includes('Объём как в прошлый раз') && uxUi.includes('% объёма к прошлой такой же тренировке'), 'all comparison cases have wording');
+  assert(!/--tx-(ff6b6b|ff5555|cc7777|883333|6a4444)/.test(uxUi.slice(uxUi.indexOf('function UxSummary'), uxUi.indexOf('function UxLayer'))), 'a lighter workout is not painted red: no scolding');
+  info('Summary content and dismissal');
+});
+
+test('Record pop-up: closes itself after about four seconds, by tap, and restarts for every new record', () => {
+  assert(/setTimeout\(close, 4200\)/.test(uxUi) && /\}, \[pop \? pop\.id : 0\]\);/.test(uxUi), 'timer restarts per record (keyed by id) and is cleared on unmount');
+  assert(uxUi.includes('clearTimeout(t)'), 'timer is cleaned up');
+  assert(/onClick=\{close\}/.test(uxUi), 'tap closes it');
+  assert(uxUi.includes('pointerEvents: "none"') && uxUi.includes('pointerEvents: "auto"'), 'the pop-up never blocks taps on the sets underneath, only its own card is tappable');
+  info('4.2 s, keyed by id, tap to close, does not block the screen');
+});
+
+test('Calendar screen: arrows, today button, legend, month totals and the day window', () => {
+  ['aria-label="Предыдущий месяц"', 'aria-label="Следующий месяц"', 'СЕГОДНЯ', 'ТРЕНИРОВОК', 'ПОДХОДОВ', 'ОБЪЁМ', 'ОТКРЫТЬ В ЖУРНАЛЕ', 'В этом месяце тренировок не было'].forEach(t => assert(uxUi.includes(t), t + ' is on the screen'));
+  assert(uxUi.includes('<UxDaySheet cell={sel}') && uxUi.includes('onOpen={e => { setSel(null); props.onOpen(e); }}'), 'opening an entry closes the window first');
+  assert(uxUi.includes("toLocaleDateString(\"ru\", { weekday: \"long\", day: \"numeric\", month: \"long\" })"), 'the day window is titled with the full date');
+  assert(uxUi.includes('const cur = { y: +parts[0], m: +parts[1] - 1 };') && uxUi.includes('canNext = (ym.y * 12 + ym.m) < (cur.y * 12 + cur.m)'), 'no months in the future');
+  assert(/gridTemplateColumns: "repeat\(7, 1fr\)"/.test(uxUi) && uxUi.includes('UX_WEEKDAYS.map'), 'seven columns with weekday headers');
+  assert(uxUi.includes('c.items.slice(0, 3)'), 'at most three dots per day');
+  info('Calendar UI elements present');
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

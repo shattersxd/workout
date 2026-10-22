@@ -30,7 +30,7 @@
 
 ```bash
 python3 scripts/build.py      # src/ -> index.html
-node tests/test_pwa.js        # 348 тестов, должно быть 348/348
+node tests/test_pwa.js        # 374 теста, должно быть 374/374
 ```
 
 Или одной командой:
@@ -54,7 +54,7 @@ index.html                собранное приложение, его раз
 vendor/                   React, ReactDOM и Babel: приложение не ходит на CDN
 sw.js                     service worker: кэш для работы без интернета
 beta/                     тестовая версия (собирается build.py из src/ + src/beta/)
-src/beta/                 код тестовой версии: тренер, Spotify; в боевую сборку не попадает
+src/beta/                 код тестовой версии: тренер, Spotify, удобства (звук, рекорд, итог, календарь); в боевую сборку не попадает
 docs/social-design.md     соц-функции: варианты бэкенда, приватность, дорожная карта
 docs/music-design.md      музыкальные сервисы: что возможно на iPhone, варианты и планы
 CLAUDE.md                 ограничения платформы и контракты данных
