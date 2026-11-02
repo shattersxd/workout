@@ -5139,21 +5139,24 @@ test('Calendar screen: arrows, today button, legend, month totals and the day wi
   info('Calendar UI elements present');
 });
 
-// ── SECTION 28: MORE EXERCISES, REVISED FULL BODY, GIFS (src/beta/exercises.jsx, media.jsx) ────
-section('28 · MORE EXERCISES, FULL BODY REVIEW, GIFS (test version)');
+// ── SECTION 28: MORE EXERCISES + GIFS (src/features/*.jsx, both builds) and the FULL BODY REVIEW (src/beta/fullbody.jsx, beta only) ────
+section('28 · MORE EXERCISES, GIFS (main version), FULL BODY REVIEW (beta)');
 
-const exFile = fs.readFileSync(path.join(BETA_SRC_DIR, 'exercises.jsx'), 'utf8');
-const mediaFile = fs.readFileSync(path.join(BETA_SRC_DIR, 'media.jsx'), 'utf8');
+const FEATURES_SRC_DIR = path.join(ROOT, 'src', 'features');
+const exFile = fs.readFileSync(path.join(FEATURES_SRC_DIR, 'exercises.jsx'), 'utf8');
+const mediaFile = fs.readFileSync(path.join(FEATURES_SRC_DIR, 'media.jsx'), 'utf8');
+const fbFile = fs.readFileSync(path.join(BETA_SRC_DIR, 'fullbody.jsx'), 'utf8');
 const mediaMark = mediaFile.indexOf('// ---- Интерфейс ----');
 const mediaPure = mediaFile.slice(0, mediaMark);
 const mediaUi = mediaFile.slice(mediaMark);
 const mediaReview = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests', 'fixtures', 'exercise_media_review.json'), 'utf8'));
 const exMainData = src.slice(src.indexOf('const WARMUP'), src.indexOf('const ACHIEVEMENTS'));
 
-// Данные упражнений основного файла, с модулем беты или без него: так же они собираются на странице
-function loadExercises(withBeta) {
-  const names = 'PROGRAM, ALTERNATIVES' + (withBeta ? ', EXTRA_EXERCISES, EXTRA_EXERCISE_GROUPS, EXTRA_GROUP_ORDER' : '');
-  return new Function(exMainData + '\n' + (withBeta ? exFile : '') + '; return { ' + names + ' };')();
+// Данные упражнений в трёх видах, как их собирают страницы: 0 - только основной файл, 1 - плюс
+// src/features/exercises.jsx (так собрана основная версия), 2 - плюс src/beta/fullbody.jsx (так собрана бета)
+function loadExercises(level) {
+  const names = 'PROGRAM, ALTERNATIVES' + (level >= 1 ? ', EXTRA_EXERCISES, EXTRA_EXERCISE_GROUPS, EXTRA_GROUP_ORDER' : '');
+  return new Function(exMainData + '\n' + (level >= 1 ? exFile : '') + '\n' + (level >= 2 ? fbFile : '') + '; return { ' + names + ' };')();
 }
 // все записи пула (с повторами, как они лежат в данных)
 function flatPool(d) {
@@ -5164,28 +5167,32 @@ function flatPool(d) {
 }
 const idsOf = d => new Set(flatPool(d).map(e => e.id));
 const countOf = d => { const c = {}; flatPool(d).forEach(e => { c[e.id] = (c[e.id] || 0) + 1; }); return c; };
-const baseEx = loadExercises(false);
-const betaEx = loadExercises(true);
+const baseEx = loadExercises(0);
+const prodEx = loadExercises(1);
+const betaEx = loadExercises(2);
 const betaById = {}; flatPool(betaEx).forEach(e => { betaById[e.id] = betaById[e.id] || e; });
-const NEW_EXTRA = [].concat.apply([], Object.keys(betaEx.EXTRA_EXERCISES).map(k => betaEx.EXTRA_EXERCISES[k]));
+const prodById = {}; flatPool(prodEx).forEach(e => { prodById[e.id] = prodById[e.id] || e; });
+const NEW_EXTRA = [].concat.apply([], Object.keys(prodEx.EXTRA_EXERCISES).map(k => prodEx.EXTRA_EXERCISES[k]));
 const FB_NEW = ['fb_hanging_a', 'fb_hang_alt1', 'fb_hang_alt2', 'fb_hang_alt3', 'fb_pullup_b2', 'fb_pallof_b', 'fb_plank_alt3', 'fb_glute_bridge_c', 'fb_hip_alt3', 'fb_cable_row_c', 'fb_row_c_alt1', 'fb_row_c_alt2', 'fb_row_c_alt3'];
 
-test('Exercises: the module runs on the real data; it adds and replaces exactly what it should', () => {
-  const before = idsOf(baseEx), after = idsOf(betaEx);
-  const added = [...after].filter(id => !before.has(id)).sort();
-  const removed = [...before].filter(id => !after.has(id)).sort();
-  assert(NEW_EXTRA.length === 25, '25 new exercises, got ' + NEW_EXTRA.length);
-  assert(added.length === 25 + FB_NEW.length, 'added ' + added.length + ': ' + added.join());
-  NEW_EXTRA.forEach(e => assert(added.includes(e.id), e.id + ' is missing from the pool'));
-  FB_NEW.forEach(id => assert(added.includes(id), id + ' is missing from the pool'));
-  assert(removed.join() === 'fb_curl_a,fb_hip_thrust_c,fb_lat_c,fb_plank,fb_pullups_b', 'only five full-body cards are replaced, got ' + removed.join());
-  assert(after.size === before.size + added.length - removed.length, 'pool size adds up');
-  info('Pool ' + before.size + ' -> ' + after.size + ': +' + added.length + ' new, ' + removed.length + ' replaced');
+test('Exercises: the main version gets exactly 25 new exercises and nothing else changes; the beta full body module replaces five cards', () => {
+  const base = idsOf(baseEx), prod = idsOf(prodEx), beta = idsOf(betaEx);
+  const addedProd = [...prod].filter(id => !base.has(id)).sort();
+  assert(NEW_EXTRA.length === 25 && addedProd.length === 25 && NEW_EXTRA.every(e => addedProd.includes(e.id)), '25 new exercises in the main version, got ' + addedProd.length + ': ' + addedProd.join());
+  assert([...base].every(id => prod.has(id)), 'the main version loses no exercise');
+  assert(JSON.stringify(prodEx.PROGRAM) === JSON.stringify(baseEx.PROGRAM), 'the training programs of the main version are untouched: full body stays exactly as it was');
+  Object.keys(baseEx.ALTERNATIVES).forEach(k => assert(JSON.stringify(prodEx.ALTERNATIVES[k]) === JSON.stringify(baseEx.ALTERNATIVES[k]), 'alternatives of ' + k + ' are untouched'));
+  const addedBeta = [...beta].filter(id => !prod.has(id)).sort();
+  const removedBeta = [...prod].filter(id => !beta.has(id)).sort();
+  assert(addedBeta.length === FB_NEW.length && FB_NEW.every(id => addedBeta.includes(id)), 'beta adds the new full body cards: ' + addedBeta.join());
+  assert(removedBeta.join() === 'fb_curl_a,fb_hip_thrust_c,fb_lat_c,fb_plank,fb_pullups_b', 'only five full-body cards are replaced in the beta, got ' + removedBeta.join());
+  info('Pool ' + base.size + ' -> ' + prod.size + ' (main version, +25) -> ' + beta.size + ' (beta: +' + addedBeta.length + ' new, ' + removedBeta.length + ' replaced)');
 });
 
-test('Exercises: no id appears twice because of the module; every new record has the full contract', () => {
-  const b = countOf(baseEx), a = countOf(betaEx);
-  Object.keys(a).forEach(id => assert(a[id] <= (b[id] || 1), 'id ' + id + ' is now repeated ' + a[id] + ' times'));
+test('Exercises: no id appears twice because of the modules; every new record has the full contract', () => {
+  const b = countOf(baseEx), p = countOf(prodEx), a = countOf(betaEx);
+  Object.keys(p).forEach(id => assert(p[id] <= (b[id] || 1), 'id ' + id + ' is now repeated ' + p[id] + ' times in the main version'));
+  Object.keys(a).forEach(id => assert(a[id] <= (p[id] || 1), 'id ' + id + ' is now repeated ' + a[id] + ' times in the beta'));
   const fresh = [...NEW_EXTRA, ...FB_NEW.map(id => betaById[id])];
   fresh.forEach(e => {
     assert(e && /^[a-z0-9_]+$/.test(e.id), 'id must be a plain slug: ' + (e && e.id));
@@ -5204,9 +5211,11 @@ test('Exercises: no id appears twice because of the module; every new record has
 });
 
 test('Exercises: texts are Russian, written to the reader as "ты" (like every card of the main app), and safe for iOS Babel', () => {
-  const bad = scanNonAsciiInStrings(exFile);
-  assert(bad.length === 0, bad.length + ' bad characters in strings: ' + bad.slice(0, 5).join(', '));
-  assert(codeLines(exFile).filter(l => l.includes('?.') || /[^?]\?\?[^?=]/.test(l)).length === 0, 'no optional chaining / nullish');
+  [exFile, fbFile].forEach(f => {
+    const bad = scanNonAsciiInStrings(f);
+    assert(bad.length === 0, bad.length + ' bad characters in strings: ' + bad.slice(0, 5).join(', '));
+    assert(codeLines(f).filter(l => l.includes('?.') || /[^?]\?\?[^?=]/.test(l)).length === 0, 'no optional chaining / nullish');
+  });
   const polite = /(?<![А-Яа-яЁё])[А-Яа-яЁё]{3,}(?:йте|ьте|ите)(?![А-Яа-яЁё])/;
   const texts = [];
   [...NEW_EXTRA, ...FB_NEW.map(id => betaById[id])].forEach(e => { texts.push(e.name, e.danger); e.steps.forEach(s => texts.push(s)); });
@@ -5217,7 +5226,7 @@ test('Exercises: texts are Russian, written to the reader as "ты" (like every 
   info(texts.length + ' texts checked');
 });
 
-test('Full body review: the three days are exactly what was agreed, and the old plan is untouched in production', () => {
+test('Full body review (beta): the three days are exactly what was agreed; the main version keeps the original plan', () => {
   const day = k => betaEx.PROGRAM[k].exercises;
   const ids = k => day(k).map(e => e.id).join();
   assert(ids('fullbody_a') === 'fb_squat,fb_bench,fb_row_a,fb_ohp_a,fb_rdl_a,fb_hanging_a,fb_calf_a', 'A: ' + ids('fullbody_a'));
@@ -5240,12 +5249,14 @@ test('Full body review: the three days are exactly what was agreed, and the old 
   assert(altIds('fb_pallof_b') === 'fb_plank_alt1,fb_plank_alt2,fb_plank_alt3' && betaById.fb_plank_alt3.name === 'Планка' && !betaEx.ALTERNATIVES.fb_plank, 'the plank is an alternative to Pallof press');
   assert(altIds('fb_glute_bridge_c') === 'fb_hip_alt1,fb_hip_alt2,fb_hip_alt3' && betaById.fb_hip_alt3.name.includes('Hip Thrust') && !betaEx.ALTERNATIVES.fb_hip_thrust_c, 'hip thrust is an alternative to the floor bridge');
   assert(altIds('fb_hanging_a') === 'fb_hang_alt1,fb_hang_alt2,fb_hang_alt3' && altIds('fb_cable_row_c') === 'fb_row_c_alt1,fb_row_c_alt2,fb_row_c_alt3', 'new alternatives');
-  // боевая версия: прежние программы
-  const baseIds = k => baseEx.PROGRAM[k].exercises.map(e => e.id).join();
-  assert(baseIds('fullbody_a').includes('fb_curl_a') && baseIds('fullbody_b').includes('fb_pullups_b') && baseIds('fullbody_b').includes('fb_plank') && baseIds('fullbody_c').includes('fb_lat_c') && baseIds('fullbody_c').includes('fb_hip_thrust_c'), 'without the beta module the old programs stay');
-  ['fb_hanging_a', 'fb_pallof_b', 'fb_cable_row_c', 'fb_glute_bridge_c', 'EXTRA_EXERCISES', 'exbApply'].forEach(t => assertNot(app.includes(t), 'production page contains ' + t));
-  assert(betaApp.includes('function exbApply') && betaApp.includes('fb_cable_row_c'), 'the beta page carries the module');
-  info('A/B/C = 23/22/22 sets; production keeps the old cards');
+  // основная версия: прежние три дня, ровно
+  const prodIds = k => prodEx.PROGRAM[k].exercises.map(e => e.id).join();
+  assert(prodIds('fullbody_a') === 'fb_squat,fb_bench,fb_row_a,fb_ohp_a,fb_rdl_a,fb_curl_a,fb_calf_a' && prodIds('fullbody_b') === 'fb_leg_press,fb_incline_b,fb_pullups_b,fb_lateral_b,fb_hamstring_b,fb_tricep_b,fb_plank' && prodIds('fullbody_c') === 'fb_deadlift_c,fb_goblet_c,fb_chest_fly_c,fb_lat_c,fb_hip_thrust_c,fb_hammer_c,fb_face_pull_c', 'the main version keeps the original three days exactly');
+  // страницы: фулбади-модуль только в бете, новые упражнения в обеих
+  ['exbFullbody', 'function exbSwap', 'function exbClone', 'function exbRename'].forEach(t => assertNot(app.includes(t), 'production page contains ' + t));
+  assert(app.includes('const EXTRA_EXERCISES') && app.includes('id: "hanging_leg_raise"'), 'the main version carries the new exercises');
+  assert(betaApp.includes('function exbSwap') && betaApp.includes('exbFullbody') && betaApp.includes('const EXTRA_EXERCISES'), 'the beta page carries both');
+  info('Beta A/B/C = 23/22/22 sets; the main version keeps the old cards (22/22/22)');
 });
 
 test('Full body review: only names changed where the id stays (history continues), a new id wherever the exercise changed', () => {
@@ -5278,14 +5289,16 @@ test('Add-exercise window: new exercises sit in sensible groups, new groups go b
   const first = name => list.findIndex(e => e._group === name);
   assert(first('Бёдра') < first('Пресс и кор') && first('Пресс и кор') < first('Предплечья и хват') && first('Предплечья и хват') < first('Другое'), 'new groups come in order, before "Другое"');
   assert(first('Осанка') < first('Бёдра'), 'and after the old groups');
-  // боевая сборка: те же группы, что были
-  const prod = runGetAll(baseEx, false);
-  assert(prod.length === idsOf(baseEx).size && !prod.some(e => ['Бёдра', 'Пресс и кор', 'Предплечья и хват'].includes(e._group)), 'production list unchanged');
+  // без модуля список прежний; основная версия получает те же 25 в тех же группах
+  const plain = runGetAll(baseEx, false);
+  assert(plain.length === idsOf(baseEx).size && !plain.some(e => ['Бёдра', 'Пресс и кор', 'Предплечья и хват'].includes(e._group)), 'without the module the list is unchanged');
+  const prodList = runGetAll(prodEx, true);
+  assert(prodList.length === plain.length + 25 && NEW_EXTRA.every(e => prodList.find(x => x.id === e.id)._group !== 'Другое'), 'the main version lists the 25 new exercises in real groups');
   assert(betaEx.EXTRA_GROUP_ORDER.length === 3 && Object.keys(betaEx.EXTRA_EXERCISE_GROUPS).length === 25, 'groups cover all 25 exercises');
   info('Groups: ' + [...new Set(list.map(e => e._group))].join(' | '));
 });
 
-test('Seams: every mention in the main code is guarded by typeof, the main file defines none of the beta names', () => {
+test('Seams: every mention in the main code is guarded by typeof, the main file defines none of the module names', () => {
   const lines = src.split('\n');
   let n = 0;
   lines.forEach((l, i) => {
@@ -5293,7 +5306,7 @@ test('Seams: every mention in the main code is guarded by typeof, the main file 
     if (/\b(ExerciseMedia|EXTRA_EXERCISE_GROUPS|EXTRA_GROUP_ORDER)\b/.test(l)) { n++; assert(/typeof (ExerciseMedia|EXTRA_EXERCISE_GROUPS|EXTRA_GROUP_ORDER)/.test(l), 'line ' + (i + 1) + ' uses a beta name without typeof: ' + l.trim().slice(0, 90)); }
   });
   assert(n >= 3, 'three seams expected, found ' + n);
-  assertNot(/function ExerciseMedia|const EXTRA_|const EXERCISE_MEDIA|function exb[A-Z]/.test(src), 'beta names are defined only in src/beta');
+  assertNot(/function ExerciseMedia|const EXTRA_|const EXERCISE_MEDIA|function exb[A-Z]/.test(src), 'these names are defined only in src/features and src/beta, not in the main file');
   assert(src.includes('{typeof ExerciseMedia === "function" && <ExerciseMedia key={ex.id} exId={ex.id} name={ex.name} />}'), 'the GIF sits in the opened "Техника" block');
   const tech = src.slice(src.indexOf('{isExpanded && !skipped && !editMode && ('));
   assert(tech.indexOf('<ExerciseMedia') < tech.indexOf('>ТЕХНИКА<'), 'the GIF comes before the steps');
@@ -5304,22 +5317,25 @@ function loadMedia() {
   return new Function(mediaPure + '; return { EXERCISE_MEDIA, EXERCISE_MEDIA_NONE, EXERCISE_MEDIA_BASE, EXERCISE_MEDIA_CREDIT, EXERCISE_MEDIA_COMMIT, EXERCISE_STILLS, EXERCISE_STILLS_SINGLE, EXERCISE_STILLS_BASE, EXERCISE_STILLS_COMMIT, EXERCISE_STILLS_CREDIT, exerciseMediaKey, exerciseMediaUrl, exerciseStillsUrls };')();
 }
 
-test('Pictures: every exercise of the pool is decided (a GIF, a still picture, or an explicit "none"), and EVERY exercise of the main workouts has a GIF', () => {
+test('Pictures: every exercise of both versions is decided; the main workouts show a GIF (the two without an exact GIF show a still)', () => {
   const m = loadMedia();
-  const pool = idsOf(betaEx);
+  const poolProd = idsOf(prodEx), poolBeta = idsOf(betaEx);
   const withGif = Object.keys(m.EXERCISE_MEDIA), withStill = Object.keys(m.EXERCISE_STILLS), none = m.EXERCISE_MEDIA_NONE;
   const all = [...withGif, ...withStill, ...none];
-  all.forEach(id => assert(pool.has(id), 'listed but does not exist: ' + id));
+  all.forEach(id => assert(poolProd.has(id) || poolBeta.has(id), 'listed but exists in no version: ' + id));
   assert(new Set(all).size === all.length, 'an exercise is listed in two places (GIF, still, none): ' + all.filter((id, i) => all.indexOf(id) !== i).join());
-  const undecided = [...pool].filter(id => !all.includes(id));
-  assert(undecided.length === 0, 'exercises without a decision about a picture: ' + undecided.join());
-  // главное требование: все упражнения основных тренировок показывают именно гифку
-  const missing = [];
-  let main = 0;
-  Object.keys(betaEx.PROGRAM).forEach(k => betaEx.PROGRAM[k].exercises.forEach(e => { main++; if (!m.exerciseMediaKey(e.id)) missing.push(k + ':' + e.id + ' ' + e.name); }));
-  assert(main === 43 && missing.length === 0, 'main workouts (' + main + ' exercises) without a GIF: ' + missing.join('; '));
-  assert(withGif.length >= 200 && withStill.length === 14 && none.length === 7, 'coverage ' + withGif.length + '/' + withStill.length + '/' + none.length);
-  info(withGif.length + ' GIFs, ' + withStill.length + ' still pictures, ' + none.length + ' without a picture (of ' + pool.size + '); all ' + main + ' main-workout exercises have a GIF');
+  [['main version', poolProd], ['beta', poolBeta]].forEach(([name, pool]) => {
+    const undecided = [...pool].filter(id => !all.includes(id));
+    assert(undecided.length === 0, name + ': exercises without a decision about a picture: ' + undecided.join());
+  });
+  // основные тренировки: у каждого упражнения гифка; в основной версии у планки и хип-траста гифки нет вовсе, у них картинка
+  const gifless = d => { const miss = []; let n = 0; Object.keys(d.PROGRAM).forEach(k => d.PROGRAM[k].exercises.forEach(e => { n++; if (!m.exerciseMediaKey(e.id)) miss.push(k + ':' + e.id); })); return { n, miss }; };
+  const pr = gifless(prodEx), bt = gifless(betaEx);
+  assert(pr.n === 43 && pr.miss.join() === 'fullbody_b:fb_plank,fullbody_c:fb_hip_thrust_c', 'main version: 43 workout exercises, GIF for all but plank and hip thrust, got ' + pr.miss.join());
+  assert(m.exerciseStillsUrls('fb_plank') && m.exerciseStillsUrls('fb_hip_thrust_c'), 'and those two have the reviewed still pictures');
+  assert(bt.n === 43 && bt.miss.length === 0, 'beta: all 43 workout exercises have a GIF, without a GIF: ' + bt.miss.join('; '));
+  assert(withGif.length >= 200 && withStill.length === 16 && none.length === 7, 'coverage ' + withGif.length + '/' + withStill.length + '/' + none.length);
+  info(withGif.length + ' GIFs, ' + withStill.length + ' still pictures, ' + none.length + ' without a picture; main version: 41 of 43 workout exercises have a GIF, beta: all 43');
 });
 
 test('GIFs: file names, pinned commit and URL helpers', () => {
@@ -5366,7 +5382,7 @@ test('GIFs: equipment named in the Russian title agrees with the animation', () 
   const nameOf = id => mediaReview.reviewed[id].split(' | ')[1].toLowerCase();
   const bad = [];
   Object.keys(m.EXERCISE_MEDIA).forEach(id => {
-    const ru = betaById[id].name, eq = eqOf(id), en = nameOf(id);
+    const ru = (betaById[id] || prodById[id]).name, eq = eqOf(id), en = nameOf(id);
     if (/гантел/i.test(ru) && !/dumbbell/.test(eq)) bad.push(id + ': "' + ru + '" -> ' + eq);
     else if (/штанг|EZ/i.test(ru) && !/гантел/i.test(ru) && !/Смит/i.test(ru) && !/barbell|ez barbell|trap bar/.test(eq)) bad.push(id + ': "' + ru + '" -> ' + eq);
     if (/в Смит/i.test(ru) && !/smith/.test(eq)) bad.push(id + ': "' + ru + '" -> ' + eq);
@@ -5394,14 +5410,14 @@ test('GIFs: the card is honest about its source, small, accessible, and degrades
   info('180 px, no referrer, credit link, quiet fallback');
 });
 
-test('GIFs: the production page loads nothing from the library; the test page does, only through the card', () => {
-  ['jsdelivr', 'gymvisual', 'hasaneyldrm', 'repdb', 'RepDB', 'EXERCISE_MEDIA', 'EXERCISE_STILLS', 'function ExerciseMedia'].forEach(t => assertNot(app.includes(t), 'production page mentions ' + t));
-  assertNot(html.includes('jsdelivr') || html.includes('gymvisual') || html.includes('hasaneyldrm') || html.toLowerCase().includes('repdb'), 'index.html has no reference to the libraries');
-  assert(betaApp.includes('cdn.jsdelivr.net/gh/hasaneyldrm/exercises-dataset@') && betaApp.includes('function ExerciseMedia'), 'beta page has the module');
-  assertNot(/(?:fetch|XMLHttpRequest|sendBeacon)\([^)]*jsdelivr/.test(betaSrc), 'images only: no scripts or data are fetched from the CDN');
-  assert(!/<script[^>]+jsdelivr/.test(betaHtml.replace(/loadScript\('[^']+'/g, '')), 'no script is loaded from the CDN');
-  assert(fs.existsSync(path.join(ROOT, 'scripts', 'check_media_urls.js')), 'scripts/check_media_urls.js (online check of all links) exists');
-  info('Production page is clean; beta loads only images, only on the opened card');
+test('Pictures: both pages carry the module; images come only through the card of an opened exercise, nothing loads at start', () => {
+  ['function ExerciseMedia', 'const EXERCISE_MEDIA', 'cdn.jsdelivr.net/gh/hasaneyldrm/exercises-dataset@', 'cdn.jsdelivr.net/gh/RepDB/exercise-dataset@', 'Exercise data by RepDB (repdb.co)'].forEach(t => assert(app.includes(t) && betaApp.includes(t), t + ' must be in both pages'));
+  assertNot(/(?:fetch|XMLHttpRequest|sendBeacon)\([^)]*(?:jsdelivr|repdb|gymvisual)/i.test(src + exFile + mediaFile + fbFile), 'images only: no scripts or data are fetched from the CDN');
+  assertNot(/<link[^>]+(jsdelivr|repdb|gymvisual)/i.test(html) && !/<script[^>]+(jsdelivr|repdb|gymvisual)/i.test(html.replace(/loadScript\('[^']+'/g, '')), 'no link or script in the page loads anything from the libraries');
+  assert(mediaUi.match(/<img /g).length === 3 && !/new Image\(/.test(mediaFile), 'the only images are the three inside the card: no preloading');
+  assert(src.includes('{typeof ExerciseMedia === "function" && <ExerciseMedia key={ex.id}'), 'the card is rendered only inside the opened technique block');
+  assert(fs.existsSync(path.join(ROOT, 'scripts', 'check_media_urls.js')) && fs.readFileSync(path.join(ROOT, 'scripts', 'check_media_urls.js'), 'utf8').includes("'src', 'features', 'media.jsx'"), 'scripts/check_media_urls.js (online check of all links) reads the module');
+  info('Both pages: images only on the opened card, nothing at start');
 });
 
 // ── SECTION 28 (continued): RepDB fallback pictures ─────────────────────────────────────────────
@@ -5410,7 +5426,7 @@ const stillsReview = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests', 'fixtur
 test('Stills (RepDB): used only where there is no GIF, and the pairing equals the table checked by eye', () => {
   const m = loadMedia();
   const ids = Object.keys(m.EXERCISE_STILLS).sort();
-  assert(ids.length === 14 && ids.join() === Object.keys(stillsReview.reviewed).sort().join(), 'the fixture lists exactly the mapped exercises');
+  assert(ids.length === 16 && ids.join() === Object.keys(stillsReview.reviewed).sort().join(), 'the fixture lists exactly the mapped exercises');
   ids.forEach(id => {
     assert(!(id in m.EXERCISE_MEDIA), id + ' has a GIF, so it must not use a still picture (the GIF always wins)');
     const r = stillsReview.reviewed[id].split(' | ');

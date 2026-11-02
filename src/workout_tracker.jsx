@@ -2023,7 +2023,7 @@ export default function App() {
     };
 
     const ORDER = ["Грудь","Плечи","Трицепс","Спина","Широчайшие","Бицепс","Квадрицепс","ЗПБ","Икры","Осанка","Другое"];
-    // Новые упражнения и их группы: EXTRA_* есть только в тестовой сборке (src/beta/exercises.jsx)
+    // Новые упражнения и их группы: EXTRA_* лежат в src/features/exercises.jsx (обе сборки); шов оставлен на случай сборки без модуля
     if (typeof EXTRA_EXERCISE_GROUPS === "object") Object.assign(MUSCLE_GROUPS, EXTRA_EXERCISE_GROUPS);
     if (typeof EXTRA_GROUP_ORDER === "object") ORDER.splice.apply(ORDER, [ORDER.indexOf("Другое"), 0].concat(EXTRA_GROUP_ORDER));
 
@@ -3153,7 +3153,7 @@ export default function App() {
                   {/* Техника */}
                   {isExpanded && !skipped && !editMode && (
                     <div style={{ padding: "0 16px 16px" }}>
-                      {/* Гифка упражнения: ExerciseMedia есть только в тестовой сборке (src/beta/media.jsx) */}
+                      {/* Гифка упражнения: ExerciseMedia лежит в src/features/media.jsx (обе сборки); шов оставлен на случай сборки без модуля */}
                       {typeof ExerciseMedia === "function" && <ExerciseMedia key={ex.id} exId={ex.id} name={ex.name} />}
                       <div style={{ background: "var(--bg-0c0c0f)", borderRadius: 8, padding: "12px 14px", marginBottom: ex.danger ? 8 : 0, border: "1px solid var(--bd-1a1a22)" }}>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>

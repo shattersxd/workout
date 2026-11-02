@@ -20,6 +20,7 @@
 src/shell/head.html          <- <head>, CSS, лоадер, манифест, иконки, бутстрап Babel
 src/workout_tracker.jsx      <- ВСЁ приложение: данные + компонент App
 src/shell/tail.html          <- ErrorBoundary, ReactDOM.createRoot, </html>
+src/features/*.jsx           <- готовые функции, вставляются в ОБЕ сборки (перед App)
 src/beta/*.jsx               <- только для тестовой версии (beta/)
         |
         v  python3 scripts/build.py
@@ -35,7 +36,8 @@ sw.js                        <- настоящий service worker, регист�
 `sw.js`, так что приложение стартует и без интернета. Файлы в `vendor/` не
 править; `.gitattributes` запрещает git менять в них переводы строк. Обновили
 библиотеку - поднимите `CACHE` в `sw.js` (`sila-v7`...), иначе телефон останется
-на старой копии.
+на старой копии. Исключение - картинки упражнений: они грузятся по ссылке (jsDelivr) только
+когда открыта «Техника», без интернета там сообщение, а приложение работает.
 
 `build.py` только склеивает файлы и убирает границу ES-модуля (подстановки через
 `replace_once`, падают, если не сработали):
@@ -164,12 +166,13 @@ python3 scripts/build.py --check                     # index.html не отст�
   переключателя, скрывающего пометку, нет и быть не должно.
 - Тон: бета на «вы», основная версия на «ты» (решение заказчика).
 - Бета всегда тёмная (панели на hex). Не обещать звук и музыку при свёрнутом приложении.
-- Гифки упражнений (`media.jsx`) принадлежат Gym visual и подключены **по ссылке** на CDN, в репозиторий не
+- Гифки упражнений (`src/features/media.jsx`, есть и в основной версии) принадлежат Gym visual и подключены **по ссылке** на CDN, в репозиторий не
   копируются; подпись «© Gym visual — https://gymvisual.com/» под каждой обязательна, размер не больше 180 пикселей.
-  У каждого упражнения основных тренировок гифка обязана быть и показывать именно его (тест); нет точной
-  анимации - нет гифки, а не «похожая». Запасной источник для упражнений без гифки - статичные картинки RepDB
+  У каждого упражнения основных тренировок беты гифка обязана быть и показывать именно его (тест); в основной
+  версии два исключения (`fb_plank`, `fb_hip_thrust_c`) - картинки RepDB, пока фулбади не пересмотрен там; нет
+  точной анимации - нет гифки, а не «похожая». Запасной источник для упражнений без гифки - статичные картинки RepDB
   (две позы, подпись «Exercise data by RepDB (repdb.co)»); платные анимации и `premium-samples` RepDB не
-  использовать. Подробности и сравнение библиотек — `docs/claude/beta-exercises.md`.
+  использовать. Подробности и сравнение библиотек — `docs/claude/exercises-media.md`.
 
 ## Тема оформления
 
@@ -204,4 +207,4 @@ python3 scripts/build.py --check                     # index.html не отст�
 | `src/beta/social.jsx`, `src/beta/compete.jsx` | `docs/claude/beta-social.md` + `docs/social-design.md` |
 | `src/beta/spotify.jsx`, музыкой | `docs/claude/beta-spotify.md` + `docs/music-design.md` |
 | `src/beta/ux.jsx` и его переносом в основную версию | `docs/claude/beta-ux.md` |
-| `src/beta/exercises.jsx`, `src/beta/media.jsx`, фулбади, гифками | `docs/claude/beta-exercises.md` |
+| `src/features/exercises.jsx`, `src/features/media.jsx`, `src/beta/fullbody.jsx`, гифками, фулбади | `docs/claude/exercises-media.md` |

@@ -6,8 +6,8 @@
 BETA», в шапке значок BETA и вкладка «БЕТА». Здесь пробуем новое (тренер, Spotify),
 не рискуя основной версией. `python3 scripts/build.py` пишет **три** файла:
 `index.html`, `beta/index.html`, `beta/sw.js`; `--check` проверяет все три.
-Тестовая страница = тот же код + `src/beta/*.jsx`, вставленные перед `App`
-(в боевой `index.html` их нет). Швы в боевом коде минимальны: `APP_VARIANT`,
+Тестовая страница = тот же код + `src/features/*.jsx` (они есть и в боевой странице) + `src/beta/*.jsx`, вставленные
+перед `App` (в боевой `index.html` файлов из `src/beta/` нет). Швы в боевом коде минимальны: `APP_VARIANT`,
 `STORAGE_KEY` / `TIMER_KEY` и проверки `typeof BetaTab === "function"`.
 Подстановки в `build.py` идут через `replace_once` и падают, если не сработали.
 

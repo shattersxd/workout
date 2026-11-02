@@ -2,7 +2,7 @@
 """
 Build the single-file PWA from src/.
 
-    index.html       =  src/shell/head.html  +  src/workout_tracker.jsx  +  src/shell/tail.html
+    index.html       =  src/shell/head.html  +  src/workout_tracker.jsx (+ src/features/*.jsx)  +  src/shell/tail.html
     beta/index.html  =  то же + src/beta/*.jsx, с отдельными ключами хранилища
     beta/sw.js       =  sw.js с кэшем "sila-beta-*" и путями к ../vendor/
 
@@ -14,8 +14,9 @@ system, so the build rewrites the module boundary:
     import { ... } from "react";   ->   const { ... } = React;
     export default function App()  ->   function App()
 
-Тестовая версия (beta) - тот же код плюс файлы из src/beta/, вставленные перед App.
-Боевая сборка их не содержит. Отличия beta, больше ничего не трансформируется:
+Готовые функции (src/features/) - файлы, прошедшие проверку в бете: их берут ОБЕ сборки, они вставляются перед App.
+Тестовая версия (beta) - тот же код плюс файлы из src/beta/, вставленные перед App после features.
+Боевая сборка файлов из src/beta/ не содержит. Отличия beta, больше ничего не трансформируется:
 
     const APP_VARIANT = "prod";        ->  "beta"  (ключи localStorage свои, см. STORAGE_KEY)
     <title> / имя на экране "Домой"    ->  Workout BETA
@@ -38,6 +39,7 @@ SRC = ROOT / "src" / "workout_tracker.jsx"
 HEAD = ROOT / "src" / "shell" / "head.html"
 TAIL = ROOT / "src" / "shell" / "tail.html"
 BETA_DIR = ROOT / "src" / "beta"
+FEATURES_DIR = ROOT / "src" / "features"
 SW = ROOT / "sw.js"
 DEFAULT_OUT = ROOT / "index.html"
 BETA_OUT = ROOT / "beta" / "index.html"
@@ -86,6 +88,14 @@ def beta_modules() -> str:
     return "\n".join(parts)
 
 
+def features_modules() -> str:
+    """Файлы из src/features/ идут в обе сборки (пусто - тоже нормально)."""
+    parts = []
+    for f in sorted(FEATURES_DIR.glob("*.jsx")):
+        parts.append("// ---- src/features/%s ----\n%s\n" % (f.name, f.read_text(encoding="utf-8")))
+    return "\n".join(parts)
+
+
 def build(beta: bool = False) -> str:
     for p in (SRC, HEAD, TAIL):
         if not p.exists():
@@ -97,6 +107,10 @@ def build(beta: bool = False) -> str:
 
     if 'id="app-src"' not in head:
         sys.exit('build: head.html must end with the <script ... id="app-src"> tag')
+
+    features = features_modules()
+    if features:
+        body = replace_once(body, "function App(", features + "\nfunction App(", "function App(")
 
     if beta:
         body = replace_once(body, 'const APP_VARIANT = "prod";', 'const APP_VARIANT = "beta";', "APP_VARIANT")

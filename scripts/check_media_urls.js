@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Проверка картинок упражнений ПО СЕТИ: каждая ссылка из src/beta/media.jsx (гифки и запасные картинки WebP)
+// Проверка картинок упражнений ПО СЕТИ: каждая ссылка из src/features/media.jsx (гифки и запасные картинки WebP)
 // должна отдавать 200 и нужный тип.
 // Нужна после смены закреплённого коммита или файла соответствия. Тесты (tests/test_pwa.js) работают без сети
 // и эту проверку не заменяют. Запуск: node scripts/check_media_urls.js
@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 
-const file = fs.readFileSync(path.join(__dirname, '..', 'src', 'beta', 'media.jsx'), 'utf8').replace(/\r\n/g, '\n');
+const file = fs.readFileSync(path.join(__dirname, '..', 'src', 'features', 'media.jsx'), 'utf8').replace(/\r\n/g, '\n');
 const pure = file.slice(0, file.indexOf('// ---- Интерфейс ----'));
 const m = new Function(pure + '; return { EXERCISE_MEDIA, EXERCISE_MEDIA_BASE, EXERCISE_STILLS, exerciseStillsUrls };')();
 const gifs = [...new Set(Object.keys(m.EXERCISE_MEDIA).map(id => m.EXERCISE_MEDIA_BASE + m.EXERCISE_MEDIA[id] + '.gif'))];
