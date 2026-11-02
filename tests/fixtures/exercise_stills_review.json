@@ -1,0 +1,20 @@
+{
+ "_note": "Проверено глазами (страница обзора, обе позы). id упражнения -> \"slug | название в RepDB/exercise-dataset [оборудование] | позы\". Меняется только после повторной проверки картинок.",
+ "commit": "66c4298af8d99b9dc397dad6699e508fb871d249",
+ "reviewed": {
+  "band_pull_apart": "band-pull-apart | Band Pull Apart [resistance_band] | start+peak",
+  "band_pull_posture": "band-pull-apart | Band Pull Apart [resistance_band] | start+peak",
+  "dead_hang": "dead-hang | Dead Hang [pull_up_bar] | main",
+  "fb_face_alt2": "band-pull-apart | Band Pull Apart [resistance_band] | start+peak",
+  "fb_hip_alt3": "hip-thrust | Barbell Hip Thrust [barbell] | start+peak",
+  "fb_incline_alt2": "cable-fly | Cable Fly [cable] | start+peak",
+  "fb_plank_alt3": "plank | Plank [body weight] | main",
+  "fb_rdl_alt2": "hip-thrust | Barbell Hip Thrust [barbell] | start+peak",
+  "hip_thrust": "hip-thrust | Barbell Hip Thrust [barbell] | start+peak",
+  "hip_thrust_2": "hip-thrust | Barbell Hip Thrust [barbell] | start+peak",
+  "nordic_curl": "nordic-hamstring-curl | Nordic Hamstring Curl [glute_ham_developer] | start+peak",
+  "nordic_curl_2": "nordic-hamstring-curl | Nordic Hamstring Curl [glute_ham_developer] | start+peak",
+  "pike_pushup": "pike-push-ups | Pike Push Ups [body weight] | start+peak",
+  "somersault_squat": "db-somersault-squat | Dumbbell Somersault Squat [dumbbell] | start+peak"
+ }
+}

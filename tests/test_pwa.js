@@ -5139,6 +5139,332 @@ test('Calendar screen: arrows, today button, legend, month totals and the day wi
   info('Calendar UI elements present');
 });
 
+// ── SECTION 28: MORE EXERCISES, REVISED FULL BODY, GIFS (src/beta/exercises.jsx, media.jsx) ────
+section('28 · MORE EXERCISES, FULL BODY REVIEW, GIFS (test version)');
+
+const exFile = fs.readFileSync(path.join(BETA_SRC_DIR, 'exercises.jsx'), 'utf8');
+const mediaFile = fs.readFileSync(path.join(BETA_SRC_DIR, 'media.jsx'), 'utf8');
+const mediaMark = mediaFile.indexOf('// ---- Интерфейс ----');
+const mediaPure = mediaFile.slice(0, mediaMark);
+const mediaUi = mediaFile.slice(mediaMark);
+const mediaReview = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests', 'fixtures', 'exercise_media_review.json'), 'utf8'));
+const exMainData = src.slice(src.indexOf('const WARMUP'), src.indexOf('const ACHIEVEMENTS'));
+
+// Данные упражнений основного файла, с модулем беты или без него: так же они собираются на странице
+function loadExercises(withBeta) {
+  const names = 'PROGRAM, ALTERNATIVES' + (withBeta ? ', EXTRA_EXERCISES, EXTRA_EXERCISE_GROUPS, EXTRA_GROUP_ORDER' : '');
+  return new Function(exMainData + '\n' + (withBeta ? exFile : '') + '; return { ' + names + ' };')();
+}
+// все записи пула (с повторами, как они лежат в данных)
+function flatPool(d) {
+  const all = [];
+  Object.keys(d.PROGRAM).forEach(k => d.PROGRAM[k].exercises.forEach(e => all.push(e)));
+  Object.keys(d.ALTERNATIVES).forEach(k => d.ALTERNATIVES[k].forEach(e => all.push(e)));
+  return all;
+}
+const idsOf = d => new Set(flatPool(d).map(e => e.id));
+const countOf = d => { const c = {}; flatPool(d).forEach(e => { c[e.id] = (c[e.id] || 0) + 1; }); return c; };
+const baseEx = loadExercises(false);
+const betaEx = loadExercises(true);
+const betaById = {}; flatPool(betaEx).forEach(e => { betaById[e.id] = betaById[e.id] || e; });
+const NEW_EXTRA = [].concat.apply([], Object.keys(betaEx.EXTRA_EXERCISES).map(k => betaEx.EXTRA_EXERCISES[k]));
+const FB_NEW = ['fb_hanging_a', 'fb_hang_alt1', 'fb_hang_alt2', 'fb_hang_alt3', 'fb_pullup_b2', 'fb_pallof_b', 'fb_plank_alt3', 'fb_glute_bridge_c', 'fb_hip_alt3', 'fb_cable_row_c', 'fb_row_c_alt1', 'fb_row_c_alt2', 'fb_row_c_alt3'];
+
+test('Exercises: the module runs on the real data; it adds and replaces exactly what it should', () => {
+  const before = idsOf(baseEx), after = idsOf(betaEx);
+  const added = [...after].filter(id => !before.has(id)).sort();
+  const removed = [...before].filter(id => !after.has(id)).sort();
+  assert(NEW_EXTRA.length === 25, '25 new exercises, got ' + NEW_EXTRA.length);
+  assert(added.length === 25 + FB_NEW.length, 'added ' + added.length + ': ' + added.join());
+  NEW_EXTRA.forEach(e => assert(added.includes(e.id), e.id + ' is missing from the pool'));
+  FB_NEW.forEach(id => assert(added.includes(id), id + ' is missing from the pool'));
+  assert(removed.join() === 'fb_curl_a,fb_hip_thrust_c,fb_lat_c,fb_plank,fb_pullups_b', 'only five full-body cards are replaced, got ' + removed.join());
+  assert(after.size === before.size + added.length - removed.length, 'pool size adds up');
+  info('Pool ' + before.size + ' -> ' + after.size + ': +' + added.length + ' new, ' + removed.length + ' replaced');
+});
+
+test('Exercises: no id appears twice because of the module; every new record has the full contract', () => {
+  const b = countOf(baseEx), a = countOf(betaEx);
+  Object.keys(a).forEach(id => assert(a[id] <= (b[id] || 1), 'id ' + id + ' is now repeated ' + a[id] + ' times'));
+  const fresh = [...NEW_EXTRA, ...FB_NEW.map(id => betaById[id])];
+  fresh.forEach(e => {
+    assert(e && /^[a-z0-9_]+$/.test(e.id), 'id must be a plain slug: ' + (e && e.id));
+    assert(typeof e.name === 'string' && /[А-Яа-я]/.test(e.name), e.id + ': Russian name');
+    assert(Number.isInteger(e.sets) && e.sets >= 1 && e.sets <= 10, e.id + ': sets');
+    assert(typeof e.reps === 'string' && /\d/.test(e.reps), e.id + ': reps');
+    assert(/^\d+ (сек|мин)$/.test(e.rest), e.id + ': rest must be "N сек" or "N мин" (the timer parses it), got ' + e.rest);
+    assert(typeof e.warn === 'boolean', e.id + ': warn');
+    assert(Array.isArray(e.steps) && e.steps.length >= 3 && e.steps.every(s => typeof s === 'string' && s.length > 10), e.id + ': steps');
+    if (NEW_EXTRA.includes(e)) assert(e.steps.length === 4, e.id + ': new exercises have four steps like the rest of the pool');
+    assert(typeof e.danger === 'string' && e.danger.length >= 40, e.id + ': danger text');
+  });
+  // копии не делят массив шагов с оригиналом
+  assert(betaById.fb_hanging_a.steps !== betaById.hanging_leg_raise.steps && betaById.fb_pallof_b.steps !== betaById.pallof_press.steps, 'clones own their steps');
+  info(fresh.length + ' records checked');
+});
+
+test('Exercises: texts are Russian, written to the reader as "ты" (like every card of the main app), and safe for iOS Babel', () => {
+  const bad = scanNonAsciiInStrings(exFile);
+  assert(bad.length === 0, bad.length + ' bad characters in strings: ' + bad.slice(0, 5).join(', '));
+  assert(codeLines(exFile).filter(l => l.includes('?.') || /[^?]\?\?[^?=]/.test(l)).length === 0, 'no optional chaining / nullish');
+  const polite = /(?<![А-Яа-яЁё])[А-Яа-яЁё]{3,}(?:йте|ьте|ите)(?![А-Яа-яЁё])/;
+  const texts = [];
+  [...NEW_EXTRA, ...FB_NEW.map(id => betaById[id])].forEach(e => { texts.push(e.name, e.danger); e.steps.forEach(s => texts.push(s)); });
+  const hits = texts.filter(t => polite.test(t) || /(?<![А-Яа-яЁё])(Вы|вы|Вам|вам|Ваш|ваш)(?![А-Яа-яЁё])/.test(t));
+  assert(hits.length === 0, 'polite forms in exercise texts: ' + hits.slice(0, 3).join(' | '));
+  // в шагах нет символов, которые Babel на iOS не принимает в строках
+  texts.forEach(t => assertNot(/[×·→←№✓✗✎−–—⚠⇄▾▴▲▼─…«»“”’]/.test(t), 'forbidden character in: ' + t.slice(0, 40)));
+  info(texts.length + ' texts checked');
+});
+
+test('Full body review: the three days are exactly what was agreed, and the old plan is untouched in production', () => {
+  const day = k => betaEx.PROGRAM[k].exercises;
+  const ids = k => day(k).map(e => e.id).join();
+  assert(ids('fullbody_a') === 'fb_squat,fb_bench,fb_row_a,fb_ohp_a,fb_rdl_a,fb_hanging_a,fb_calf_a', 'A: ' + ids('fullbody_a'));
+  assert(ids('fullbody_b') === 'fb_leg_press,fb_incline_b,fb_pullup_b2,fb_lateral_b,fb_hamstring_b,fb_tricep_b,fb_pallof_b', 'B: ' + ids('fullbody_b'));
+  assert(ids('fullbody_c') === 'fb_deadlift_c,fb_goblet_c,fb_chest_fly_c,fb_cable_row_c,fb_glute_bridge_c,fb_hammer_c,fb_face_pull_c', 'C: ' + ids('fullbody_c'));
+  const sets = k => day(k).reduce((s, e) => s + e.sets, 0);
+  assert(sets('fullbody_a') === 23 && sets('fullbody_b') === 22 && sets('fullbody_c') === 22, 'sets per day 23/22/22, got ' + [sets('fullbody_a'), sets('fullbody_b'), sets('fullbody_c')].join('/'));
+  const by = (k, id) => day(k).find(e => e.id === id);
+  assert(by('fullbody_a', 'fb_calf_a').sets === 4 && by('fullbody_a', 'fb_calf_a').reps === '12-15' && by('fullbody_a', 'fb_calf_a').rest === '90 сек', 'calves: 4 sets of 12-15');
+  assert(by('fullbody_b', 'fb_pullup_b2').name === 'Подтягивания' && by('fullbody_c', 'fb_deadlift_c').name === 'Становая тяга', 'one exercise per card instead of "A or B"');
+  assertNot(day('fullbody_a').concat(day('fullbody_b'), day('fullbody_c')).some(e => /(^|\s)или\s/.test(e.name)), 'no card is named "X или Y" any more');
+  // тяга: две горизонтальных и одна вертикальная (раньше наоборот: две вертикальных, одна горизонтальная)
+  const all = day('fullbody_a').concat(day('fullbody_b'), day('fullbody_c')).map(e => e.id);
+  assert(['fb_row_a', 'fb_cable_row_c'].every(id => all.includes(id)) && all.includes('fb_pullup_b2') && !all.includes('fb_lat_c'), 'pulling: rows on A and C, pull-ups on B only');
+  // у каждой карточки есть замены
+  ['fullbody_a', 'fullbody_b', 'fullbody_c'].forEach(k => day(k).forEach(e => assert((betaEx.ALTERNATIVES[e.id] || []).length >= 2, e.id + ' needs at least two alternatives')));
+  // замены переехали вместе с карточками, старые ключи убраны
+  const altIds = id => betaEx.ALTERNATIVES[id].map(e => e.id).join();
+  assert(altIds('fb_pullup_b2') === 'fb_pullups_alt1,fb_pullups_alt2,fb_pullups_alt3' && !betaEx.ALTERNATIVES.fb_pullups_b, 'pull-up alternatives moved');
+  assert(altIds('fb_pallof_b') === 'fb_plank_alt1,fb_plank_alt2,fb_plank_alt3' && betaById.fb_plank_alt3.name === 'Планка' && !betaEx.ALTERNATIVES.fb_plank, 'the plank is an alternative to Pallof press');
+  assert(altIds('fb_glute_bridge_c') === 'fb_hip_alt1,fb_hip_alt2,fb_hip_alt3' && betaById.fb_hip_alt3.name.includes('Hip Thrust') && !betaEx.ALTERNATIVES.fb_hip_thrust_c, 'hip thrust is an alternative to the floor bridge');
+  assert(altIds('fb_hanging_a') === 'fb_hang_alt1,fb_hang_alt2,fb_hang_alt3' && altIds('fb_cable_row_c') === 'fb_row_c_alt1,fb_row_c_alt2,fb_row_c_alt3', 'new alternatives');
+  // боевая версия: прежние программы
+  const baseIds = k => baseEx.PROGRAM[k].exercises.map(e => e.id).join();
+  assert(baseIds('fullbody_a').includes('fb_curl_a') && baseIds('fullbody_b').includes('fb_pullups_b') && baseIds('fullbody_b').includes('fb_plank') && baseIds('fullbody_c').includes('fb_lat_c') && baseIds('fullbody_c').includes('fb_hip_thrust_c'), 'without the beta module the old programs stay');
+  ['fb_hanging_a', 'fb_pallof_b', 'fb_cable_row_c', 'fb_glute_bridge_c', 'EXTRA_EXERCISES', 'exbApply'].forEach(t => assertNot(app.includes(t), 'production page contains ' + t));
+  assert(betaApp.includes('function exbApply') && betaApp.includes('fb_cable_row_c'), 'the beta page carries the module');
+  info('A/B/C = 23/22/22 sets; production keeps the old cards');
+});
+
+test('Full body review: only names changed where the id stays (history continues), a new id wherever the exercise changed', () => {
+  // та же карточка: прежние id (история и подсказка веса продолжаются)
+  ['fb_squat', 'fb_bench', 'fb_row_a', 'fb_ohp_a', 'fb_rdl_a', 'fb_calf_a', 'fb_leg_press', 'fb_incline_b', 'fb_lateral_b', 'fb_hamstring_b', 'fb_tricep_b', 'fb_deadlift_c', 'fb_goblet_c', 'fb_chest_fly_c', 'fb_hammer_c', 'fb_face_pull_c'].forEach(id => {
+    const o = baseEx.PROGRAM.fullbody_a.exercises.concat(baseEx.PROGRAM.fullbody_b.exercises, baseEx.PROGRAM.fullbody_c.exercises).find(e => e.id === id);
+    const n = betaById[id];
+    assert(o && n && o.steps.join('|') === n.steps.join('|'), id + ': same technique, same id');
+  });
+  // другое упражнение: новый id и другая техника
+  assert(betaById.fb_cable_row_c.steps.join('|') !== baseEx.ALTERNATIVES.fb_lat_c[0].steps.join('|') && betaById.fb_cable_row_c.id !== 'fb_lat_c', 'row is not the old pulldown');
+  assert(betaById.fb_pallof_b.steps.join('|') === betaById.pallof_press.steps.join('|'), 'the card shows the Pallof press technique');
+  assert(betaById.fb_glute_bridge_c.steps.join('|') === betaById.barbell_glute_bridge.steps.join('|'), 'the card shows the floor glute bridge technique');
+  info('16 cards keep their id, 5 are replaced under new ids');
+});
+
+// Логика окна "Добавить упражнение": функция из App, исполняется как есть
+const gaeSrc = src.slice(src.indexOf('  function getAllExercises() {'), src.indexOf('  function saveCustomWorkout'));
+function runGetAll(d, extra) {
+  return new Function('PROGRAM', 'ALTERNATIVES', 'EXTRA_EXERCISE_GROUPS', 'EXTRA_GROUP_ORDER', gaeSrc + '; return getAllExercises();')(
+    d.PROGRAM, d.ALTERNATIVES, extra ? d.EXTRA_EXERCISE_GROUPS : undefined, extra ? d.EXTRA_GROUP_ORDER : undefined);
+}
+
+test('Add-exercise window: new exercises sit in sensible groups, new groups go before "Другое"; without the module nothing changes', () => {
+  const list = runGetAll(betaEx, true);
+  assert(list.length === idsOf(betaEx).size, 'every exercise of the pool is listed once: ' + list.length);
+  const g = id => list.find(e => e.id === id)._group;
+  NEW_EXTRA.forEach(e => assert(g(e.id) && g(e.id) !== 'Другое', e.id + ' must have a real group, got ' + g(e.id)));
+  assert(g('hanging_leg_raise') === 'Пресс и кор' && g('hip_abduction') === 'Бёдра' && g('wrist_curl') === 'Предплечья и хват' && g('back_extension') === 'Спина' && g('barbell_glute_bridge') === 'ЗПБ' && g('db_curl') === 'Бицепс', 'spot checks');
+  const first = name => list.findIndex(e => e._group === name);
+  assert(first('Бёдра') < first('Пресс и кор') && first('Пресс и кор') < first('Предплечья и хват') && first('Предплечья и хват') < first('Другое'), 'new groups come in order, before "Другое"');
+  assert(first('Осанка') < first('Бёдра'), 'and after the old groups');
+  // боевая сборка: те же группы, что были
+  const prod = runGetAll(baseEx, false);
+  assert(prod.length === idsOf(baseEx).size && !prod.some(e => ['Бёдра', 'Пресс и кор', 'Предплечья и хват'].includes(e._group)), 'production list unchanged');
+  assert(betaEx.EXTRA_GROUP_ORDER.length === 3 && Object.keys(betaEx.EXTRA_EXERCISE_GROUPS).length === 25, 'groups cover all 25 exercises');
+  info('Groups: ' + [...new Set(list.map(e => e._group))].join(' | '));
+});
+
+test('Seams: every mention in the main code is guarded by typeof, the main file defines none of the beta names', () => {
+  const lines = src.split('\n');
+  let n = 0;
+  lines.forEach((l, i) => {
+    if (l.trim().startsWith('//') || l.trim().startsWith('{/*')) return;
+    if (/\b(ExerciseMedia|EXTRA_EXERCISE_GROUPS|EXTRA_GROUP_ORDER)\b/.test(l)) { n++; assert(/typeof (ExerciseMedia|EXTRA_EXERCISE_GROUPS|EXTRA_GROUP_ORDER)/.test(l), 'line ' + (i + 1) + ' uses a beta name without typeof: ' + l.trim().slice(0, 90)); }
+  });
+  assert(n >= 3, 'three seams expected, found ' + n);
+  assertNot(/function ExerciseMedia|const EXTRA_|const EXERCISE_MEDIA|function exb[A-Z]/.test(src), 'beta names are defined only in src/beta');
+  assert(src.includes('{typeof ExerciseMedia === "function" && <ExerciseMedia key={ex.id} exId={ex.id} name={ex.name} />}'), 'the GIF sits in the opened "Техника" block');
+  const tech = src.slice(src.indexOf('{isExpanded && !skipped && !editMode && ('));
+  assert(tech.indexOf('<ExerciseMedia') < tech.indexOf('>ТЕХНИКА<'), 'the GIF comes before the steps');
+  info(n + ' guarded seams');
+});
+
+function loadMedia() {
+  return new Function(mediaPure + '; return { EXERCISE_MEDIA, EXERCISE_MEDIA_NONE, EXERCISE_MEDIA_BASE, EXERCISE_MEDIA_CREDIT, EXERCISE_MEDIA_COMMIT, EXERCISE_STILLS, EXERCISE_STILLS_SINGLE, EXERCISE_STILLS_BASE, EXERCISE_STILLS_COMMIT, EXERCISE_STILLS_CREDIT, exerciseMediaKey, exerciseMediaUrl, exerciseStillsUrls };')();
+}
+
+test('Pictures: every exercise of the pool is decided (a GIF, a still picture, or an explicit "none"), and EVERY exercise of the main workouts has a GIF', () => {
+  const m = loadMedia();
+  const pool = idsOf(betaEx);
+  const withGif = Object.keys(m.EXERCISE_MEDIA), withStill = Object.keys(m.EXERCISE_STILLS), none = m.EXERCISE_MEDIA_NONE;
+  const all = [...withGif, ...withStill, ...none];
+  all.forEach(id => assert(pool.has(id), 'listed but does not exist: ' + id));
+  assert(new Set(all).size === all.length, 'an exercise is listed in two places (GIF, still, none): ' + all.filter((id, i) => all.indexOf(id) !== i).join());
+  const undecided = [...pool].filter(id => !all.includes(id));
+  assert(undecided.length === 0, 'exercises without a decision about a picture: ' + undecided.join());
+  // главное требование: все упражнения основных тренировок показывают именно гифку
+  const missing = [];
+  let main = 0;
+  Object.keys(betaEx.PROGRAM).forEach(k => betaEx.PROGRAM[k].exercises.forEach(e => { main++; if (!m.exerciseMediaKey(e.id)) missing.push(k + ':' + e.id + ' ' + e.name); }));
+  assert(main === 43 && missing.length === 0, 'main workouts (' + main + ' exercises) without a GIF: ' + missing.join('; '));
+  assert(withGif.length >= 200 && withStill.length === 14 && none.length === 7, 'coverage ' + withGif.length + '/' + withStill.length + '/' + none.length);
+  info(withGif.length + ' GIFs, ' + withStill.length + ' still pictures, ' + none.length + ' without a picture (of ' + pool.size + '); all ' + main + ' main-workout exercises have a GIF');
+});
+
+test('GIFs: file names, pinned commit and URL helpers', () => {
+  const m = loadMedia();
+  assert(/^[0-9a-f]{40}$/.test(m.EXERCISE_MEDIA_COMMIT) && m.EXERCISE_MEDIA_COMMIT === mediaReview.commit, 'pinned to one commit, the same one the review was done on');
+  assert(m.EXERCISE_MEDIA_BASE === 'https://cdn.jsdelivr.net/gh/hasaneyldrm/exercises-dataset@' + m.EXERCISE_MEDIA_COMMIT + '/videos/', 'CDN base: ' + m.EXERCISE_MEDIA_BASE);
+  Object.keys(m.EXERCISE_MEDIA).forEach(id => assert(/^\d{4}-[A-Za-z0-9]{7}$/.test(m.EXERCISE_MEDIA[id]), id + ': file name ' + m.EXERCISE_MEDIA[id]));
+  assert(m.exerciseMediaUrl('bench') === m.EXERCISE_MEDIA_BASE + '0025-EIeI8Vf.gif', 'URL of the bench press');
+  assert(m.exerciseMediaUrl('no_such_exercise') === null && m.exerciseMediaKey('constructor') === null && m.exerciseMediaKey('__proto__') === null && m.exerciseMediaUrl('hip_thrust') === null, 'unknown ids and prototype names give null');
+  // подпись в том виде, как требует NOTICE репозитория
+  assert(m.EXERCISE_MEDIA_CREDIT === '© Gym visual — https://gymvisual.com/', 'credit text: ' + m.EXERCISE_MEDIA_CREDIT);
+  info('jsDelivr, commit ' + m.EXERCISE_MEDIA_COMMIT.slice(0, 7));
+});
+
+test('GIFs: the pairing was checked by eye and cannot drift - every id maps to the reviewed animation', () => {
+  const m = loadMedia();
+  const ids = Object.keys(m.EXERCISE_MEDIA).sort();
+  assert(ids.join() === Object.keys(mediaReview.reviewed).sort().join(), 'the review fixture lists exactly the mapped exercises');
+  ids.forEach(id => assert(mediaReview.reviewed[id].split(' | ')[0] === m.EXERCISE_MEDIA[id], id + ': file ' + m.EXERCISE_MEDIA[id] + ' differs from the reviewed ' + mediaReview.reviewed[id]));
+  // файлы, названные в README самого репозитория с именем упражнения
+  assert(m.EXERCISE_MEDIA.bench === '0025-EIeI8Vf' && m.EXERCISE_MEDIA.squat === '0043-qXTaZnJ' && m.EXERCISE_MEDIA.deadlift === '0032-ila4NZS' && m.EXERCISE_MEDIA.pullups === '0652-lBDjFxJ' && m.EXERCISE_MEDIA.db_curl === '0294-NbVPDMW' && m.EXERCISE_MEDIA.lateral === '0334-DsgkuIt', 'the six animations the dataset README names itself');
+  // одно движение - одна анимация
+  const same = grp => new Set(grp.map(id => m.EXERCISE_MEDIA[id])).size === 1;
+  assert(same(['goblet_squat', 'goblet_squat_2', 'goblet_squat_lp', 'goblet_squat_le', 'fb_goblet_c']), 'goblet squat');
+  assert(same(['hack_squat', 'hack_squat_2', 'hack_squat_lp', 'hack_squat_le', 'fb_squat_alt1', 'fb_legpress_alt2']), 'hack squat');
+  assert(same(['leg_press', 'fb_leg_press', 'fb_squat_alt3']) && same(['bulgarian_split', 'bulgarian_split_2', 'bulgarian_split_lp', 'fb_squat_alt2']) && same(['deadlift', 'fb_deadlift_c', 'fb_rdl_alt1']), 'leg press, split squat, deadlift');
+  assert(same(['face_pull', 'fb_face_pull_c', 'face_pull_posture', 'fb_lateral_alt2']) && same(['cable_row', 'fb_cable_row_c']) && same(['pullups', 'fb_pullup_b2']) && same(['hanging_leg_raise', 'fb_hanging_a']), 'face pull, row, pull-up, leg raise');
+  // ошибки, найденные при просмотре, не вернутся
+  const name = id => mediaReview.reviewed[id].split(' | ')[1];
+  assert(name('incline_push') === 'decline push-up [body weight]', 'feet-on-bench push-ups show a DEcline push-up, not an incline one');
+  assert(name('fb_pullups_alt2') === 'band assisted pull-up [band]', 'band pull-ups show a band, not a machine');
+  assert(name('glute_kickback') === 'cable standing hip extension [cable]' && m.EXERCISE_MEDIA.glute_kickback === m.EXERCISE_MEDIA.fb_hip_alt2, 'glute kickback is not the triceps kickback of the same name');
+  assert(name('shoulder_press_machine') === 'lever shoulder press v. 2 [leverage machine]', 'seated machine press');
+  assert(name('cable_crossover_low') === 'cable low fly [cable]' && m.EXERCISE_MEDIA.incline_cable === m.EXERCISE_MEDIA.cable_crossover_low, 'low-to-high cable fly');
+  assert(name('fb_glute_bridge_c') === 'barbell glute bridge [barbell]' && name('fb_pallof_b') === 'band horizontal pallof press [band]', 'the two exercises replaced to match the library');
+  ['hip_thrust', 'hip_thrust_2', 'fb_plank_alt3', 'fb_hip_alt3', 'nordic_curl', 'dead_hang', 'pike_pushup', 'band_pull_apart', 'somersault_squat'].forEach(id => assert(!(id in m.EXERCISE_MEDIA), id + ' has no exact animation in the library (a still picture, if any, instead)'));
+  ['meadows_row', 'w_press', 'wall_angels', 'pushup_weighted', 'fb_bench_alt3', 'scapula_retraction', 'rib_cage_expansion'].forEach(id => assert(m.EXERCISE_MEDIA_NONE.includes(id), id + ' stays without any picture (neither library has the exact exercise)'));
+  info(ids.length + ' pairs equal to the reviewed table; known mix-ups pinned');
+});
+
+test('GIFs: equipment named in the Russian title agrees with the animation', () => {
+  const m = loadMedia();
+  const eqOf = id => (mediaReview.reviewed[id].match(/\[([^\]]+)\]$/) || [])[1] || '';
+  const nameOf = id => mediaReview.reviewed[id].split(' | ')[1].toLowerCase();
+  const bad = [];
+  Object.keys(m.EXERCISE_MEDIA).forEach(id => {
+    const ru = betaById[id].name, eq = eqOf(id), en = nameOf(id);
+    if (/гантел/i.test(ru) && !/dumbbell/.test(eq)) bad.push(id + ': "' + ru + '" -> ' + eq);
+    else if (/штанг|EZ/i.test(ru) && !/гантел/i.test(ru) && !/Смит/i.test(ru) && !/barbell|ez barbell|trap bar/.test(eq)) bad.push(id + ': "' + ru + '" -> ' + eq);
+    if (/в Смит/i.test(ru) && !/smith/.test(eq)) bad.push(id + ': "' + ru + '" -> ' + eq);
+    if (/блок|кроссовер|канат/i.test(ru) && !/гантел/i.test(ru) && !/cable|band/.test(eq)) bad.push(id + ': "' + ru + '" -> ' + eq);
+    if (/тренажёр/i.test(ru) && !/гантел|штанг|блок/i.test(ru) && !/machine|sled|smith|cable/.test(eq)) bad.push(id + ': "' + ru + '" -> ' + eq);
+  });
+  assert(bad.length === 0, 'equipment mismatch: ' + bad.join(' ; '));
+  info('Equipment words (гантели, штанга, блок, тренажёр, Смит) agree for all ' + Object.keys(m.EXERCISE_MEDIA).length + ' pairs');
+});
+
+test('GIFs: the card is honest about its source, small, accessible, and degrades quietly without internet', () => {
+  assert(/<img src=\{url\} width="180" height="180"/.test(mediaUi) && !/width: ?(1[89]\d|[2-9]\d\d)\b/.test(mediaUi.replace(/width: 180\b/g, '')), 'shown at the library\'s own size, never enlarged');
+  assert(mediaUi.includes('referrerPolicy="no-referrer"') && mediaUi.includes('alt={"Анимация упражнения: " + props.name}'), 'no referrer is sent; alt text names the exercise');
+  assert(mediaUi.includes('onLoad={() => setState("ok")}') && mediaUi.includes('onError={() => setState("failed")}'), 'load and error are handled');
+  assert(mediaUi.includes('(url ? "Анимация" : "Картинка") + " не загрузилась. Нужен интернет при первом просмотре."'), 'a calm message when the animation or picture cannot load');
+  assert(mediaUi.includes('<a href={credit.href} target="_blank" rel="noopener noreferrer"') && mediaUi.includes('{credit.text}') && mediaUi.includes('{ href: "https://gymvisual.com/", text: EXERCISE_MEDIA_CREDIT }') && mediaUi.includes('{ href: "https://repdb.co", text: EXERCISE_STILLS_CREDIT }'), 'the credit of the right source is always printed under the picture, as a safe link');
+  assert(mediaUi.includes('!ok && state !== "failed" && <div className="app-anim exm-skel"') && mediaUi.includes('@keyframes exmShimmer'), 'the placeholder moves only when motion is allowed');
+  assert(mediaUi.includes('className={stills.length > 1 ? "app-anim exm-pose" : undefined}') && mediaUi.includes('.exm-pose{animation:exmPose') && mediaUi.includes('@keyframes exmPose{0%,40%{opacity:1}'), 'switching poses is an animation that reduced motion switches off, leaving the first pose visible');
+  assert(/function ExerciseMedia\(props\) \{[\s\S]*?useState\("loading"\);[^\n]*\n\s+const \[loaded, setLoaded\] = useState\(0\);\n\s+if \(!url && !stills\) return null;/.test(mediaUi), 'hooks run before the early return; exercises with neither a GIF nor a picture render nothing');
+  assertNot(/#[0-9a-fA-F]{3,8}\b/.test(mediaUi.replace(/\/\/.*$/gm, '')), 'colours are theme tokens');
+  [...mediaUi.matchAll(/var\(--([a-z0-9-]+)\)/g)].forEach(m => assert(new RegExp('--' + m[1] + ':').test(headSrc), 'token --' + m[1] + ' exists'));
+  const bad = scanNonAsciiInStrings(mediaFile);
+  assert(bad.length === 0, bad.length + ' bad characters in strings: ' + bad.slice(0, 5).join(', '));
+  assert(codeLines(mediaFile).filter(l => l.includes('?.') || /[^?]\?\?[^?=]/.test(l)).length === 0, 'no optional chaining / nullish');
+  info('180 px, no referrer, credit link, quiet fallback');
+});
+
+test('GIFs: the production page loads nothing from the library; the test page does, only through the card', () => {
+  ['jsdelivr', 'gymvisual', 'hasaneyldrm', 'repdb', 'RepDB', 'EXERCISE_MEDIA', 'EXERCISE_STILLS', 'function ExerciseMedia'].forEach(t => assertNot(app.includes(t), 'production page mentions ' + t));
+  assertNot(html.includes('jsdelivr') || html.includes('gymvisual') || html.includes('hasaneyldrm') || html.toLowerCase().includes('repdb'), 'index.html has no reference to the libraries');
+  assert(betaApp.includes('cdn.jsdelivr.net/gh/hasaneyldrm/exercises-dataset@') && betaApp.includes('function ExerciseMedia'), 'beta page has the module');
+  assertNot(/(?:fetch|XMLHttpRequest|sendBeacon)\([^)]*jsdelivr/.test(betaSrc), 'images only: no scripts or data are fetched from the CDN');
+  assert(!/<script[^>]+jsdelivr/.test(betaHtml.replace(/loadScript\('[^']+'/g, '')), 'no script is loaded from the CDN');
+  assert(fs.existsSync(path.join(ROOT, 'scripts', 'check_media_urls.js')), 'scripts/check_media_urls.js (online check of all links) exists');
+  info('Production page is clean; beta loads only images, only on the opened card');
+});
+
+// ── SECTION 28 (continued): RepDB fallback pictures ─────────────────────────────────────────────
+const stillsReview = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests', 'fixtures', 'exercise_stills_review.json'), 'utf8'));
+
+test('Stills (RepDB): used only where there is no GIF, and the pairing equals the table checked by eye', () => {
+  const m = loadMedia();
+  const ids = Object.keys(m.EXERCISE_STILLS).sort();
+  assert(ids.length === 14 && ids.join() === Object.keys(stillsReview.reviewed).sort().join(), 'the fixture lists exactly the mapped exercises');
+  ids.forEach(id => {
+    assert(!(id in m.EXERCISE_MEDIA), id + ' has a GIF, so it must not use a still picture (the GIF always wins)');
+    const r = stillsReview.reviewed[id].split(' | ');
+    assert(r[0] === m.EXERCISE_STILLS[id], id + ': ' + m.EXERCISE_STILLS[id] + ' differs from the reviewed ' + r[0]);
+    assert((r[2] === 'main') === m.EXERCISE_STILLS_SINGLE.includes(m.EXERCISE_STILLS[id]), id + ': the number of poses must match the review');
+  });
+  m.EXERCISE_STILLS_SINGLE.forEach(slug => assert(Object.values(m.EXERCISE_STILLS).includes(slug), slug + ' is listed as single-pose but not used'));
+  assert(Object.values(m.EXERCISE_STILLS).every(slug => /^[a-z0-9-]+$/.test(slug)), 'slugs are plain');
+  const nm = id => stillsReview.reviewed[id].split(' | ')[1];
+  assert(nm('hip_thrust') === 'Barbell Hip Thrust [barbell]' && nm('fb_plank_alt3') === 'Plank [body weight]' && nm('nordic_curl') === 'Nordic Hamstring Curl [glute_ham_developer]' && nm('dead_hang') === 'Dead Hang [pull_up_bar]' && nm('pike_pushup') === 'Pike Push Ups [body weight]' && nm('somersault_squat') === 'Dumbbell Somersault Squat [dumbbell]', 'the checked names');
+  const same = grp => new Set(grp.map(id => m.EXERCISE_STILLS[id])).size === 1;
+  assert(same(['hip_thrust', 'hip_thrust_2', 'fb_hip_alt3', 'fb_rdl_alt2']) && same(['nordic_curl', 'nordic_curl_2']) && same(['band_pull_apart', 'band_pull_posture', 'fb_face_alt2']), 'one movement, one picture');
+  // что не подошло при просмотре, не вернётся: скапулярные подтягивания - не сведение лопаток стоя
+  ['scapula_retraction', 'wall_angels', 'meadows_row', 'w_press', 'pushup_weighted', 'fb_bench_alt3', 'rib_cage_expansion'].forEach(id => assertNot(id in m.EXERCISE_STILLS, id + ' has no exact picture and must stay without one'));
+  info(ids.length + ' pairs equal to the reviewed table; 7 exercises deliberately stay without any picture');
+});
+
+test('Stills (RepDB): pinned commit, URL helper, poses, credit text, and the licence conditions are respected', () => {
+  const m = loadMedia();
+  assert(/^[0-9a-f]{40}$/.test(m.EXERCISE_STILLS_COMMIT) && m.EXERCISE_STILLS_COMMIT === stillsReview.commit, 'pinned to the reviewed commit');
+  assert(m.EXERCISE_STILLS_BASE === 'https://cdn.jsdelivr.net/gh/RepDB/exercise-dataset@' + m.EXERCISE_STILLS_COMMIT + '/images/flat/', 'base URL: ' + m.EXERCISE_STILLS_BASE);
+  const u = m.exerciseStillsUrls;
+  const base = m.EXERCISE_STILLS_BASE;
+  assert(JSON.stringify(u('hip_thrust')) === JSON.stringify([base + 'hip-thrust-start.webp', base + 'hip-thrust-peak.webp']), 'two poses: start, then peak');
+  assert(JSON.stringify(u('fb_plank_alt3')) === JSON.stringify([base + 'plank-main.webp']) && u('dead_hang').length === 1 && u('pike_pushup').length === 2, 'single-pose exercises give one picture');
+  assert(u('bench') === null && u('constructor') === null && u('__proto__') === null, 'exercises with a GIF, unknown ids and prototype names give null');
+  // RepDB просит видимую подпись именно в таком виде (ATTRIBUTION.md)
+  assert(m.EXERCISE_STILLS_CREDIT === 'Exercise data by RepDB (repdb.co)', 'credit text');
+  assert(fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8').includes('Exercise data by [RepDB](https://repdb.co)'), 'README carries the credit line RepDB asks for (one of the places its licence allows)');
+  // условия лицензии: платные анимации и образцы premium-samples не используются, картинки к нам не копируются
+  const code = codeLines(mediaFile).join('\n');
+  assertNot(/premium-samples/.test(code), 'premium-samples are evaluation-only and must not be used');
+  const pics = [];
+  (function walk(dir) { fs.readdirSync(dir, { withFileTypes: true }).forEach(e => { if (['.git', 'node_modules', 'vendor'].includes(e.name)) return; const p = path.join(dir, e.name); if (e.isDirectory()) walk(p); else if (/\.(gif|webp)$/i.test(e.name)) pics.push(path.relative(ROOT, p)); }); })(ROOT);
+  assert(pics.length === 0, 'GIF/WebP files are not copied into the repository (linked only): ' + pics.slice(0, 3).join(', '));
+  assert(!/\.gif/.test(m.EXERCISE_STILLS_BASE) && m.exerciseStillsUrls('hip_thrust').every(x => x.endsWith('.webp')), 'only the free WebP stills');
+  info('RepDB stills: jsDelivr, commit ' + m.EXERCISE_STILLS_COMMIT.slice(0, 7) + ', credit in the card and in README');
+});
+
+test('Stills (RepDB): the card shows both poses, switches smoothly, keeps motion optional, and is quiet when offline', () => {
+  assert(mediaUi.includes('const stills = url ? null : exerciseStillsUrls(props.exId);'), 'stills only when there is no GIF');
+  assert((mediaUi.match(/<img /g) || []).length === 3, 'one GIF image and two still images');
+  assert(mediaUi.includes('alt="" aria-hidden="true"') && mediaUi.includes('alt={"Упражнение: " + props.name}'), 'the second pose is decorative, the first one names the exercise');
+  assert((mediaUi.match(/referrerPolicy="no-referrer"/g) || []).length === 3 && (mediaUi.match(/width="180" height="180"/g) || []).length === 3, 'no referrer; 180 px tile');
+  assert(mediaUi.includes('onLoad={() => setLoaded(n => n + 1)} onError={() => setState("failed")}'), 'both poses are counted; any error switches to the quiet message');
+  assert(mediaUi.includes('const ok = url ? state === "ok" : state !== "failed" && loaded >= stills.length;'), 'the picture appears only when all of its poses are loaded');
+  // каждый движущийся элемент карточки помечен app-anim
+  const cls = [...mediaUi.matchAll(/className=(?:"([^"]*exm-[^"]*)"|\{[^}]*"(app-anim exm-[a-z]+)"[^}]*\})/g)].map(m => m[1] || m[2]);
+  assert(cls.length === 2 && cls.every(c => /\bapp-anim\b/.test(c)), 'moving elements carry app-anim: ' + cls.join(' | '));
+  assert(/@media \(prefers-reduced-motion: reduce\)\{\.app-anim,\.app-anim \*\{animation:none!important\}\}/.test(headSrc), 'the global reduced-motion rule exists');
+  assertNot(/Math\.random/.test(mediaFile), 'no randomness');
+  info('2 poses crossfade (2.6 s), skeleton while loading, calm message on failure');
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  SUMMARY
 // ═══════════════════════════════════════════════════════════════════════════

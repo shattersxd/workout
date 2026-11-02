@@ -30,7 +30,7 @@
 
 ```bash
 python3 scripts/build.py      # src/ -> index.html
-node tests/test_pwa.js        # 374 теста, должно быть 374/374
+node tests/test_pwa.js        # 390 тестов, должно быть 390/390
 ```
 
 Или одной командой:
@@ -64,3 +64,12 @@ CLAUDE.md                 ограничения платформы и конт�
 код написан именно так: Babel на iOS падает на не-ASCII символах в строках,
 optional chaining не транспилируется, пропущенная запятая в объекте валит всё
 приложение. Каждое такое падение закрыто тестом.
+
+## Источники картинок упражнений (только в тестовой версии)
+
+Картинки подключены по ссылкам, в репозитории их файлов нет.
+
+- Анимации упражнений: © Gym visual — https://gymvisual.com/ (через открытый репозиторий
+  [hasaneyldrm/exercises-dataset](https://github.com/hasaneyldrm/exercises-dataset), 180x180, с подписью под каждой).
+- Картинки с двумя позами для упражнений без анимации: Exercise data by [RepDB](https://repdb.co) (бесплатная версия
+  набора, [условия](https://github.com/RepDB/exercise-dataset/blob/main/LICENSE-DATA.md)).
