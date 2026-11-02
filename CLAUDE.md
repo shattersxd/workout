@@ -51,7 +51,7 @@ sw.js                        <- настоящий service worker, регист�
 ## Рабочий цикл и деплой
 
 ```bash
-python3 scripts/build.py && node tests/test_pwa.js   # должно быть 374/374
+python3 scripts/build.py && node tests/test_pwa.js   # должно быть 390/390
 python3 scripts/build.py --check                     # index.html не отстал от src/
 ```
 
@@ -59,7 +59,7 @@ python3 scripts/build.py --check                     # index.html не отст�
 руками нельзя, следующая сборка затрёт правку. Коммитить `index.html` нужно,
 потому что GitHub Pages отдаёт именно его.
 
-Перед деплоем должно быть **374/374 PASSED**. Красный тест — это не повод
+Перед деплоем должно быть **390/390 PASSED**. Красный тест — это не повод
 править тест, это повод править код (исключения — ниже).
 
 Деплой: `git add -A && git commit -m "..." && git push`. GitHub Pages репозитория
@@ -164,6 +164,12 @@ python3 scripts/build.py --check                     # index.html не отст�
   переключателя, скрывающего пометку, нет и быть не должно.
 - Тон: бета на «вы», основная версия на «ты» (решение заказчика).
 - Бета всегда тёмная (панели на hex). Не обещать звук и музыку при свёрнутом приложении.
+- Гифки упражнений (`media.jsx`) принадлежат Gym visual и подключены **по ссылке** на CDN, в репозиторий не
+  копируются; подпись «© Gym visual — https://gymvisual.com/» под каждой обязательна, размер не больше 180 пикселей.
+  У каждого упражнения основных тренировок гифка обязана быть и показывать именно его (тест); нет точной
+  анимации - нет гифки, а не «похожая». Запасной источник для упражнений без гифки - статичные картинки RepDB
+  (две позы, подпись «Exercise data by RepDB (repdb.co)»); платные анимации и `premium-samples` RepDB не
+  использовать. Подробности и сравнение библиотек — `docs/claude/beta-exercises.md`.
 
 ## Тема оформления
 
@@ -176,7 +182,7 @@ python3 scripts/build.py --check                     # index.html не отст�
 
 ## Тесты
 
-`tests/test_pwa.js` — свой харнесс, 27 секций, 374 теста. Новую секцию добавлять
+`tests/test_pwa.js` — свой харнесс, 28 секций, 390 тестов. Новую секцию добавлять
 **перед** блоком `SUMMARY` и `process.exit()`, иначе она не запустится. Асинхронные
 тесты — через `testAsync` (`test` не ждёт промисы). Список секций — `docs/claude/tests.md`.
 
@@ -198,3 +204,4 @@ python3 scripts/build.py --check                     # index.html не отст�
 | `src/beta/social.jsx`, `src/beta/compete.jsx` | `docs/claude/beta-social.md` + `docs/social-design.md` |
 | `src/beta/spotify.jsx`, музыкой | `docs/claude/beta-spotify.md` + `docs/music-design.md` |
 | `src/beta/ux.jsx` и его переносом в основную версию | `docs/claude/beta-ux.md` |
+| `src/beta/exercises.jsx`, `src/beta/media.jsx`, фулбади, гифками | `docs/claude/beta-exercises.md` |
