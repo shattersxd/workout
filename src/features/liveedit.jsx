@@ -718,7 +718,7 @@ function LvUndo(props) {
   const u = props.undo;
   if (!u) return null;
   return (
-    <div role="status" aria-live="polite" style={{ position: "fixed", left: 0, right: 0, bottom: props.timerOn ? "calc(128px + env(safe-area-inset-bottom))" : "calc(28px + env(safe-area-inset-bottom))", zIndex: 660, display: "flex", justifyContent: "center", padding: "0 14px", pointerEvents: "none" }}>
+    <div role="status" aria-live="polite" style={{ position: "fixed", left: 0, right: 0, bottom: `calc(${(props.timerOn ? 128 : 28) + (props.lift || 0)}px + env(safe-area-inset-bottom))`, zIndex: 660, display: "flex", justifyContent: "center", padding: "0 14px", pointerEvents: "none" }}>
       <div key={u.id} className="app-anim lv-toast"
         style={{ pointerEvents: "auto", position: "relative", overflow: "hidden", width: "100%", maxWidth: 420, display: "flex", alignItems: "center", gap: 10, padding: "8px 8px 8px 16px", borderRadius: 16, background: "var(--bg-1a1a22)", border: "1px solid var(--bd-2a2a35)", boxShadow: "var(--shadow-pop)" }}>
         <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: "var(--tx-ccc)", lineHeight: 1.4 }}>{u.text}</div>
@@ -835,7 +835,7 @@ function LvLayer(props) {
     <>
       <style>{LV_CSS}</style>
       {sheet}
-      <LvUndo undo={undo} onUndo={doUndo} color={props.color} ink={props.ink} timerOn={props.timerOn} />
+      <LvUndo undo={undo} onUndo={doUndo} color={props.color} ink={props.ink} timerOn={props.timerOn} lift={props.lift} />
     </>
   );
 }

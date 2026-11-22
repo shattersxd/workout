@@ -1301,8 +1301,9 @@ function todayKey() {
 // Формат: { app, version, exportedAt, data }. Загрузка только ДОБАВЛЯЕТ недостающее
 // (журнал по ts, сессии и пр. по ключу), локальные данные не перезаписываются.
 const BACKUP_APP = "workout-tracker";
-// planSwaps - запомненные замены по дням (src/features/liveedit.jsx): это часть плана, поэтому они идут в файл копии
-const BACKUP_BUCKETS = ["sessions", "customSets", "addedEx", "skipped", "swaps", "customWorkouts", "planSwaps"];
+// planSwaps - запомненные замены по дням (src/features/liveedit.jsx), notes - заметки к упражнениям (src/beta/focus.jsx):
+// это часть плана, поэтому они идут в файл копии
+const BACKUP_BUCKETS = ["sessions", "customSets", "addedEx", "skipped", "swaps", "customWorkouts", "planSwaps", "notes"];
 
 function buildBackup(d) {
   return JSON.stringify({ app: BACKUP_APP, version: 1, exportedAt: new Date().toISOString(), data: d });
@@ -1582,6 +1583,8 @@ export default function App() {
   const [swapModal, setSwapModal] = useState(null);
   // Окна правки тренировки на ходу (src/features/liveedit.jsx): null | { sheet, id }
   const [liveEdit, setLiveEdit] = useState(null);
+  // Выполненные упражнения свёрнуты в строку (src/beta/focus.jsx, только в тестовой сборке); здесь - раскрытые вручную
+  const [fxOpen, setFxOpen] = useState({});
   const [savePrompt, setSavePrompt] = useState(false);
   // Удобства тренировки (src/beta/ux.jsx, пока только в тестовой сборке): всплывашка рекорда и итог после сохранения
   const [recordPop, setRecordPop] = useState(null);
@@ -1724,6 +1727,20 @@ export default function App() {
   useEffect(function() {
     if (timer && timer.endsAt) endsAtRef.current = timer.endsAt;
   }, [timer ? timer.endsAt : null]);
+
+  // Отдых после выгрузки приложения системой. Эффект "Persist" ниже при первом показе стирает ключ раньше, чем
+  // его прочтёт "Restore", поэтому отдых не восстанавливался. Здесь ключ читается ДО стирания. Пока только в
+  // тестовой версии: после проверки на телефоне этот эффект заменит "Restore" в обеих версиях.
+  useEffect(function() {
+    if (APP_VARIANT !== "beta") return;
+    try {
+      var saved = localStorage.getItem(TIMER_KEY);
+      if (!saved) return;
+      var t = JSON.parse(saved);
+      var left = Math.round((t.endsAt - Date.now()) / 1000);
+      if (left > 0) setTimer({ total: t.total, endsAt: t.endsAt, left: left, running: true });
+    } catch(e) {}
+  }, []);
 
   // Persist to localStorage so timer survives app kill/reopen
   useEffect(function() {
@@ -2910,11 +2927,20 @@ export default function App() {
     </>
   );
 
-  return (
-    <div style={{ minHeight: "100vh", background: "var(--bg-0c0c0f)", color: "var(--tx-e8e8e8)", fontFamily: "'DM Mono','Fira Mono',monospace", paddingBottom: timer ? 180 : 100 }}>
+  const mainTabs = [["workout","ТРЕНИРОВКА"],["warmup","РАЗМИНКА"],["journal","ЖУРНАЛ"],["achievements","АЧИВКИ"]].concat(typeof BetaTab === "function" ? [["beta","БЕТА"]] : []);
+  // Нижняя панель вкладок (src/beta/nav.jsx, только в тестовой сборке): на её высоту поднимается всё, что прижато к низу
+  const navLift = typeof NV_H === "number" ? NV_H : 0;
+  // Текущее упражнение и "что дальше" для таймера (src/beta/focus.jsx, только в тестовой сборке)
+  const fxItems = typeof fxCurrent === "function" ? getSessionExercises().filter(e => !isSkipped(e.id)).map(e => { const x = getExercise(e.id); const n = getExSets(e.id); return { id: e.id, exId: x.id, name: x.name, n: n, sets: Array.from({ length: n }, (_, i) => getSetData(x.id, i)) }; }) : null;
+  const fxNow = fxItems ? fxCurrent(fxItems) : null;
+  const fxAfter = fxItems ? fxNext(fxItems) : null;
+  const fxTimerNext = fxAfter ? Object.assign({}, fxAfter, { weight: fxAfter.weight || getSuggestedWeight(fxAfter.exId, fxAfter.set - 1) || "" }) : null;
 
-      {/* HEADER */}
-      <div style={{ background: "var(--bg-0c0c0f)", borderBottom: "1px solid var(--bd-1a1a22)", padding: "20px 20px 0", position: "sticky", top: 0, zIndex: 100, isolation: "isolate" }}>
+  return (
+    <div style={{ minHeight: "100vh", background: "var(--bg-0c0c0f)", color: "var(--tx-e8e8e8)", fontFamily: "'DM Mono','Fira Mono',monospace", paddingBottom: (timer ? 180 : 100) + navLift }}>
+
+      {/* HEADER; с нижней панелью вкладок шапка не висит над списком, а уезжает вместе со страницей */}
+      <div style={{ background: "var(--bg-0c0c0f)", borderBottom: "1px solid var(--bd-1a1a22)", padding: "20px 20px 0", position: typeof NvBar === "function" ? "static" : "sticky", top: 0, zIndex: 100, isolation: "isolate" }}>
         <div style={{ maxWidth: 560, margin: "0 auto" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
             <div style={{ minWidth: 0 }}>
@@ -2949,14 +2975,16 @@ export default function App() {
               );
             })}
           </div>
+          {typeof NvBar !== "function" && (
           <div style={{ display: "flex", borderBottom: "1px solid var(--bd-1a1a22)" }}>
-            {[["workout","ТРЕНИРОВКА"],["warmup","РАЗМИНКА"],["journal","ЖУРНАЛ"],["achievements","АЧИВКИ"]].concat(typeof BetaTab === "function" ? [["beta","БЕТА"]] : []).map(([id, label]) => (
+            {mainTabs.map(([id, label]) => (
               <button key={id} onClick={() => setActiveTab(id)}
                 style={{ flex: 1, padding: "11px 1px 13px", background: "none", border: "none", borderBottom: activeTab === id ? `3px solid ${w.color}` : "3px solid transparent", color: activeTab === id ? "var(--tx-fff)" : "var(--tx-3a3a3a)", fontSize: 9.5, letterSpacing: 0.5, cursor: "pointer", marginBottom: -1, transition: "all 0.15s", fontFamily: "inherit", fontWeight: activeTab === id ? 700 : 400, whiteSpace: "nowrap" }}>
                 {label}
               </button>
             ))}
           </div>
+          )}
         </div>
       </div>
 
@@ -3051,8 +3079,16 @@ export default function App() {
               // In edit mode show skipped cards dimmed with toggle
               if (skipped && !editMode) return null;
 
+              // выполненное упражнение - одной строкой (src/beta/focus.jsx, только в тестовой сборке)
+              if (!skipped && allDone && typeof FxDoneCard === "function" && !fxOpen[baseEx.id]) {
+                return <FxDoneCard key={baseEx.id} domId={"exc-" + baseEx.id} name={ex.name} unit={weightUnit(ex.name)} color={w.color}
+                  summary={fxSummary(Array.from({ length: getExSets(baseEx.id) }, (_, i) => getSetData(ex.id, i)), getExSets(baseEx.id))}
+                  onOpen={() => setFxOpen(o => ({ ...o, [baseEx.id]: true }))}
+                  menu={typeof LvMenuButton === "function" ? <LvMenuButton name={ex.name} active={ex._isSwapped} color={w.color} ink={ink} onClick={() => setLiveEdit({ sheet: "menu", id: baseEx.id })} /> : null} />;
+              }
+
               return (
-                <div key={baseEx.id} id={"exc-" + baseEx.id} style={{ background: skipped ? "var(--bg-0a0a0c)" : "var(--bg-0f0f12)", border: `1px solid ${skipped ? "var(--bd-161620)" : allDone ? w.color + "60" : "var(--bd-1a1a22)"}`, borderLeft: !skipped && ex.warn ? `3px solid #ff4d4d50` : `1px solid ${skipped ? "var(--bd-161620)" : allDone ? w.color + "60" : "var(--bd-1a1a22)"}`, borderRadius: 12, marginBottom: 12, overflow: "hidden", opacity: skipped ? 0.45 : 1, transition: "all 0.2s" }}>
+                <div key={baseEx.id} id={"exc-" + baseEx.id} style={{ background: skipped ? "var(--bg-0a0a0c)" : "var(--bg-0f0f12)", border: `1px solid ${skipped ? "var(--bd-161620)" : allDone ? w.color + "60" : "var(--bd-1a1a22)"}`, borderLeft: !skipped && ex.warn ? `3px solid #ff4d4d50` : `1px solid ${skipped ? "var(--bd-161620)" : allDone ? w.color + "60" : "var(--bd-1a1a22)"}`, borderRadius: 12, marginBottom: 12, overflow: "hidden", opacity: skipped ? 0.45 : 1, transition: "all 0.2s", boxShadow: fxNow === baseEx.id && !skipped ? `0 0 0 1px ${w.color}90` : undefined }}>
 
                   {/* Header row */}
                   <div style={{ padding: "16px 16px 10px", display: "flex", alignItems: "flex-start", gap: 12 }}>
@@ -3076,7 +3112,10 @@ export default function App() {
                         {/* с модулем правки добавленное убирается через окно упражнения, значок только сообщает */}
                         {baseEx._added && typeof LvMenuButton === "function" && <span style={{ fontSize: 8, padding: "2px 7px", borderRadius: 4, background: "var(--bg-1a2a1a)", color: "var(--tx-5a9a5a)", letterSpacing: 1, border: "1px solid var(--bd-2a4a2a)" }}>ДОБАВЛЕНО</span>}
                         {skipped && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: "var(--bg-1a1a22)", color: "var(--tx-777)", letterSpacing: 1 }}>ПРОПУЩЕНО</span>}
+                        {/* текущее упражнение и заметка к нему: src/beta/focus.jsx, только в тестовой сборке */}
+                        {fxNow === baseEx.id && !skipped && typeof FxNowTag === "function" && <FxNowTag color={w.color} ink={ink} />}
                       </div>
+                      {!skipped && typeof FxNoteLine === "function" && <FxNoteLine text={data.notes && data.notes[ex.id]} />}
                     </div>
                     {!skipped && !editMode && (
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -3147,7 +3186,7 @@ export default function App() {
                         <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <div style={{ fontSize: 12, color: "var(--tx-666)", width: 18, textAlign: "center", flexShrink: 0, fontWeight: 600 }}>{i + 1}</div>
                           <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, background: "var(--bg-0c0c0f)", borderRadius: 10, padding: "10px 14px", border: `1px solid ${sd.done ? w.color + "50" : "var(--bd-1e1e28)"}`, transition: "border-color 0.2s" }}>
-                            <input type="number" className="wt" placeholder={getSuggestedWeight(ex.id, i) || " - "} value={sd.weight}
+                            <input type="number" inputMode={APP_VARIANT === "beta" ? "decimal" : undefined} className="wt" placeholder={getSuggestedWeight(ex.id, i) || " - "} value={sd.weight}
                               readOnly={sd.done}
                               onClick={() => { if (sd.done) showToast("Сними отметку, чтобы изменить вес"); }}
                               onChange={e => updateSet(ex.id, i, "weight", e.target.value)}
@@ -3166,11 +3205,17 @@ export default function App() {
                   </div>
                   )}
 
+                  {/* раскрытую вручную выполненную карточку можно свернуть обратно (src/beta/focus.jsx) */}
+                  {allDone && !skipped && !editMode && typeof FxFold === "function" && <FxFold onClick={() => setFxOpen(o => ({ ...o, [baseEx.id]: false }))} />}
+
                   {/* Техника */}
                   {isExpanded && !skipped && !editMode && (
                     <div style={{ padding: "0 16px 16px" }}>
                       {/* Гифка упражнения: ExerciseMedia лежит в src/features/media.jsx (обе сборки); шов оставлен на случай сборки без модуля */}
                       {typeof ExerciseMedia === "function" && <ExerciseMedia key={ex.id} exId={ex.id} name={ex.name} />}
+                      {/* заметка к упражнению и блины на штангу: src/beta/focus.jsx, только в тестовой сборке */}
+                      {typeof FxNote === "function" && <FxNote value={data.notes && data.notes[ex.id]} color={w.color} ink={ink} onSave={text => setData(prev => fxNoteSet(prev, ex.id, text))} />}
+                      {typeof FxPlates === "function" && <FxPlates key={"pl-" + ex.id} exId={ex.id} name={ex.name} weight={lastW} color={w.color} ink={ink} />}
                       <div style={{ background: "var(--bg-0c0c0f)", borderRadius: 8, padding: "12px 14px", marginBottom: ex.danger ? 8 : 0, border: "1px solid var(--bd-1a1a22)" }}>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                           <div style={{ fontSize: 9, letterSpacing: 3, color: ink(w.color), fontWeight: 700 }}>ТЕХНИКА</div>
@@ -4311,7 +4356,9 @@ export default function App() {
       })()}
 
       {/* ===== TIMER ===== */}
-      {timer && (() => {
+      {/* крупные кнопки и подсказка "дальше": FxTimer есть только в тестовой сборке (src/beta/focus.jsx) */}
+      {timer && typeof FxTimer === "function" && <FxTimer timer={timer} lift={navLift} color={w.color} ink={ink} next={fxTimerNext} unitOf={weightUnit} onAdd={addTime} onStop={stopTimer} doneClass={typeof uxRestDoneClass === "string" ? uxRestDoneClass : undefined} />}
+      {timer && typeof FxTimer !== "function" && (() => {
         const pct = timer.total > 0 ? (timer.left / timer.total) * 100 : 0;
         const mins = Math.floor(timer.left / 60);
         const secs = timer.left % 60;
@@ -4375,10 +4422,13 @@ export default function App() {
       {typeof UxLayer === "function" && <UxLayer recordPop={recordPop} onRecordClose={() => setRecordPop(null)} summary={summary} onSummaryClose={() => setSummary(null)} color={w.color} ink={ink} />}
 
       {/* Окна правки тренировки и плашка отмены: LvLayer лежит в src/features/liveedit.jsx */}
-      {typeof LvLayer === "function" && activeTab === "workout" && <LvLayer state={liveEdit} onState={setLiveEdit} data={data} setData={setData} sessionKey={sessionKey} base={(getWorkout(activeDay) || PROGRAM.push).exercises || []} pool={getAllExercises} color={w.color} ink={ink} timerOn={!!timer} onAdd={() => { setAddExModal(true); setAddExSearch(""); }} />}
+      {typeof LvLayer === "function" && activeTab === "workout" && <LvLayer state={liveEdit} onState={setLiveEdit} data={data} setData={setData} sessionKey={sessionKey} base={(getWorkout(activeDay) || PROGRAM.push).exercises || []} pool={getAllExercises} color={w.color} ink={ink} timerOn={!!timer} lift={navLift} onAdd={() => { setAddExModal(true); setAddExSearch(""); }} />}
+
+      {/* Вкладки внизу: NvBar есть только в тестовой сборке (src/beta/nav.jsx) */}
+      {typeof NvBar === "function" && <NvBar tabs={mainTabs} active={activeTab} onPick={setActiveTab} prog={prog} color={w.color} ink={ink} />}
 
       {toast && (
-        <div style={{ position: "fixed", bottom: timer ? "calc(130px + env(safe-area-inset-bottom))" : "calc(50px + env(safe-area-inset-bottom))", left: "50%", transform: "translateX(-50%)", background: "var(--bg-1a1a22)", border: "1px solid var(--bd-2a2a2a)", borderRadius: 8, padding: "10px 20px", fontSize: 11, color: "var(--tx-ccc)", letterSpacing: 1, zIndex: 999, pointerEvents: "none" }}>
+        <div style={{ position: "fixed", bottom: `calc(${(timer ? 130 : 50) + navLift}px + env(safe-area-inset-bottom))`, left: "50%", transform: "translateX(-50%)", background: "var(--bg-1a1a22)", border: "1px solid var(--bd-2a2a2a)", borderRadius: 8, padding: "10px 20px", fontSize: 11, color: "var(--tx-ccc)", letterSpacing: 1, zIndex: 999, pointerEvents: "none" }}>
           {toast}
         </div>
       )}

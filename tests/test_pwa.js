@@ -1621,7 +1621,8 @@ test('Interactive buttons meet 44pt minimum tap target (Apple HIG)', () => {
 });
 
 test('Header is sticky (navigation stays reachable while scrolling)', () => {
-  assert(src.includes('position: "sticky"'), 'Header not sticky — tabs scroll out of view on long exercise lists');
+  // без нижней панели вкладок (src/beta/nav.jsx) шапка с вкладками прилипает; с панелью вкладки внизу, шапке висеть незачем
+  assert(src.includes('position: typeof NvBar === "function" ? "static" : "sticky"'), 'Header not sticky — tabs scroll out of view on long exercise lists');
   assert(src.includes('zIndex: 50'), 'Sticky header missing z-index');
   info('Header sticky with z-index');
 });
@@ -5908,7 +5909,7 @@ test('Remembered replacement: travels in the backup file, wired into the app', (
   assert(JSON.stringify(mergeBackup(empty, parsed.data).data.planSwaps) === '{"push":{"incline":"incline_smith"}}', 'loading into a device without them brings them in');
   const mine = Object.assign({}, empty, { planSwaps: { push: { incline: 'pec_deck' }, pull: { pullups: 'chinup' } } });
   assert(JSON.stringify(mergeBackup(mine, parsed.data).data.planSwaps) === JSON.stringify(mine.planSwaps), 'loading only adds: what is remembered here for a day is not overwritten');
-  assert(/const BACKUP_BUCKETS = \[[^\]]*"planSwaps"\];/.test(src) && !/\["sessions"[^\]]*"planSwaps"[^\]]*\]\.forEach\(function \(bucket\)/.test(src), 'in the backup, but never pruned by date (its keys are days, not dates)');
+  assert(/const BACKUP_BUCKETS = \[[^\]]*"planSwaps"[^\]]*\];/.test(src) && !/\["sessions"[^\]]*"planSwaps"[^\]]*\]\.forEach\(function \(bucket\)/.test(src), 'in the backup, but never pruned by date (its keys are days, not dates)');
   // швы
   assert(src.includes('const swappedId = typeof lvSwapOf === "function" ? lvSwapOf(data, sessionKey, originalId, prog) : (data.swaps && data.swaps[sessionKey] && data.swaps[sessionKey][originalId]);'), 'the card resolves the replacement through lvSwapOf, without the module - today only');
   assert(src.indexOf('const prog = getSessionExercises().find(e => e.id === originalId);') < src.indexOf('const swappedId = typeof lvSwapOf'), 'the slot record is known before the swap is resolved (added exercises have no remembered swaps)');
@@ -5973,8 +5974,8 @@ test('Live edit visuals: 44pt buttons, layers, safe areas, animation marks, neut
   const z = [...lvUi.matchAll(/zIndex: (\d+)/g)].map(m => +m[1]).sort();
   assert(z.join() === '640,660', 'sheet 640, undo 660: ' + z.join());
   assert(src.includes('zIndex: 500') && src.includes('zIndex: 999'), 'above the rest timer (500), below the plain toast (999)');
-  assert((lvUi.match(/env\(safe-area-inset-bottom\)/g) || []).length >= 3 && !/inset: 0/.test(lvUi), 'sheets and the undo bar clear the home indicator; explicit edges');
-  assert(lvUi.includes('props.timerOn ? "calc(128px + env(safe-area-inset-bottom))"'), 'the undo bar moves above the rest timer');
+  assert((lvUi.match(/env\(safe-area-inset-bottom\)/g) || []).length >= 2 && !/inset: 0/.test(lvUi), 'sheets and the undo bar clear the home indicator; explicit edges');
+  assert(lvUi.includes('bottom: `calc(${(props.timerOn ? 128 : 28) + (props.lift || 0)}px + env(safe-area-inset-bottom))`'), 'the undo bar moves above the rest timer and above the bottom tab bar');
   assert((lvUi.match(/role="dialog" aria-modal="true"/g) || []).length === 1 && lvUi.includes('role="status" aria-live="polite"') && (lvUi.match(/aria-label=/g) || []).length >= 4, 'dialog, status and icon-only buttons are announced');
   // анимации: у каждого класса есть кадры, каждый движущийся элемент помечен app-anim
   const css = lvUi.slice(lvUi.indexOf('const LV_CSS = ['), lvUi.indexOf('].join("\\n");'));
@@ -6024,6 +6025,213 @@ test('Live edit windows: one menu per card, undo after every action, nothing blo
   assert(src.includes('{typeof LvSkipped === "function" && <LvSkipped data={data} setData={setData} sessionKey={sessionKey}') && lvUi.includes('ПРОПУЩЕНО СЕГОДНЯ') && lvUi.includes('lvUnskip(prev, key, e.id)'), 'skipped exercises stay visible below the list with a return button');
   assert(src.includes('const exNo = exList.slice(0, exIdx).filter(e => !isSkipped(e.id)).length + 1;') && src.includes('fontWeight: 700 }}>{exNo}</span>'), 'card numbers have no gaps when something is skipped');
   info('menu, picker, overview, undo: wired');
+});
+
+// ── SECTION 30: BOTTOM NAVIGATION AND WORKOUT FOCUS (src/beta/nav.jsx, src/beta/focus.jsx, beta only) ───────
+section('30 · BOTTOM NAVIGATION, WORKOUT FOCUS (test version)');
+
+const nvFile = fs.readFileSync(path.join(BETA_SRC_DIR, 'nav.jsx'), 'utf8').replace(/\r\n/g, '\n');
+const nvMark = nvFile.indexOf('// ---- Интерфейс ----');
+const nvPure = nvFile.slice(0, nvMark), nvUi = nvFile.slice(nvMark);
+const fxFile = fs.readFileSync(path.join(BETA_SRC_DIR, 'focus.jsx'), 'utf8').replace(/\r\n/g, '\n');
+const fxMark = fxFile.indexOf('// ---- Интерфейс ----');
+const fxPure = fxFile.slice(0, fxMark), fxUi = fxFile.slice(fxMark);
+
+function loadNv() {
+  return new Function(nvPure + '; return { NV_H, nvLabel, nvLine };')();
+}
+function loadFx(env) {
+  env = env || {};
+  const store = env.store || {};
+  const ls = {
+    getItem: k => { if (env.lsThrows) throw new Error('blocked'); return Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null; },
+    setItem: (k, v) => { if (env.lsThrows) throw new Error('blocked'); store[k] = String(v); },
+  };
+  const names = 'FX_NOTE_MAX, FX_BARS, FX_PLATES, FX_BAR_KEY, fxWeight, fxNum, fxDone, fxCurrent, fxNext, fxSummary, fxNoteClean, fxNoteSet, fxIsBarbell, fxBarDefault, fxBarGet, fxBarSet, fxPlates';
+  const api = new Function('localStorage', 'APP_VARIANT', fxPure + '; return { ' + names + ' };')(ls, env.variant || 'beta');
+  api.store = store;
+  return api;
+}
+const fxItem = (id, n, done, extra) => Object.assign({ id: id, exId: id, name: id.toUpperCase(), n: n, sets: Array.from({ length: n }, (_, i) => ({ done: done.indexOf(i) >= 0, weight: done.indexOf(i) >= 0 ? '50' : '' })) }, extra || {});
+
+test('Bottom navigation: the workout tab shows the score while training, the progress line follows the sets', () => {
+  const nv = loadNv();
+  assert(nv.NV_H >= 49 && nv.NV_H <= 64, 'bar height in the usual tab bar range: ' + nv.NV_H);
+  assert(nv.nvLabel('workout', 'ТРЕНИРОВКА', { done: 0, total: 25 }) === 'ТРЕНИРОВКА' && nv.nvLabel('workout', 'ТРЕНИРОВКА', null) === 'ТРЕНИРОВКА', 'before the first set the tab keeps its name');
+  assert(nv.nvLabel('workout', 'ТРЕНИРОВКА', { done: 5, total: 25 }) === '5/25', 'while training the tab shows done/total');
+  assert(nv.nvLabel('journal', 'ЖУРНАЛ', { done: 5, total: 25 }) === 'ЖУРНАЛ', 'other tabs keep their names');
+  assert(nv.nvLine(null) === 0 && nv.nvLine({ done: 0, total: 25 }) === 0 && nv.nvLine({ done: 3, total: 0 }) === 0, 'no line before the first set or without a plan');
+  assert(nv.nvLine({ done: 5, total: 25 }) === 20 && nv.nvLine({ done: 25, total: 25 }) === 100 && nv.nvLine({ done: 30, total: 25 }) === 100, 'percent of sets, never above 100');
+  assert(nv.nvLine({ done: 1, total: 200 }) === 2, 'the first set is always visible (at least 2%)');
+  info('label and line: 0 -> name, 5/25 -> "5/25" and 20%');
+});
+
+test('Focus: the current exercise is the started one, otherwise the first unfinished', () => {
+  const fx = loadFx();
+  assert(fx.fxCurrent([]) === null && fx.fxCurrent(null) === null, 'no exercises - nothing is current');
+  const fresh = [fxItem('a', 3, []), fxItem('b', 3, []), fxItem('c', 2, [])];
+  assert(fx.fxCurrent(fresh) === 'a', 'a fresh workout starts with the first exercise');
+  assert(fx.fxCurrent([fxItem('a', 3, [0, 1, 2]), fxItem('b', 3, []), fxItem('c', 2, [])]) === 'b', 'finished ones are passed over');
+  assert(fx.fxCurrent([fxItem('a', 3, []), fxItem('b', 3, [0]), fxItem('c', 2, [])]) === 'b', 'a started exercise wins over an earlier untouched one (the machine was busy)');
+  assert(fx.fxCurrent([fxItem('a', 3, [0, 1, 2]), fxItem('b', 3, [0, 1, 2])]) === null, 'everything done - nothing is current');
+  assert(fx.fxCurrent([fxItem('a', 2, [0, 1, 2]), fxItem('b', 3, [])]) === 'b' && fx.fxDone(fxItem('a', 2, [0, 1, 2])) === 2, 'marks beyond the chosen number of sets are not counted');
+  // что дальше
+  const next = fx.fxNext([fxItem('a', 3, [0, 1, 2]), fxItem('b', 4, [0, 2], { exId: 'b_swap', name: 'Жим' })]);
+  assert(next.id === 'b' && next.exId === 'b_swap' && next.name === 'Жим' && next.set === 2 && next.of === 4 && next.weight === '', 'next: the first unmarked set of the current exercise: ' + JSON.stringify(next));
+  const typed = [fxItem('a', 2, [0])]; typed[0].sets[1].weight = '62.5';
+  assert(fx.fxNext(typed).weight === '62.5' && fx.fxNext(typed).set === 2, 'a weight already typed for the next set is shown');
+  assert(fx.fxNext([fxItem('a', 1, [0])]) === null && fx.fxNext([]) === null, 'nothing left - no hint');
+  info('current: started > first unfinished; next: set ' + next.set + ' of ' + next.of);
+});
+
+test('Focus: a finished exercise folds into one line with its weights', () => {
+  const fx = loadFx();
+  const s = ws => ws.map(w => (w === null ? { done: false, weight: '' } : { done: true, weight: String(w) }));
+  assert(fx.fxSummary(s([95, 95, 95, 95]), 4) === '4 x 95', 'equal weights: sets x weight');
+  assert(fx.fxSummary(s([95, 95, 92.5]), 3) === '95 / 95 / 92.5', 'different weights are listed');
+  assert(fx.fxSummary(s(['62,5', '62.50']), 2) === '2 x 62.5', 'comma and trailing zero are the same weight');
+  assert(fx.fxSummary(s([40, null, 45]), 3) === '40 / 45' && fx.fxSummary(s([null]), 1) === '' && fx.fxSummary({}, 3) === '', 'only done sets; nothing done - empty');
+  assert(fx.fxSummary(s([50, 50, 60]), 2) === '2 x 50', 'sets beyond the chosen number are ignored');
+  assert(src.includes('if (!skipped && allDone && typeof FxDoneCard === "function" && !fxOpen[baseEx.id]) {') && src.includes('onOpen={() => setFxOpen(o => ({ ...o, [baseEx.id]: true }))}'), 'a finished card is folded until it is opened by hand');
+  assert(src.includes('{allDone && !skipped && !editMode && typeof FxFold === "function" && <FxFold onClick={() => setFxOpen(o => ({ ...o, [baseEx.id]: false }))} />}'), 'and an opened one can be folded back');
+  assert(/<FxDoneCard key=\{baseEx\.id\} domId=\{"exc-" \+ baseEx\.id\}/.test(src) && /menu=\{typeof LvMenuButton === "function" \? <LvMenuButton /.test(src), 'the folded line keeps the card id (jump from the overview) and the exercise menu');
+  info('"4 x 95", "95 / 95 / 92.5"');
+});
+
+test('Focus: notes stay with the exercise and travel in the backup', () => {
+  const fx = loadFx();
+  assert(fx.fxNoteClean('  сиденье   4,\n хват шире ') === 'сиденье 4, хват шире' && fx.fxNoteClean(null) === '' && fx.fxNoteClean(undefined) === '', 'spaces and line breaks are tidied');
+  assert(fx.fxNoteClean('я'.repeat(500)).length === fx.FX_NOTE_MAX && fx.FX_NOTE_MAX === 240, 'a note is cut at 240 characters');
+  const d0 = Object.freeze({ history: {}, notes: Object.freeze({ bench: 'хват 81' }) });
+  const d1 = fx.fxNoteSet(d0, 'squat', ' пятки на блины ');
+  assert(d1 !== d0 && d1.notes.squat === 'пятки на блины' && d1.notes.bench === 'хват 81' && d0.notes.squat === undefined, 'a note is added in a copy');
+  assert(fx.fxNoteSet(d0, 'bench', 'хват 81 ') === d0 && fx.fxNoteSet(d0, 'squat', '   ') === d0, 'no change - the same object (no needless save)');
+  const d2 = fx.fxNoteSet(d0, 'bench', '');
+  assert(d2 !== d0 && !('bench' in d2.notes), 'an empty note is removed');
+  assert(fx.fxNoteSet({ history: {} }, 'bench', 'x').notes.bench === 'x', 'works when there were no notes yet');
+  // заметка привязана к упражнению, которое реально делается (id замены, а не слота)
+  assert(src.includes('<FxNoteLine text={data.notes && data.notes[ex.id]} />') && src.includes('onSave={text => setData(prev => fxNoteSet(prev, ex.id, text))}'), 'notes are keyed by the performed exercise');
+  const { buildBackup, parseBackup, mergeBackup } = loadBackupFns();
+  const parsed = parseBackup(buildBackup({ history: { push: [] }, notes: { bench: 'хват 81' } }));
+  assert(!parsed.error && parsed.data.notes.bench === 'хват 81' && JSON.stringify(parseBackup(JSON.stringify({ history: {} })).data.notes) === '{}', 'the backup carries notes; an old file loads cleanly');
+  const merged = mergeBackup({ history: {}, sessions: {}, swaps: {}, skipped: {}, customWorkouts: {}, customSets: {}, addedEx: {}, notes: { bench: 'моя' } }, parseBackup(buildBackup({ history: {}, notes: { bench: 'из файла', squat: 'новая' } })).data).data.notes;
+  assert(merged.bench === 'моя' && merged.squat === 'новая', 'loading a backup adds missing notes and keeps the local ones');
+  info('clean, set, remove, backup');
+});
+
+test('Focus: plates for the barbell - exact per side, honest about what cannot be loaded', () => {
+  const fx = loadFx();
+  const p = (t, b) => fx.fxPlates(t, b);
+  assert(p(100, 20).side.join() === '25,15' && p(100, 20).rest === 0, '100 on a 20 kg bar: 25 + 15 per side');
+  assert(p(95, 20).side.join() === '25,10,2.5' && p(62.5, 20).side.join() === '20,1.25', '95 -> 25+10+2.5; 62.5 -> 20+1.25');
+  assert(p(20, 20).side.length === 0 && !p(20, 20).under && !p(20, 20).empty && p(20, 20).rest === 0, 'the bar alone: nothing to load');
+  assert(p(15, 20).under === true && p(0, 20).empty === true && p('', 20).empty === true && p('abc', 20).empty === true, 'less than the bar and empty input are named, not computed');
+  assert(p(21, 20).side.length === 0 && p(21, 20).rest === 1 && p(63, 20).rest === 0.5, 'what the plates cannot make is reported: ' + p(21, 20).rest + ' / ' + p(63, 20).rest);
+  assert(p('62,5', 20).side.join() === '20,1.25' && p(40, 10).side.join() === '15' && p(40, 15).side.join() === '10,2.5', 'comma input; EZ and 15 kg bars');
+  [22.5, 47.5, 60, 82.5, 100, 137.5, 180, 222.5].forEach(t => { const r = p(t, 20); assert(Math.abs(20 + 2 * r.side.reduce((a, b) => a + b, 0) + r.rest - t) < 1e-9, 'bar + plates + rest must equal the weight for ' + t); });
+  assert(p(300, 20).side.filter(x => x === 25).length === 5 && p(300, 20).side.join() === '25,25,25,25,25,15', 'heavy weights repeat the biggest plate');
+  // какие упражнения со штангой
+  ['Жим штанги лёжа', 'Приседания со штангой', 'Становая тяга', 'Румынская тяга (RDL)', 'Жим штанги стоя (OHP)', 'Сгибания со штангой (EZ)', 'Тяга Т-грифа'].forEach(n => assert(fx.fxIsBarbell(n), 'barbell expected: ' + n));
+  ['Жим гантелей лёжа', 'Румынская тяга с гантелями', 'Жим в тренажёре Смита', 'Тяга верхнего блока', 'Подтягивания широким хватом', 'Жим ногами', ''].forEach(n => assert(!fx.fxIsBarbell(n), 'not a barbell: ' + n));
+  // гриф: по умолчанию 20, у EZ 10; выбор запоминается на устройстве отдельным ключом
+  assert(fx.fxBarGet('bench', 'Жим штанги лёжа') === 20 && fx.fxBarGet('barbell_curl', 'Сгибания со штангой (EZ)') === 10, 'default bar: 20, EZ 10');
+  fx.fxBarSet('bench', 15);
+  assert(fx.fxBarGet('bench', 'Жим штанги лёжа') === 15 && fx.fxBarGet('squat', 'Приседания со штангой') === 20 && JSON.parse(fx.store.sila_bar_beta).bench === 15, 'the choice is remembered per exercise under its own key');
+  assert(fx.FX_BAR_KEY === 'sila_bar_beta' && loadFx({ variant: 'prod' }).FX_BAR_KEY === 'sila_bar', 'the beta keeps its own key');
+  const blocked = loadFx({ lsThrows: true });
+  blocked.fxBarSet('bench', 15);
+  assert(blocked.fxBarGet('bench', 'Жим штанги лёжа') === 20, 'blocked storage falls back to the default, no crash');
+  assert(loadFx({ store: { sila_bar_beta: '{"bench":17}' } }).fxBarGet('bench', 'x') === 20 && loadFx({ store: { sila_bar_beta: 'oops' } }).fxBarGet('bench', 'x') === 20, 'garbage in storage is ignored');
+  info('100 -> ' + p(100, 20).side.join('+') + ' per side; 21 -> rest ' + p(21, 20).rest);
+});
+
+test('Rest timer: restored after the app was unloaded (beta), large controls and a hint of what is next', () => {
+  // раннее восстановление стоит ДО эффекта, который стирает ключ, и работает только в тестовой версии
+  const early = src.indexOf('if (APP_VARIANT !== "beta") return;\n    try {\n      var saved = localStorage.getItem(TIMER_KEY);');
+  const persist = src.indexOf('// Persist to localStorage so timer survives app kill/reopen');
+  const restore = src.indexOf('// Restore timer on mount if app was killed during rest');
+  assert(early > 0 && early < persist && persist < restore, 'the early restore runs before the effect that clears the key');
+  const block = src.slice(early, persist);
+  assert(block.includes('if (left > 0) setTimer({ total: t.total, endsAt: t.endsAt, left: left, running: true });') && !block.includes('removeItem'), 'it restarts the rest from the saved end time and does not clear the key itself');
+  // исполняем порядок эффектов: раньше "Persist" стирал ключ до чтения
+  const run = variant => {
+    const store = { k: JSON.stringify({ total: 180, endsAt: Date.now() + 60000 }) };
+    let timer = null;
+    const earlyFx = () => { if (variant !== 'beta') return; const s = store.k; if (!s) return; const t = JSON.parse(s); if (Math.round((t.endsAt - Date.now()) / 1000) > 0) timer = { running: true, endsAt: t.endsAt }; };
+    const persistFx = t => { if (t && t.running && t.endsAt) store.k = 'saved'; else delete store.k; };
+    const restoreFx = () => { const s = store.k; if (s) { timer = { running: true }; delete store.k; } };
+    const atMount = timer;            // эффекты первого показа видят timer таким, каким он был при показе
+    earlyFx(); persistFx(atMount); restoreFx();
+    return timer;
+  };
+  assert(run('beta') !== null && run('prod') === null, 'beta restores the rest; the production order still loses it (known, documented)');
+  // карточка таймера
+  assert(src.includes('{timer && typeof FxTimer === "function" && <FxTimer timer={timer} lift={navLift}') && src.includes('{timer && typeof FxTimer !== "function" && (() => {'), 'the new card replaces the old one only when the module is present');
+  const tm = fxUi.slice(fxUi.indexOf('function FxTimer('));
+  ['onClick={() => props.onAdd(-30)} aria-label="Убавить 30 секунд"', 'onClick={() => props.onAdd(30)} aria-label="Добавить 30 секунд"', 'onClick={props.onStop} aria-label="Пропустить отдых"', '>ГОТОВО</button>'].forEach(t => assert(tm.includes(t), 'timer control: ' + t));
+  assert(/const btn = \{ width: 44, height: 44,/.test(tm) && (tm.match(/style=\{btn\}|Object\.assign\(\{\}, btn,/g) || []).length === 4, 'every timer button is 44pt');
+  assert(tm.includes('"Дальше: подход " + next.set + " из " + next.of') && tm.includes('textOverflow: "ellipsis"') && tm.indexOf('next.set') < tm.indexOf('next.name', tm.indexOf('"Дальше: подход "')), 'the hint puts set and weight first, the name is what gets cut');
+  assert(tm.includes('role="timer"') && tm.includes('className={done ? props.doneClass : undefined}') && src.includes('doneClass={typeof uxRestDoneClass === "string" ? uxRestDoneClass : undefined}'), 'the rest-done wave of the sound module still applies');
+  assert(src.includes('const fxTimerNext = fxAfter ? Object.assign({}, fxAfter, { weight: fxAfter.weight || getSuggestedWeight(fxAfter.exId, fxAfter.set - 1) || "" }) : null;'), 'the hint shows the typed weight or the suggested one');
+  info('early restore before persist; -30 / +30 / skip, 44pt; "Дальше: подход N из M"');
+});
+
+test('Navigation and focus seams: guarded by typeof, the production page is unchanged', () => {
+  const lines = src.split('\n');
+  const used = {};
+  lines.forEach((l, i) => {
+    if (l.trim().startsWith('//') || l.trim().startsWith('{/*')) return;
+    for (const m of l.matchAll(/\b(nv[A-Z]\w*|Nv[A-Z]\w*|NV_[A-Z]\w*|fx[A-Z]\w*|Fx[A-Z]\w*|FX_[A-Z]\w*)\b/g)) {
+      const name = m[1];
+      if (['fxOpen', 'fxItems', 'fxNow', 'fxAfter', 'fxTimerNext'].includes(name)) continue;   // переменные основного кода
+      if (new RegExp('typeof ' + name + '\\b').test(l)) { used[name] = (used[name] || 0) + 1; continue; }
+      const near = lines.slice(Math.max(0, i - 4), i + 1).join('\n');
+      const guarded = new RegExp('typeof ' + name + ' ===').test(near)
+        || (/^fx(Summary|Next|NoteSet)$/.test(name) && /typeof (FxDoneCard|fxCurrent|FxNote) ===|fxItems \?/.test(near));   // вызывается только внутри защищённой ветки
+      assert(guarded, 'line ' + (i + 1) + ': ' + name + ' is used without a typeof guard: ' + l.trim().slice(0, 90));
+      used[name] = (used[name] || 0) + 1;
+    }
+  });
+  ['NvBar', 'NV_H', 'fxCurrent', 'FxDoneCard', 'FxFold', 'FxNowTag', 'FxNoteLine', 'FxNote', 'FxPlates', 'FxTimer'].forEach(n => assert(used[n], n + ' is not wired into the app'));
+  assert(!/function (nv|Nv|fx|Fx)[A-Z]|const (NV|FX)_/.test(src), 'the main source defines none of them');
+  ['function NvBar', 'function FxTimer', 'function fxPlates', 'const NV_H', 'sila_bar'].forEach(t => { assertNot(app.includes(t), 'production page contains ' + t); assert(betaApp.includes(t), 'beta page lacks ' + t); });
+  assert(betaFiles.includes('nav.jsx') && betaFiles.includes('focus.jsx'), 'both are beta modules');
+  // без модулей: вкладки в шапке, шапка прилипает, ничего не поднято, клавиатура прежняя
+  assert(src.includes('{typeof NvBar !== "function" && (\n          <div style={{ display: "flex", borderBottom: "1px solid var(--bd-1a1a22)" }}>\n            {mainTabs.map(([id, label]) => ('), 'the tab row stays in the header when there is no bottom bar');
+  assert(src.includes('const navLift = typeof NV_H === "number" ? NV_H : 0;') && src.includes('paddingBottom: (timer ? 180 : 100) + navLift') && src.includes('bottom: `calc(${(timer ? 130 : 50) + navLift}px + env(safe-area-inset-bottom))`') && src.includes('timerOn={!!timer} lift={navLift}'), 'page padding, toast and undo bar rise by the bar height, by zero without it');
+  assert(src.includes('inputMode={APP_VARIANT === "beta" ? "decimal" : undefined}'), 'the decimal keypad for weights is a beta trial');
+  assert(src.includes('{typeof NvBar === "function" && <NvBar tabs={mainTabs} active={activeTab} onPick={setActiveTab} prog={prog} color={w.color} ink={ink} />}'), 'the bar gets the same tabs as the header had');
+  assert(/boxShadow: fxNow === baseEx\.id && !skipped \? `0 0 0 1px \$\{w\.color\}90` : undefined/.test(src) && src.includes('{fxNow === baseEx.id && !skipped && typeof FxNowTag === "function" && <FxNowTag color={w.color} ink={ink} />}'), 'the current exercise is outlined and tagged');
+  info('Guarded seams: ' + Object.keys(used).sort().join(', '));
+});
+
+test('Navigation and focus visuals: 44pt targets, layers, safe areas, theme colours, neutral wording', () => {
+  // панель: под окнами (200+), под экранами плана (100), над содержимым; полоса под часами выше панели
+  const z = [...nvUi.matchAll(/zIndex: (\d+)/g)].map(m => +m[1]).sort();
+  assert(z.join() === '90,95', 'bar 90, status strip 95: ' + z.join());
+  assert(nvUi.includes('paddingBottom: "env(safe-area-inset-bottom)"') && nvUi.includes('height: "env(safe-area-inset-top)"') && !/inset: 0/.test(nvUi + fxUi), 'the bar clears the home indicator, the strip covers the status bar');
+  assert(/height: NV_H, minHeight: 44/.test(nvUi) && nvUi.includes('aria-current={on ? "page" : undefined}') && nvUi.includes('<nav aria-label="Разделы"'), 'tab buttons are full height and announced');
+  assert(nvUi.includes('if (same && !calm && window.scrollTo) window.scrollTo({ top: 0, behavior: "smooth" });') && nvUi.includes('else window.scrollTo(0, 0);') && nvUi.includes('prefers-reduced-motion: reduce'), 'a new tab opens from the top; the same tab scrolls up (calmly when motion is reduced)');
+  ['workout', 'warmup', 'journal', 'achievements', 'beta'].forEach(id => assert(new RegExp('\\n  ' + id + ': \\[').test(nvUi), 'icon for the tab ' + id));
+  assert(fxUi.includes('zIndex: 500') && fxUi.includes('bottom: `calc(${12 + (props.lift || 0)}px + env(safe-area-inset-bottom))`'), 'the timer keeps its layer and sits above the bar');
+  // кнопки
+  const buttons = [...fxUi.matchAll(/<button\b/g)].map(m => fxUi.slice(m.index, fxUi.indexOf('>', fxUi.indexOf('style=', m.index)) + 1));
+  assert(buttons.length === 8, 'buttons found: ' + buttons.length);
+  buttons.forEach((b, i) => assert(/(minHeight|height|minWidth): (4[4-9]|[5-9]\d)\b/.test(b) || /style=\{btn\}|Object\.assign\(\{\}, btn,/.test(b), 'focus button #' + (i + 1) + ' is shorter than 44pt: ' + b.slice(0, 110).replace(/\s+/g, ' ')));
+  // поля ввода 16px: без автозума
+  const fields = [...fxUi.matchAll(/<(input|textarea)\b/g)].map(m => fxUi.slice(m.index, fxUi.indexOf('/>', m.index)));
+  assert(fields.length === 2 && fields.every(f => /fontSize: 16\b/.test(f)), 'note and weight fields are 16px');
+  assert(fxUi.includes('inputMode="decimal"') && fxUi.includes('maxLength={FX_NOTE_MAX}') && fxUi.includes('onBlur={() => props.onSave(text)}'), 'decimal keypad for the weight; the note is saved on blur and limited');
+  // цвета: токены темы, цвет дня, бирюзовый "отдых окончен" и чёрный текст на цвете (как у прежнего таймера)
+  const bare = (nvUi + fxUi).replace(/\/\/.*$/gm, '').replace(/#00d4aa(50)?\b|#000\b/g, '');
+  assertNot(/#[0-9a-fA-F]{3,8}\b/.test(bare), 'no bare colours');
+  [...(nvUi + fxUi).matchAll(/var\((--[a-z]+-[0-9a-z]+)\)/g)].forEach(m => assert(headSrc.includes(m[1] + ':'), 'unknown theme token ' + m[1]));
+  // тексты
+  const code = (nvFile + '\n' + fxFile).replace(/^\s*\/\/.*$/gm, '').replace(/\{\/\*[^]*?\*\/\}/g, '');
+  const texts = [...code.matchAll(/"([^"\n]*[А-Яа-яЁё][^"\n]*)"/g)].map(m => m[1]).concat([...code.matchAll(/>\s*([^<>{}\n]*[А-Яа-яЁё][^<>{}\n]*)\s*</g)].map(m => m[1]));
+  const hits = texts.filter(t => /(?<![А-Яа-яЁё])(Вы|вы|Вам|вам|Ваш|ваш|ты|Ты|тебе|твой|твоя)(?![А-Яа-яЁё])/.test(t) || /(?<![А-Яа-яЁё])(Выбери|Выберите|Нажми|Нажмите|Сделай|Сделайте|Впиши|Впишите|Запиши|Запишите)(?![А-Яа-яЁё])/.test(t));
+  assert(texts.length >= 25 && hits.length === 0, 'neutral wording expected, found: ' + hits.join(' | '));
+  info(buttons.length + ' focus buttons 44pt+, ' + fields.length + ' fields 16px, ' + texts.length + ' texts');
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

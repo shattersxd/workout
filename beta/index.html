@@ -1546,8 +1546,9 @@ function todayKey() {
 // Формат: { app, version, exportedAt, data }. Загрузка только ДОБАВЛЯЕТ недостающее
 // (журнал по ts, сессии и пр. по ключу), локальные данные не перезаписываются.
 const BACKUP_APP = "workout-tracker";
-// planSwaps - запомненные замены по дням (src/features/liveedit.jsx): это часть плана, поэтому они идут в файл копии
-const BACKUP_BUCKETS = ["sessions", "customSets", "addedEx", "skipped", "swaps", "customWorkouts", "planSwaps"];
+// planSwaps - запомненные замены по дням (src/features/liveedit.jsx), notes - заметки к упражнениям (src/beta/focus.jsx):
+// это часть плана, поэтому они идут в файл копии
+const BACKUP_BUCKETS = ["sessions", "customSets", "addedEx", "skipped", "swaps", "customWorkouts", "planSwaps", "notes"];
 
 function buildBackup(d) {
   return JSON.stringify({ app: BACKUP_APP, version: 1, exportedAt: new Date().toISOString(), data: d });
@@ -2649,7 +2650,7 @@ function LvUndo(props) {
   const u = props.undo;
   if (!u) return null;
   return (
-    <div role="status" aria-live="polite" style={{ position: "fixed", left: 0, right: 0, bottom: props.timerOn ? "calc(128px + env(safe-area-inset-bottom))" : "calc(28px + env(safe-area-inset-bottom))", zIndex: 660, display: "flex", justifyContent: "center", padding: "0 14px", pointerEvents: "none" }}>
+    <div role="status" aria-live="polite" style={{ position: "fixed", left: 0, right: 0, bottom: `calc(${(props.timerOn ? 128 : 28) + (props.lift || 0)}px + env(safe-area-inset-bottom))`, zIndex: 660, display: "flex", justifyContent: "center", padding: "0 14px", pointerEvents: "none" }}>
       <div key={u.id} className="app-anim lv-toast"
         style={{ pointerEvents: "auto", position: "relative", overflow: "hidden", width: "100%", maxWidth: 420, display: "flex", alignItems: "center", gap: 10, padding: "8px 8px 8px 16px", borderRadius: 16, background: "var(--bg-1a1a22)", border: "1px solid var(--bd-2a2a35)", boxShadow: "var(--shadow-pop)" }}>
         <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: "var(--tx-ccc)", lineHeight: 1.4 }}>{u.text}</div>
@@ -2766,7 +2767,7 @@ function LvLayer(props) {
     <>
       <style>{LV_CSS}</style>
       {sheet}
-      <LvUndo undo={undo} onUndo={doUndo} color={props.color} ink={props.ink} timerOn={props.timerOn} />
+      <LvUndo undo={undo} onUndo={doUndo} color={props.color} ink={props.ink} timerOn={props.timerOn} lift={props.lift} />
     </>
   );
 }
@@ -4104,6 +4105,294 @@ function ArenaPanel(props) {
 }
 
 
+// ---- src/beta/focus.jsx ----
+// ==== ФОКУС НА ТРЕНИРОВКЕ (тестовая версия) ====
+// Пять мелочей, которые убирают лишние движения в зале:
+//   1. выполненное упражнение сворачивается в одну строку (название и веса), список становится короче с каждым
+//      упражнением; строка раскрывается нажатием, карточку можно свернуть обратно;
+//   2. текущее упражнение (начатое, а если такого нет - первое несделанное) обведено и помечено "СЕЙЧАС";
+//   3. заметка к упражнению ("сиденье 4, хват шире плеч"): хранится по id упражнения и видна на карточке каждый раз;
+//   4. таймер отдыха с крупными кнопками (-30, +30, пропустить) и строкой "Дальше: упражнение, подход 3 из 4";
+//   5. блины на штангу: сколько вешать на каждую сторону для нужного веса.
+// Тексты без "ты" и "вы". Всё, что тесты исполняют, лежит выше разделителя "Интерфейс" (его строка ниже) и
+// написано обычным JS.
+
+const FX_NOTE_MAX = 240;
+const FX_BARS = [20, 15, 10];                          // грифы, кг
+const FX_PLATES = [25, 20, 15, 10, 5, 2.5, 1.25];      // блины, кг
+// Вес грифа - настройка устройства, как тема и звук: отдельный ключ, не в data (иначе уедет в файл копии)
+const FX_BAR_KEY = APP_VARIANT === "beta" ? "sila_bar_beta" : "sila_bar";
+
+function fxWeight(x) {
+  const v = parseFloat(String(x === undefined || x === null ? "" : x).replace(",", "."));
+  return isFinite(v) ? v : 0;
+}
+function fxNum(x) { return String(Math.round(x * 100) / 100); }
+
+// ---- Текущее упражнение ----
+// items - видимые упражнения по порядку: [{ id (слот), exId (что делается), name, n, sets: [{ done, weight }] }]
+function fxDone(it) {
+  let d = 0;
+  for (let i = 0; i < it.n; i++) if (it.sets[i] && it.sets[i].done) d++;
+  return d;
+}
+// Начатое, но не законченное; если такого нет - первое незаконченное; всё сделано - null
+function fxCurrent(items) {
+  let first = null, started = null;
+  (items || []).forEach(function (it) {
+    const d = fxDone(it);
+    if (d >= it.n) return;
+    if (first === null) first = it.id;
+    if (started === null && d > 0) started = it.id;
+  });
+  return started !== null ? started : first;
+}
+// Что делать после отдыха: { id, exId, name, set, of, weight } - следующий неотмеченный подход текущего упражнения
+function fxNext(items) {
+  const id = fxCurrent(items);
+  if (id === null) return null;
+  let it = null;
+  items.forEach(function (x) { if (x.id === id) it = x; });
+  for (let i = 0; i < it.n; i++) {
+    if (!(it.sets[i] && it.sets[i].done)) return { id: it.id, exId: it.exId, name: it.name, set: i + 1, of: it.n, weight: it.sets[i] && it.sets[i].weight ? String(it.sets[i].weight) : "" };
+  }
+  return null;
+}
+
+// Веса выполненного упражнения одной строкой: "4 x 95" при одинаковых, иначе "95 / 95 / 92.5"
+function fxSummary(sets, n) {
+  const ws = [];
+  for (let i = 0; i < n; i++) if (sets[i] && sets[i].done) ws.push(fxNum(fxWeight(sets[i].weight)));
+  if (!ws.length) return "";
+  if (ws.every(function (w) { return w === ws[0]; })) return ws.length + " x " + ws[0];
+  return ws.join(" / ");
+}
+
+// ---- Заметки ----
+function fxNoteClean(text) {
+  return String(text === undefined || text === null ? "" : text).replace(/\s+/g, " ").trim().slice(0, FX_NOTE_MAX);
+}
+// Новая копия data с заметкой упражнения; пустая заметка убирается; без изменений - тот же объект
+function fxNoteSet(data, exId, text) {
+  const clean = fxNoteClean(text);
+  const cur = (data.notes && data.notes[exId]) || "";
+  if (clean === cur) return data;
+  const notes = Object.assign({}, data.notes || {});
+  if (clean) notes[exId] = clean; else delete notes[exId];
+  return Object.assign({}, data, { notes: notes });
+}
+
+// ---- Блины ----
+// Упражнение со штангой: по названию. Ошибка не страшна - блок блинов свёрнут и открывается по нажатию.
+function fxIsBarbell(name) {
+  const s = String(name || "").toLowerCase();
+  if (/гантел|тренаж|смит|блок|кроссовер|резин|хаммер/.test(s)) return false;
+  return /штанг|гриф|становая|румынск|жим узким|гуд морнинг|шраги|пендлея|\(ez\)|ohp/.test(s);
+}
+function fxBarDefault(name) {
+  return /\(ez\)|ez-|ez /i.test(String(name || "")) ? 10 : 20;
+}
+function fxBarGet(exId, name) {
+  try {
+    const map = JSON.parse(localStorage.getItem(FX_BAR_KEY) || "{}");
+    if (map && FX_BARS.indexOf(map[exId]) >= 0) return map[exId];
+  } catch (e) {}
+  return fxBarDefault(name);
+}
+function fxBarSet(exId, kg) {
+  try {
+    const map = JSON.parse(localStorage.getItem(FX_BAR_KEY) || "{}") || {};
+    map[exId] = kg;
+    localStorage.setItem(FX_BAR_KEY, JSON.stringify(map));
+  } catch (e) {}
+}
+// Раскладка: total - вес штанги целиком, bar - гриф. Возвращает { side: [блины на ОДНУ сторону], rest: сколько
+// не набралось (на всю штангу), under: вес меньше грифа }
+function fxPlates(total, bar, plates) {
+  const t = fxWeight(total), b = fxWeight(bar);
+  if (!(t > 0)) return { side: [], rest: 0, under: false, empty: true };
+  if (t < b) return { side: [], rest: 0, under: true, empty: false };
+  let left = Math.round((t - b) / 2 * 1000) / 1000;
+  const side = [];
+  (plates || FX_PLATES).forEach(function (p) {
+    while (left >= p - 0.0005) { side.push(p); left = Math.round((left - p) * 1000) / 1000; }
+  });
+  return { side: side, rest: Math.round(left * 2 * 100) / 100, under: false, empty: false };
+}
+
+// ---- Интерфейс ----
+function FxIcon(props) {
+  const paths = {
+    check: ["M5 12l5 5L20 7"],
+    pen: ["M4 20h4L19 9l-4-4L4 16z", "M13.5 6.5l4 4"],
+    down: ["M6 9l6 6 6-6"],
+    up: ["M6 15l6-6 6 6"],
+    skip: ["M6 6l12 12", "M18 6L6 18"],
+  };
+  const size = props.size || 18;
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+      {paths[props.name].map((d, i) => <path key={i} d={d} />)}
+    </svg>
+  );
+}
+
+// Выполненное упражнение одной строкой. menu - кнопка окна упражнения (её рисует основной код)
+function FxDoneCard(props) {
+  return (
+    <div id={props.domId} style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--bg-0f0f12)", border: `1px solid ${props.color}50`, borderRadius: 12, padding: "6px 8px 6px 12px", marginBottom: 12 }}>
+      <button onClick={props.onOpen} aria-label={"Развернуть: " + props.name}
+        style={{ flex: 1, minWidth: 0, minHeight: 48, display: "flex", alignItems: "center", gap: 12, background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+        <span style={{ width: 34, height: 34, borderRadius: 9, background: props.color, color: "#000", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><FxIcon name="check" /></span>
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ display: "block", fontSize: 13, fontWeight: 700, color: "var(--tx-ccc)", lineHeight: 1.3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{props.name}</span>
+          <span style={{ display: "block", fontSize: 11, color: "var(--tx-777)", marginTop: 2 }}>{props.summary}{props.summary ? " " + props.unit : "сделано"}</span>
+        </span>
+        <span style={{ color: "var(--tx-555)", display: "flex" }}><FxIcon name="down" size={16} /></span>
+      </button>
+      {props.menu}
+    </div>
+  );
+}
+
+// Кнопка внизу раскрытой выполненной карточки
+function FxFold(props) {
+  return (
+    <div style={{ padding: "0 14px 14px" }}>
+      <button onClick={props.onClick}
+        style={{ width: "100%", minHeight: 44, borderRadius: 10, border: "1px solid var(--bd-2a2a2a)", background: "var(--bg-0c0c0f)", color: "var(--tx-888)", fontSize: 10, letterSpacing: 2, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+        <FxIcon name="up" size={15} />
+        СВЕРНУТЬ
+      </button>
+    </div>
+  );
+}
+
+function FxNowTag(props) {
+  return <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: `${props.color}25`, color: props.ink(props.color), letterSpacing: 1, fontWeight: 700 }}>СЕЙЧАС</span>;
+}
+
+// Заметка на карточке (если есть)
+function FxNoteLine(props) {
+  if (!props.text) return null;
+  return (
+    <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 6, fontSize: 11, color: "var(--tx-999)", lineHeight: 1.45 }}>
+      <span style={{ display: "flex", paddingTop: 1, color: "var(--tx-666)" }}><FxIcon name="pen" size={12} /></span>
+      <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{props.text}</span>
+    </div>
+  );
+}
+
+// Поле заметки в раскрытой карточке. Сохраняется, когда поле теряет фокус.
+function FxNote(props) {
+  const [text, setText] = useState(props.value || "");
+  useEffect(function () { setText(props.value || ""); }, [props.value]);
+  return (
+    <div style={{ background: "var(--bg-0c0c0f)", borderRadius: 8, padding: "12px 14px", marginBottom: 8, border: "1px solid var(--bd-1a1a22)" }}>
+      <div style={{ fontSize: 9, letterSpacing: 3, color: props.ink(props.color), fontWeight: 700, marginBottom: 8 }}>ЗАМЕТКА</div>
+      <textarea value={text} rows={2} maxLength={FX_NOTE_MAX} placeholder="Например: сиденье 4, хват шире плеч"
+        onChange={e => setText(e.target.value)} onBlur={() => props.onSave(text)}
+        style={{ width: "100%", background: "var(--bg-0f0f12)", border: "1px solid var(--bd-2a2a2a)", borderRadius: 8, padding: "10px 12px", color: "var(--tx-fff)", fontSize: 16, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.4 }} />
+      <div style={{ fontSize: 10, color: "var(--tx-666)", marginTop: 6, lineHeight: 1.4 }}>Заметка остаётся у упражнения и видна на карточке на каждой тренировке</div>
+    </div>
+  );
+}
+
+// Блины на штангу: свёрнутый блок, открывается по нажатию
+function FxPlates(props) {
+  const [open, setOpen] = useState(false);
+  const [weight, setWeight] = useState(props.weight ? String(props.weight) : "");
+  const [bar, setBar] = useState(function () { return fxBarGet(props.exId, props.name); });
+  if (!fxIsBarbell(props.name)) return null;
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)}
+        style={{ width: "100%", minHeight: 44, borderRadius: 8, border: "1px solid var(--bd-1a1a22)", background: "var(--bg-0c0c0f)", color: "var(--tx-888)", fontSize: 10, letterSpacing: 2, cursor: "pointer", fontFamily: "inherit", marginBottom: 8 }}>
+        БЛИНЫ НА ШТАНГУ
+      </button>
+    );
+  }
+  const r = fxPlates(weight, bar);
+  return (
+    <div style={{ background: "var(--bg-0c0c0f)", borderRadius: 8, padding: "12px 14px", marginBottom: 8, border: "1px solid var(--bd-1a1a22)" }}>
+      <div style={{ fontSize: 9, letterSpacing: 3, color: props.ink(props.color), fontWeight: 700, marginBottom: 10 }}>БЛИНЫ НА ШТАНГУ</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <input type="number" inputMode="decimal" value={weight} placeholder="вес" aria-label="Вес штанги" onChange={e => setWeight(e.target.value)}
+          style={{ width: 92, minHeight: 44, background: "var(--bg-0f0f12)", border: "1px solid var(--bd-2a2a2a)", borderRadius: 8, padding: "0 12px", color: "var(--tx-fff)", fontSize: 16, fontWeight: 700, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
+        <span style={{ fontSize: 12, color: "var(--tx-777)" }}>кг, гриф</span>
+        {FX_BARS.map(b => {
+          const sel = bar === b;
+          return (
+            <button key={b} onClick={() => { setBar(b); fxBarSet(props.exId, b); }} aria-pressed={sel}
+              style={{ minWidth: 44, minHeight: 44, borderRadius: 8, border: `1px solid ${sel ? props.color + "70" : "var(--bd-2a2a2a)"}`, background: sel ? `${props.color}18` : "var(--bg-0f0f12)", color: sel ? props.ink(props.color) : "var(--tx-777)", fontSize: 13, fontWeight: sel ? 700 : 400, cursor: "pointer", fontFamily: "inherit", padding: "0 6px" }}>
+              {b}
+            </button>
+          );
+        })}
+      </div>
+      {r.empty && <div style={{ fontSize: 11, color: "var(--tx-666)", lineHeight: 1.5 }}>Нужен вес штанги целиком</div>}
+      {r.under && <div style={{ fontSize: 11, color: "var(--tx-999)", lineHeight: 1.5 }}>Это меньше веса грифа ({bar} кг)</div>}
+      {!r.empty && !r.under && (
+        <>
+          <div style={{ fontSize: 10, color: "var(--tx-777)", marginBottom: 8 }}>{r.side.length ? "На каждую сторону:" : "Пустой гриф"}</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {r.side.map((p, i) => (
+              <span key={i} style={{ minWidth: 40, textAlign: "center", padding: "8px 8px", borderRadius: 8, background: `${props.color}18`, border: `1px solid ${props.color}50`, color: "var(--tx-fff)", fontSize: 14, fontWeight: 700 }}>{fxNum(p)}</span>
+            ))}
+          </div>
+          {r.rest > 0 && <div style={{ fontSize: 11, color: "var(--tx-999)", marginTop: 8, lineHeight: 1.5 }}>Не набирается {fxNum(r.rest)} кг: таких блинов в наборе нет</div>}
+        </>
+      )}
+    </div>
+  );
+}
+
+// Таймер отдыха: крупные кнопки и подсказка, что делать дальше. lift - на сколько поднять над нижней панелью.
+function FxTimer(props) {
+  const timer = props.timer;
+  const pct = timer.total > 0 ? Math.min(100, (timer.left / timer.total) * 100) : 0;
+  const mins = Math.floor(timer.left / 60), secs = timer.left % 60;
+  const done = timer.left === 0;
+  const R = 22, C = 2 * Math.PI * R;
+  const next = props.next;
+  const btn = { width: 44, height: 44, borderRadius: 11, border: "1px solid var(--bd-2a2a35)", background: "var(--bg-1a1a22)", color: "var(--tx-ccc)", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, padding: 0 };
+  return (
+    <div style={{ position: "fixed", left: 0, right: 0, bottom: `calc(${12 + (props.lift || 0)}px + env(safe-area-inset-bottom))`, zIndex: 500, display: "flex", justifyContent: "center", padding: "0 12px", pointerEvents: "none" }}>
+      <div role="timer" className={done ? props.doneClass : undefined}
+        style={{ pointerEvents: "auto", width: "100%", maxWidth: 440, background: done ? "var(--bg-0e1a13)" : "var(--bg-111)", border: `1px solid ${done ? "#00d4aa50" : "var(--bd-2a2a35)"}`, borderRadius: 18, padding: "10px 10px 10px 12px", boxShadow: "var(--shadow-pop)", transition: "border-color 0.3s" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ position: "relative", width: 50, height: 50, flexShrink: 0 }}>
+            <svg width="50" height="50" style={{ transform: "rotate(-90deg)" }} aria-hidden="true">
+              <circle cx="25" cy="25" r={R} fill="none" strokeWidth="3" style={{ stroke: "var(--bd-1a1a22)" }} />
+              <circle cx="25" cy="25" r={R} fill="none" stroke={props.ink(done ? "#00d4aa" : props.color)} strokeWidth="3" strokeDasharray={C} strokeDashoffset={C * (1 - pct / 100)} strokeLinecap="round" style={{ transition: "stroke-dashoffset 0.9s linear, stroke 0.3s" }} />
+            </svg>
+            <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {done
+                ? <span style={{ fontSize: 19 }}>💪</span>
+                : <span style={{ fontSize: 13, fontWeight: 700, color: "var(--tx-fff)", fontFamily: "monospace" }}>{mins > 0 ? mins + ":" + String(secs).padStart(2, "0") : secs}</span>}
+            </div>
+          </div>
+          <div style={{ flex: 1, minWidth: 0, fontSize: 11, fontWeight: 700, color: done ? "var(--tx-00d4aa)" : "var(--tx-888)", letterSpacing: 1 }}>{done ? "ОТДЫХ ОКОНЧЕН" : "ОТДЫХ"}</div>
+          {done ? (
+            <button onClick={props.onStop} style={Object.assign({}, btn, { width: "auto", padding: "0 16px", background: "#00d4aa", border: "1px solid #00d4aa", color: "#000", letterSpacing: 1, fontSize: 11 })}>ГОТОВО</button>
+          ) : (
+            <>
+              <button onClick={() => props.onAdd(-30)} aria-label="Убавить 30 секунд" style={btn}>-30</button>
+              <button onClick={() => props.onAdd(30)} aria-label="Добавить 30 секунд" style={btn}>+30</button>
+              <button onClick={props.onStop} aria-label="Пропустить отдых" style={Object.assign({}, btn, { color: "var(--tx-888)" })}><FxIcon name="skip" size={16} /></button>
+            </>
+          )}
+        </div>
+        {/* что делать дальше: сначала подход и вес (они нужнее), название упражнения обрезается последним */}
+        <div style={{ fontSize: 11, color: next ? "var(--tx-ccc)" : "var(--tx-777)", lineHeight: 1.4, marginTop: 6, padding: "0 2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {next ? "Дальше: подход " + next.set + " из " + next.of + (next.weight ? ", " + next.weight + " " + (props.unitOf ? props.unitOf(next.name) : "кг") : "") + "  |  " + next.name : "Все подходы сделаны"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 // ---- src/beta/fullbody.jsx ----
 // ==== ПЕРЕСМОТР ФУЛБАДИ (тестовая версия) ====
 // Фулбади A/B/C по итогам разбора (подробно - в docs/claude/exercises-media.md). Пока только в бете: в основной
@@ -4160,6 +4449,86 @@ function ArenaPanel(props) {
     exbClone("iso_row", "fb_row_c_alt3"),
   ];
 })();
+
+
+// ---- src/beta/nav.jsx ----
+// ==== НАВИГАЦИЯ ВНИЗУ (тестовая версия) ====
+// Раньше вкладки стояли в шапке: мелкие (9.5 пикселя), на самом верху большого телефона, а сама шапка с названием
+// и неделей висела над списком и занимала почти четверть экрана. Теперь:
+//   - вкладки внизу, под большим пальцем, с значками; повторное нажатие на открытую вкладку прокручивает наверх
+//     (так добираются до меню и недели);
+//   - шапка обычная, уезжает вместе со страницей - список упражнений занимает весь экран;
+//   - ход тренировки виден всегда: линия по верхнему краю панели и счёт подходов под значком тренировки.
+// Таймер отдыха, подсказки и плашка отмены поднимаются на высоту панели (NV_H), чтобы не перекрываться.
+// Тексты без "ты" и "вы". Всё, что тесты исполняют, лежит выше разделителя "Интерфейс" (его строка ниже).
+
+const NV_H = 58;    // высота панели без нижней безопасной зоны
+
+// Подпись под значком: у тренировки, пока она идёт, вместо названия счёт подходов
+function nvLabel(id, label, prog) {
+  if (id === "workout" && prog && prog.total > 0 && prog.done > 0) return prog.done + "/" + prog.total;
+  return label;
+}
+
+// Ширина линии хода тренировки в процентах (0 - линии нет)
+function nvLine(prog) {
+  if (!prog || !(prog.total > 0) || !(prog.done > 0)) return 0;
+  return Math.max(2, Math.min(100, Math.round(prog.done / prog.total * 100)));
+}
+
+// ---- Интерфейс ----
+const NV_ICONS = {
+  workout: ["M6.5 6.5v11", "M17.5 6.5v11", "M3 9.5v5", "M21 9.5v5", "M6.5 12h11"],
+  warmup: ["M12 3c1 3.5 5 5.5 5 10a5 5 0 0 1-10 0c0-2 1-3.5 2-4.5 .3 1.6 1 2.5 2 3 .2-3-.3-5.5 1-8.5z"],
+  journal: ["M6 4h12v16H6z", "M9 9h6", "M9 13h6", "M9 17h3"],
+  achievements: ["M8 4h8v5a4 4 0 0 1-8 0z", "M8 6H5a3 3 0 0 0 3 3", "M16 6h3a3 3 0 0 1-3 3", "M12 13v4", "M8.5 20h7"],
+  beta: ["M10 3h4", "M10.5 3v6l-5 9a1.5 1.5 0 0 0 1.3 2.2h10.4a1.5 1.5 0 0 0 1.3-2.2l-5-9V3", "M8 15h8"],
+};
+
+function NvIcon(props) {
+  return (
+    <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={props.on ? 2.3 : 1.9} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {(NV_ICONS[props.name] || NV_ICONS.journal).map((d, i) => <path key={i} d={d} />)}
+    </svg>
+  );
+}
+
+// Нижняя панель вкладок. tabs: [[id, подпись]], active, onPick(id), prog - ход тренировки ({ done, total })
+function NvBar(props) {
+  const line = nvLine(props.prog);
+  const pick = id => {
+    const same = id === props.active;
+    props.onPick(id);
+    try {
+      let calm = false;
+      try { calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) {}
+      // другая вкладка открывается с начала; та же - плавно возвращает наверх, к шапке и меню
+      if (same && !calm && window.scrollTo) window.scrollTo({ top: 0, behavior: "smooth" });
+      else window.scrollTo(0, 0);
+    } catch (e) {}
+  };
+  return (
+    <>
+      {/* полоса под часами и зарядом: шапка больше не висит наверху, без полосы текст просвечивал бы под ними */}
+      <div aria-hidden="true" style={{ position: "fixed", top: 0, left: 0, right: 0, height: "env(safe-area-inset-top)", background: "var(--bg-0c0c0f)", zIndex: 95, pointerEvents: "none" }} />
+      <nav aria-label="Разделы" style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 90, background: "var(--bg-0c0c0f)", borderTop: "1px solid var(--bd-1a1a22)", paddingBottom: "env(safe-area-inset-bottom)" }}>
+        {line > 0 && <div aria-hidden="true" style={{ position: "absolute", top: -2, left: 0, height: 3, width: line + "%", background: props.color, borderRadius: "0 3px 3px 0", transition: "width 0.5s" }} />}
+        <div style={{ display: "flex", maxWidth: 560, margin: "0 auto" }}>
+          {props.tabs.map(t => {
+            const on = props.active === t[0];
+            return (
+              <button key={t[0]} onClick={() => pick(t[0])} aria-current={on ? "page" : undefined}
+                style={{ flex: 1, minWidth: 0, height: NV_H, minHeight: 44, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, background: "none", border: "none", padding: "0 2px", color: on ? props.ink(props.color) : "var(--tx-666)", cursor: "pointer", fontFamily: "inherit" }}>
+                <NvIcon name={t[0]} on={on} />
+                <span style={{ fontSize: 9, letterSpacing: 0.5, fontWeight: on ? 700 : 400, whiteSpace: "nowrap", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" }}>{nvLabel(t[0], t[1], props.prog)}</span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+    </>
+  );
+}
 
 
 // ---- src/beta/profile.jsx ----
@@ -6174,6 +6543,8 @@ function App() {
   const [swapModal, setSwapModal] = useState(null);
   // Окна правки тренировки на ходу (src/features/liveedit.jsx): null | { sheet, id }
   const [liveEdit, setLiveEdit] = useState(null);
+  // Выполненные упражнения свёрнуты в строку (src/beta/focus.jsx, только в тестовой сборке); здесь - раскрытые вручную
+  const [fxOpen, setFxOpen] = useState({});
   const [savePrompt, setSavePrompt] = useState(false);
   // Удобства тренировки (src/beta/ux.jsx, пока только в тестовой сборке): всплывашка рекорда и итог после сохранения
   const [recordPop, setRecordPop] = useState(null);
@@ -6316,6 +6687,20 @@ function App() {
   useEffect(function() {
     if (timer && timer.endsAt) endsAtRef.current = timer.endsAt;
   }, [timer ? timer.endsAt : null]);
+
+  // Отдых после выгрузки приложения системой. Эффект "Persist" ниже при первом показе стирает ключ раньше, чем
+  // его прочтёт "Restore", поэтому отдых не восстанавливался. Здесь ключ читается ДО стирания. Пока только в
+  // тестовой версии: после проверки на телефоне этот эффект заменит "Restore" в обеих версиях.
+  useEffect(function() {
+    if (APP_VARIANT !== "beta") return;
+    try {
+      var saved = localStorage.getItem(TIMER_KEY);
+      if (!saved) return;
+      var t = JSON.parse(saved);
+      var left = Math.round((t.endsAt - Date.now()) / 1000);
+      if (left > 0) setTimer({ total: t.total, endsAt: t.endsAt, left: left, running: true });
+    } catch(e) {}
+  }, []);
 
   // Persist to localStorage so timer survives app kill/reopen
   useEffect(function() {
@@ -7502,11 +7887,20 @@ function App() {
     </>
   );
 
-  return (
-    <div style={{ minHeight: "100vh", background: "var(--bg-0c0c0f)", color: "var(--tx-e8e8e8)", fontFamily: "'DM Mono','Fira Mono',monospace", paddingBottom: timer ? 180 : 100 }}>
+  const mainTabs = [["workout","ТРЕНИРОВКА"],["warmup","РАЗМИНКА"],["journal","ЖУРНАЛ"],["achievements","АЧИВКИ"]].concat(typeof BetaTab === "function" ? [["beta","БЕТА"]] : []);
+  // Нижняя панель вкладок (src/beta/nav.jsx, только в тестовой сборке): на её высоту поднимается всё, что прижато к низу
+  const navLift = typeof NV_H === "number" ? NV_H : 0;
+  // Текущее упражнение и "что дальше" для таймера (src/beta/focus.jsx, только в тестовой сборке)
+  const fxItems = typeof fxCurrent === "function" ? getSessionExercises().filter(e => !isSkipped(e.id)).map(e => { const x = getExercise(e.id); const n = getExSets(e.id); return { id: e.id, exId: x.id, name: x.name, n: n, sets: Array.from({ length: n }, (_, i) => getSetData(x.id, i)) }; }) : null;
+  const fxNow = fxItems ? fxCurrent(fxItems) : null;
+  const fxAfter = fxItems ? fxNext(fxItems) : null;
+  const fxTimerNext = fxAfter ? Object.assign({}, fxAfter, { weight: fxAfter.weight || getSuggestedWeight(fxAfter.exId, fxAfter.set - 1) || "" }) : null;
 
-      {/* HEADER */}
-      <div style={{ background: "var(--bg-0c0c0f)", borderBottom: "1px solid var(--bd-1a1a22)", padding: "20px 20px 0", position: "sticky", top: 0, zIndex: 100, isolation: "isolate" }}>
+  return (
+    <div style={{ minHeight: "100vh", background: "var(--bg-0c0c0f)", color: "var(--tx-e8e8e8)", fontFamily: "'DM Mono','Fira Mono',monospace", paddingBottom: (timer ? 180 : 100) + navLift }}>
+
+      {/* HEADER; с нижней панелью вкладок шапка не висит над списком, а уезжает вместе со страницей */}
+      <div style={{ background: "var(--bg-0c0c0f)", borderBottom: "1px solid var(--bd-1a1a22)", padding: "20px 20px 0", position: typeof NvBar === "function" ? "static" : "sticky", top: 0, zIndex: 100, isolation: "isolate" }}>
         <div style={{ maxWidth: 560, margin: "0 auto" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
             <div style={{ minWidth: 0 }}>
@@ -7541,14 +7935,16 @@ function App() {
               );
             })}
           </div>
+          {typeof NvBar !== "function" && (
           <div style={{ display: "flex", borderBottom: "1px solid var(--bd-1a1a22)" }}>
-            {[["workout","ТРЕНИРОВКА"],["warmup","РАЗМИНКА"],["journal","ЖУРНАЛ"],["achievements","АЧИВКИ"]].concat(typeof BetaTab === "function" ? [["beta","БЕТА"]] : []).map(([id, label]) => (
+            {mainTabs.map(([id, label]) => (
               <button key={id} onClick={() => setActiveTab(id)}
                 style={{ flex: 1, padding: "11px 1px 13px", background: "none", border: "none", borderBottom: activeTab === id ? `3px solid ${w.color}` : "3px solid transparent", color: activeTab === id ? "var(--tx-fff)" : "var(--tx-3a3a3a)", fontSize: 9.5, letterSpacing: 0.5, cursor: "pointer", marginBottom: -1, transition: "all 0.15s", fontFamily: "inherit", fontWeight: activeTab === id ? 700 : 400, whiteSpace: "nowrap" }}>
                 {label}
               </button>
             ))}
           </div>
+          )}
         </div>
       </div>
 
@@ -7643,8 +8039,16 @@ function App() {
               // In edit mode show skipped cards dimmed with toggle
               if (skipped && !editMode) return null;
 
+              // выполненное упражнение - одной строкой (src/beta/focus.jsx, только в тестовой сборке)
+              if (!skipped && allDone && typeof FxDoneCard === "function" && !fxOpen[baseEx.id]) {
+                return <FxDoneCard key={baseEx.id} domId={"exc-" + baseEx.id} name={ex.name} unit={weightUnit(ex.name)} color={w.color}
+                  summary={fxSummary(Array.from({ length: getExSets(baseEx.id) }, (_, i) => getSetData(ex.id, i)), getExSets(baseEx.id))}
+                  onOpen={() => setFxOpen(o => ({ ...o, [baseEx.id]: true }))}
+                  menu={typeof LvMenuButton === "function" ? <LvMenuButton name={ex.name} active={ex._isSwapped} color={w.color} ink={ink} onClick={() => setLiveEdit({ sheet: "menu", id: baseEx.id })} /> : null} />;
+              }
+
               return (
-                <div key={baseEx.id} id={"exc-" + baseEx.id} style={{ background: skipped ? "var(--bg-0a0a0c)" : "var(--bg-0f0f12)", border: `1px solid ${skipped ? "var(--bd-161620)" : allDone ? w.color + "60" : "var(--bd-1a1a22)"}`, borderLeft: !skipped && ex.warn ? `3px solid #ff4d4d50` : `1px solid ${skipped ? "var(--bd-161620)" : allDone ? w.color + "60" : "var(--bd-1a1a22)"}`, borderRadius: 12, marginBottom: 12, overflow: "hidden", opacity: skipped ? 0.45 : 1, transition: "all 0.2s" }}>
+                <div key={baseEx.id} id={"exc-" + baseEx.id} style={{ background: skipped ? "var(--bg-0a0a0c)" : "var(--bg-0f0f12)", border: `1px solid ${skipped ? "var(--bd-161620)" : allDone ? w.color + "60" : "var(--bd-1a1a22)"}`, borderLeft: !skipped && ex.warn ? `3px solid #ff4d4d50` : `1px solid ${skipped ? "var(--bd-161620)" : allDone ? w.color + "60" : "var(--bd-1a1a22)"}`, borderRadius: 12, marginBottom: 12, overflow: "hidden", opacity: skipped ? 0.45 : 1, transition: "all 0.2s", boxShadow: fxNow === baseEx.id && !skipped ? `0 0 0 1px ${w.color}90` : undefined }}>
 
                   {/* Header row */}
                   <div style={{ padding: "16px 16px 10px", display: "flex", alignItems: "flex-start", gap: 12 }}>
@@ -7668,7 +8072,10 @@ function App() {
                         {/* с модулем правки добавленное убирается через окно упражнения, значок только сообщает */}
                         {baseEx._added && typeof LvMenuButton === "function" && <span style={{ fontSize: 8, padding: "2px 7px", borderRadius: 4, background: "var(--bg-1a2a1a)", color: "var(--tx-5a9a5a)", letterSpacing: 1, border: "1px solid var(--bd-2a4a2a)" }}>ДОБАВЛЕНО</span>}
                         {skipped && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: "var(--bg-1a1a22)", color: "var(--tx-777)", letterSpacing: 1 }}>ПРОПУЩЕНО</span>}
+                        {/* текущее упражнение и заметка к нему: src/beta/focus.jsx, только в тестовой сборке */}
+                        {fxNow === baseEx.id && !skipped && typeof FxNowTag === "function" && <FxNowTag color={w.color} ink={ink} />}
                       </div>
+                      {!skipped && typeof FxNoteLine === "function" && <FxNoteLine text={data.notes && data.notes[ex.id]} />}
                     </div>
                     {!skipped && !editMode && (
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -7739,7 +8146,7 @@ function App() {
                         <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <div style={{ fontSize: 12, color: "var(--tx-666)", width: 18, textAlign: "center", flexShrink: 0, fontWeight: 600 }}>{i + 1}</div>
                           <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, background: "var(--bg-0c0c0f)", borderRadius: 10, padding: "10px 14px", border: `1px solid ${sd.done ? w.color + "50" : "var(--bd-1e1e28)"}`, transition: "border-color 0.2s" }}>
-                            <input type="number" className="wt" placeholder={getSuggestedWeight(ex.id, i) || " - "} value={sd.weight}
+                            <input type="number" inputMode={APP_VARIANT === "beta" ? "decimal" : undefined} className="wt" placeholder={getSuggestedWeight(ex.id, i) || " - "} value={sd.weight}
                               readOnly={sd.done}
                               onClick={() => { if (sd.done) showToast("Сними отметку, чтобы изменить вес"); }}
                               onChange={e => updateSet(ex.id, i, "weight", e.target.value)}
@@ -7758,11 +8165,17 @@ function App() {
                   </div>
                   )}
 
+                  {/* раскрытую вручную выполненную карточку можно свернуть обратно (src/beta/focus.jsx) */}
+                  {allDone && !skipped && !editMode && typeof FxFold === "function" && <FxFold onClick={() => setFxOpen(o => ({ ...o, [baseEx.id]: false }))} />}
+
                   {/* Техника */}
                   {isExpanded && !skipped && !editMode && (
                     <div style={{ padding: "0 16px 16px" }}>
                       {/* Гифка упражнения: ExerciseMedia лежит в src/features/media.jsx (обе сборки); шов оставлен на случай сборки без модуля */}
                       {typeof ExerciseMedia === "function" && <ExerciseMedia key={ex.id} exId={ex.id} name={ex.name} />}
+                      {/* заметка к упражнению и блины на штангу: src/beta/focus.jsx, только в тестовой сборке */}
+                      {typeof FxNote === "function" && <FxNote value={data.notes && data.notes[ex.id]} color={w.color} ink={ink} onSave={text => setData(prev => fxNoteSet(prev, ex.id, text))} />}
+                      {typeof FxPlates === "function" && <FxPlates key={"pl-" + ex.id} exId={ex.id} name={ex.name} weight={lastW} color={w.color} ink={ink} />}
                       <div style={{ background: "var(--bg-0c0c0f)", borderRadius: 8, padding: "12px 14px", marginBottom: ex.danger ? 8 : 0, border: "1px solid var(--bd-1a1a22)" }}>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                           <div style={{ fontSize: 9, letterSpacing: 3, color: ink(w.color), fontWeight: 700 }}>ТЕХНИКА</div>
@@ -8903,7 +9316,9 @@ function App() {
       })()}
 
       {/* ===== TIMER ===== */}
-      {timer && (() => {
+      {/* крупные кнопки и подсказка "дальше": FxTimer есть только в тестовой сборке (src/beta/focus.jsx) */}
+      {timer && typeof FxTimer === "function" && <FxTimer timer={timer} lift={navLift} color={w.color} ink={ink} next={fxTimerNext} unitOf={weightUnit} onAdd={addTime} onStop={stopTimer} doneClass={typeof uxRestDoneClass === "string" ? uxRestDoneClass : undefined} />}
+      {timer && typeof FxTimer !== "function" && (() => {
         const pct = timer.total > 0 ? (timer.left / timer.total) * 100 : 0;
         const mins = Math.floor(timer.left / 60);
         const secs = timer.left % 60;
@@ -8967,10 +9382,13 @@ function App() {
       {typeof UxLayer === "function" && <UxLayer recordPop={recordPop} onRecordClose={() => setRecordPop(null)} summary={summary} onSummaryClose={() => setSummary(null)} color={w.color} ink={ink} />}
 
       {/* Окна правки тренировки и плашка отмены: LvLayer лежит в src/features/liveedit.jsx */}
-      {typeof LvLayer === "function" && activeTab === "workout" && <LvLayer state={liveEdit} onState={setLiveEdit} data={data} setData={setData} sessionKey={sessionKey} base={(getWorkout(activeDay) || PROGRAM.push).exercises || []} pool={getAllExercises} color={w.color} ink={ink} timerOn={!!timer} onAdd={() => { setAddExModal(true); setAddExSearch(""); }} />}
+      {typeof LvLayer === "function" && activeTab === "workout" && <LvLayer state={liveEdit} onState={setLiveEdit} data={data} setData={setData} sessionKey={sessionKey} base={(getWorkout(activeDay) || PROGRAM.push).exercises || []} pool={getAllExercises} color={w.color} ink={ink} timerOn={!!timer} lift={navLift} onAdd={() => { setAddExModal(true); setAddExSearch(""); }} />}
+
+      {/* Вкладки внизу: NvBar есть только в тестовой сборке (src/beta/nav.jsx) */}
+      {typeof NvBar === "function" && <NvBar tabs={mainTabs} active={activeTab} onPick={setActiveTab} prog={prog} color={w.color} ink={ink} />}
 
       {toast && (
-        <div style={{ position: "fixed", bottom: timer ? "calc(130px + env(safe-area-inset-bottom))" : "calc(50px + env(safe-area-inset-bottom))", left: "50%", transform: "translateX(-50%)", background: "var(--bg-1a1a22)", border: "1px solid var(--bd-2a2a2a)", borderRadius: 8, padding: "10px 20px", fontSize: 11, color: "var(--tx-ccc)", letterSpacing: 1, zIndex: 999, pointerEvents: "none" }}>
+        <div style={{ position: "fixed", bottom: `calc(${(timer ? 130 : 50) + navLift}px + env(safe-area-inset-bottom))`, left: "50%", transform: "translateX(-50%)", background: "var(--bg-1a1a22)", border: "1px solid var(--bd-2a2a2a)", borderRadius: 8, padding: "10px 20px", fontSize: 11, color: "var(--tx-ccc)", letterSpacing: 1, zIndex: 999, pointerEvents: "none" }}>
           {toast}
         </div>
       )}
