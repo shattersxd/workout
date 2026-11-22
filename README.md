@@ -30,7 +30,7 @@
 
 ```bash
 python3 scripts/build.py      # src/ -> index.html
-node tests/test_pwa.js        # 390 тестов, должно быть 390/390
+node tests/test_pwa.js        # 391 тест, должно быть 391/391
 ```
 
 Или одной командой:

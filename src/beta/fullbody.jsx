@@ -16,32 +16,7 @@
 // Новые id нужны там, где меняется само упражнение: журнал и подсказка веса ищут историю по id, и вес "тяги
 // блока" не должен попасть в "тягу горизонтального блока". Там, где меняется только название (id прежний),
 // история общая.
-
-function exbFind(id) {
-  let found = null;
-  Object.keys(PROGRAM).forEach(function (k) { PROGRAM[k].exercises.forEach(function (e) { if (e.id === id) found = e; }); });
-  Object.keys(ALTERNATIVES).forEach(function (k) { ALTERNATIVES[k].forEach(function (e) { if (e.id === id) found = e; }); });
-  return found;
-}
-
-// Копия упражнения под новым id (техника та же, подходы и название можно поменять)
-function exbClone(srcId, newId, over) {
-  const src = exbFind(srcId);
-  if (!src) throw new Error("exercise not found: " + srcId);
-  return Object.assign({}, src, over || {}, { id: newId, steps: src.steps.slice() });
-}
-
-function exbSwap(day, oldId, rec) {
-  const list = PROGRAM[day].exercises;
-  for (let i = 0; i < list.length; i++) if (list[i].id === oldId) { list[i] = rec; return; }
-  throw new Error("exercise not in " + day + ": " + oldId);
-}
-
-function exbRename(day, id, fields) {
-  const list = PROGRAM[day].exercises;
-  for (let i = 0; i < list.length; i++) if (list[i].id === id) { Object.assign(list[i], fields); return; }
-  throw new Error("exercise not in " + day + ": " + id);
-}
+// Помощники exbFind, exbClone, exbSwap, exbRename лежат в src/features/split.jsx (он грузится раньше).
 
 (function exbFullbody() {
   // 2. фулбади A: подъёмы ног в висе вместо сгибаний со штангой, икры 4 подхода

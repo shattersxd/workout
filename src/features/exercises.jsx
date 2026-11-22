@@ -3,7 +3,7 @@
 // ролик, dead bug), не было гиперэкстензии, жимов в тренажёре, обычных сгибаний с гантелями и так далее.
 // Записи в формате ALTERNATIVES ({ id, name, sets, reps, rest, warn, steps, danger }); они попадают в окно
 // "Добавить упражнение" (там у них свои группы) и в выбор замены. Программы push, pull, legs и фулбади этот файл НЕ
-// меняет: пересмотр фулбади лежит отдельно, в src/beta/fullbody.jsx, и пока только в тестовой версии.
+// меняет: сплит правит src/features/split.jsx, а пересмотр фулбади лежит в src/beta/fullbody.jsx (только бета).
 // Новые упражнения добавляются на этапе загрузки страницы: ALTERNATIVES - обычный объект из основного файла.
 // Тексты на "ты": так написаны все карточки основной версии. Подробности - docs/claude/exercises-media.md.
 
@@ -113,4 +113,4 @@ const EXTRA_EXERCISE_GROUPS = {
 const EXTRA_GROUP_ORDER = ["Бёдра", "Пресс и кор", "Предплечья и хват"];
 
 // Новые группы упражнений кладём в пул (существующие ключи не трогаем)
-Object.keys(EXTRA_EXERCISES).forEach(function (k) { if (!ALTERNATIVES[k]) ALTERNATIVES[k] = EXTRA_EXERCISES[k]; });
+Object.keys(EXTRA_EXERCISES).forEach(function (k) { if (!ALTERNATIVES[k]) ALTERNATIVES[k] = EXTRA_EXERCISES[k].slice(); });

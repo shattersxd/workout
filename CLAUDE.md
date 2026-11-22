@@ -53,7 +53,7 @@ sw.js                        <- настоящий service worker, регист�
 ## Рабочий цикл и деплой
 
 ```bash
-python3 scripts/build.py && node tests/test_pwa.js   # должно быть 390/390
+python3 scripts/build.py && node tests/test_pwa.js   # должно быть 391/391
 python3 scripts/build.py --check                     # index.html не отстал от src/
 ```
 
@@ -61,7 +61,7 @@ python3 scripts/build.py --check                     # index.html не отст�
 руками нельзя, следующая сборка затрёт правку. Коммитить `index.html` нужно,
 потому что GitHub Pages отдаёт именно его.
 
-Перед деплоем должно быть **390/390 PASSED**. Красный тест — это не повод
+Перед деплоем должно быть **391/391 PASSED**. Красный тест — это не повод
 править тест, это повод править код (исключения — ниже).
 
 Деплой: `git add -A && git commit -m "..." && git push`. GitHub Pages репозитория
@@ -108,7 +108,7 @@ python3 scripts/build.py --check                     # index.html не отст�
 |---|---|
 | `WARMUP` | разминки по ключу дня. Ключи **обязаны совпадать** с ключами `PROGRAM` |
 | `ALTERNATIVES` | ~60 групп замен: `exId -> [варианты]`. Пул ~210 упражнений |
-| `PROGRAM` | пресеты: `push`, `pull`, `legs`, `fullbody_a`, `fullbody_b`, `fullbody_c` |
+| `PROGRAM` | пресеты: `push`, `pull`, `legs`, `fullbody_a`, `fullbody_b`, `fullbody_c`. **Состав push/pull/legs на странице отличается от исходника:** `src/features/split.jsx` при загрузке заменяет 4 слота и добавляет 2 упражнения (список — `docs/claude/exercises-media.md`) |
 | `ACHIEVEMENTS` | 37 ачивок в разделах `ACH_GROUPS`; условия считает `achStats` |
 | `WEEK_SCHEDULE` | дни недели |
 | константы | `STORAGE_KEY = "ppl_tracker_v4"`, `HISTORY_LIMIT = 200`, `SESSION_KEEP_DAYS = 400` |
@@ -185,7 +185,7 @@ python3 scripts/build.py --check                     # index.html не отст�
 
 ## Тесты
 
-`tests/test_pwa.js` — свой харнесс, 28 секций, 390 тестов. Новую секцию добавлять
+`tests/test_pwa.js` — свой харнесс, 28 секций, 391 тест. Новую секцию добавлять
 **перед** блоком `SUMMARY` и `process.exit()`, иначе она не запустится. Асинхронные
 тесты — через `testAsync` (`test` не ждёт промисы). Список секций — `docs/claude/tests.md`.
 
@@ -207,4 +207,4 @@ python3 scripts/build.py --check                     # index.html не отст�
 | `src/beta/social.jsx`, `src/beta/compete.jsx` | `docs/claude/beta-social.md` + `docs/social-design.md` |
 | `src/beta/spotify.jsx`, музыкой | `docs/claude/beta-spotify.md` + `docs/music-design.md` |
 | `src/beta/ux.jsx` и его переносом в основную версию | `docs/claude/beta-ux.md` |
-| `src/features/exercises.jsx`, `src/features/media.jsx`, `src/beta/fullbody.jsx`, гифками, фулбади | `docs/claude/exercises-media.md` |
+| `src/features/exercises.jsx`, `src/features/media.jsx`, `src/features/split.jsx`, `src/beta/fullbody.jsx`, гифками, составом push/pull/legs, фулбади | `docs/claude/exercises-media.md` |

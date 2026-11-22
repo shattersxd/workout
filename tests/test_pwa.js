@@ -5145,6 +5145,7 @@ section('28 · MORE EXERCISES, GIFS (main version), FULL BODY REVIEW (beta)');
 const FEATURES_SRC_DIR = path.join(ROOT, 'src', 'features');
 const exFile = fs.readFileSync(path.join(FEATURES_SRC_DIR, 'exercises.jsx'), 'utf8');
 const mediaFile = fs.readFileSync(path.join(FEATURES_SRC_DIR, 'media.jsx'), 'utf8');
+const splitFile = fs.readFileSync(path.join(FEATURES_SRC_DIR, 'split.jsx'), 'utf8');
 const fbFile = fs.readFileSync(path.join(BETA_SRC_DIR, 'fullbody.jsx'), 'utf8');
 const mediaMark = mediaFile.indexOf('// ---- Интерфейс ----');
 const mediaPure = mediaFile.slice(0, mediaMark);
@@ -5152,11 +5153,12 @@ const mediaUi = mediaFile.slice(mediaMark);
 const mediaReview = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests', 'fixtures', 'exercise_media_review.json'), 'utf8'));
 const exMainData = src.slice(src.indexOf('const WARMUP'), src.indexOf('const ACHIEVEMENTS'));
 
-// Данные упражнений в трёх видах, как их собирают страницы: 0 - только основной файл, 1 - плюс
-// src/features/exercises.jsx (так собрана основная версия), 2 - плюс src/beta/fullbody.jsx (так собрана бета)
+// Данные упражнений в четырёх видах, как их собирают страницы: 0 - только основной файл, 1 - плюс
+// src/features/exercises.jsx (только 25 новых упражнений), 2 - плюс src/features/split.jsx (так собрана основная
+// версия), 3 - плюс src/beta/fullbody.jsx (так собрана бета)
 function loadExercises(level) {
   const names = 'PROGRAM, ALTERNATIVES' + (level >= 1 ? ', EXTRA_EXERCISES, EXTRA_EXERCISE_GROUPS, EXTRA_GROUP_ORDER' : '');
-  return new Function(exMainData + '\n' + (level >= 1 ? exFile : '') + '\n' + (level >= 2 ? fbFile : '') + '; return { ' + names + ' };')();
+  return new Function(exMainData + '\n' + (level >= 1 ? exFile : '') + '\n' + (level >= 2 ? splitFile : '') + '\n' + (level >= 3 ? fbFile : '') + '; return { ' + names + ' };')();
 }
 // все записи пула (с повторами, как они лежат в данных)
 function flatPool(d) {
@@ -5168,25 +5170,28 @@ function flatPool(d) {
 const idsOf = d => new Set(flatPool(d).map(e => e.id));
 const countOf = d => { const c = {}; flatPool(d).forEach(e => { c[e.id] = (c[e.id] || 0) + 1; }); return c; };
 const baseEx = loadExercises(0);
-const prodEx = loadExercises(1);
-const betaEx = loadExercises(2);
+const extraEx = loadExercises(1);
+const prodEx = loadExercises(2);
+const betaEx = loadExercises(3);
 const betaById = {}; flatPool(betaEx).forEach(e => { betaById[e.id] = betaById[e.id] || e; });
 const prodById = {}; flatPool(prodEx).forEach(e => { prodById[e.id] = prodById[e.id] || e; });
-const NEW_EXTRA = [].concat.apply([], Object.keys(prodEx.EXTRA_EXERCISES).map(k => prodEx.EXTRA_EXERCISES[k]));
+const NEW_EXTRA = [].concat.apply([], Object.keys(extraEx.EXTRA_EXERCISES).map(k => prodEx.EXTRA_EXERCISES[k]));
 const FB_NEW = ['fb_hanging_a', 'fb_hang_alt1', 'fb_hang_alt2', 'fb_hang_alt3', 'fb_pullup_b2', 'fb_pallof_b', 'fb_plank_alt3', 'fb_glute_bridge_c', 'fb_hip_alt3', 'fb_cable_row_c', 'fb_row_c_alt1', 'fb_row_c_alt2', 'fb_row_c_alt3'];
 
-test('Exercises: the main version gets exactly 25 new exercises and nothing else changes; the beta full body module replaces five cards', () => {
-  const base = idsOf(baseEx), prod = idsOf(prodEx), beta = idsOf(betaEx);
-  const addedProd = [...prod].filter(id => !base.has(id)).sort();
-  assert(NEW_EXTRA.length === 25 && addedProd.length === 25 && NEW_EXTRA.every(e => addedProd.includes(e.id)), '25 new exercises in the main version, got ' + addedProd.length + ': ' + addedProd.join());
-  assert([...base].every(id => prod.has(id)), 'the main version loses no exercise');
-  assert(JSON.stringify(prodEx.PROGRAM) === JSON.stringify(baseEx.PROGRAM), 'the training programs of the main version are untouched: full body stays exactly as it was');
-  Object.keys(baseEx.ALTERNATIVES).forEach(k => assert(JSON.stringify(prodEx.ALTERNATIVES[k]) === JSON.stringify(baseEx.ALTERNATIVES[k]), 'alternatives of ' + k + ' are untouched'));
+test('Exercises: the main version gets exactly 25 new exercises; the split module only moves records; the beta full body module replaces five cards', () => {
+  const base = idsOf(baseEx), extra = idsOf(extraEx), prod = idsOf(prodEx), beta = idsOf(betaEx);
+  const addedExtra = [...extra].filter(id => !base.has(id)).sort();
+  assert(NEW_EXTRA.length === 25 && addedExtra.length === 25 && NEW_EXTRA.every(e => addedExtra.includes(e.id)), '25 new exercises in the main version, got ' + addedExtra.length + ': ' + addedExtra.join());
+  assert([...base].every(id => extra.has(id)), 'the new exercises lose nothing');
+  assert(JSON.stringify(extraEx.PROGRAM) === JSON.stringify(baseEx.PROGRAM), 'the exercises module does not touch any program');
+  Object.keys(baseEx.ALTERNATIVES).forEach(k => assert(JSON.stringify(extraEx.ALTERNATIVES[k]) === JSON.stringify(baseEx.ALTERNATIVES[k]), 'alternatives of ' + k + ' are untouched'));
+  assert(prod.size === extra.size && [...extra].every(id => prod.has(id)), 'the split module moves records between lists: the pool of ids stays exactly the same');
+  ['fullbody_a', 'fullbody_b', 'fullbody_c'].forEach(k => assert(JSON.stringify(prodEx.PROGRAM[k]) === JSON.stringify(baseEx.PROGRAM[k]), 'main version: ' + k + ' stays exactly as it was'));
   const addedBeta = [...beta].filter(id => !prod.has(id)).sort();
   const removedBeta = [...prod].filter(id => !beta.has(id)).sort();
   assert(addedBeta.length === FB_NEW.length && FB_NEW.every(id => addedBeta.includes(id)), 'beta adds the new full body cards: ' + addedBeta.join());
   assert(removedBeta.join() === 'fb_curl_a,fb_hip_thrust_c,fb_lat_c,fb_plank,fb_pullups_b', 'only five full-body cards are replaced in the beta, got ' + removedBeta.join());
-  info('Pool ' + base.size + ' -> ' + prod.size + ' (main version, +25) -> ' + beta.size + ' (beta: +' + addedBeta.length + ' new, ' + removedBeta.length + ' replaced)');
+  info('Pool ' + base.size + ' -> ' + prod.size + ' (main version, +25, split moves records) -> ' + beta.size + ' (beta: +' + addedBeta.length + ' new, ' + removedBeta.length + ' replaced)');
 });
 
 test('Exercises: no id appears twice because of the modules; every new record has the full contract', () => {
@@ -5253,7 +5258,7 @@ test('Full body review (beta): the three days are exactly what was agreed; the m
   const prodIds = k => prodEx.PROGRAM[k].exercises.map(e => e.id).join();
   assert(prodIds('fullbody_a') === 'fb_squat,fb_bench,fb_row_a,fb_ohp_a,fb_rdl_a,fb_curl_a,fb_calf_a' && prodIds('fullbody_b') === 'fb_leg_press,fb_incline_b,fb_pullups_b,fb_lateral_b,fb_hamstring_b,fb_tricep_b,fb_plank' && prodIds('fullbody_c') === 'fb_deadlift_c,fb_goblet_c,fb_chest_fly_c,fb_lat_c,fb_hip_thrust_c,fb_hammer_c,fb_face_pull_c', 'the main version keeps the original three days exactly');
   // страницы: фулбади-модуль только в бете, новые упражнения в обеих
-  ['exbFullbody', 'function exbSwap', 'function exbClone', 'function exbRename'].forEach(t => assertNot(app.includes(t), 'production page contains ' + t));
+  assertNot(app.includes('exbFullbody'), 'production page does not contain the full body module');
   assert(app.includes('const EXTRA_EXERCISES') && app.includes('id: "hanging_leg_raise"'), 'the main version carries the new exercises');
   assert(betaApp.includes('function exbSwap') && betaApp.includes('exbFullbody') && betaApp.includes('const EXTRA_EXERCISES'), 'the beta page carries both');
   info('Beta A/B/C = 23/22/22 sets; the main version keeps the old cards (22/22/22)');
@@ -5317,6 +5322,46 @@ function loadMedia() {
   return new Function(mediaPure + '; return { EXERCISE_MEDIA, EXERCISE_MEDIA_NONE, EXERCISE_MEDIA_BASE, EXERCISE_MEDIA_CREDIT, EXERCISE_MEDIA_COMMIT, EXERCISE_STILLS, EXERCISE_STILLS_SINGLE, EXERCISE_STILLS_BASE, EXERCISE_STILLS_COMMIT, EXERCISE_STILLS_CREDIT, exerciseMediaKey, exerciseMediaUrl, exerciseStillsUrls };')();
 }
 
+test('Split: push, pull and legs of the main version are revised exactly as documented, nothing is lost, the history of replaced exercises stays reachable', () => {
+  const ids = (d, k) => d.PROGRAM[k].exercises.map(e => e.id).join();
+  const sets = (d, k) => d.PROGRAM[k].exercises.reduce((n, e) => n + e.sets, 0);
+  // было (без модуля)
+  assert(ids(baseEx, 'push') === 'bench,incline,dips,ohp,lateral,cg_press,french' && ids(baseEx, 'pull') === 'deadlift,pullups,bent_row,lat_pull,db_row,face_pull,barbell_curl,hammer' && ids(baseEx, 'legs') === 'squat,leg_press,lunges,rdl,leg_curl,leg_ext,calf', 'the source file still holds the original split');
+  // стало (обе версии)
+  [['main version', prodEx], ['beta', betaEx]].forEach(([name, d]) => {
+    assert(ids(d, 'push') === 'bench,incline,dips,ohp,lateral,chest_fly_stretch,cable_overhead_ext', name + ' push: ' + ids(d, 'push'));
+    assert(ids(d, 'pull') === 'deadlift,pullups,chest_supported,lat_pull,db_row,face_pull,barbell_curl,hammer', name + ' pull: ' + ids(d, 'pull'));
+    assert(ids(d, 'legs') === 'squat,leg_press,lunges,rdl,seated_leg_curl_2,leg_ext,barbell_glute_bridge,calf,hanging_leg_raise', name + ' legs: ' + ids(d, 'legs'));
+    assert(sets(d, 'push') === 25 && sets(d, 'pull') === 28 && sets(d, 'legs') === 32, name + ' sets: ' + sets(d, 'push') + '/' + sets(d, 'pull') + '/' + sets(d, 'legs'));
+  });
+  assert(sets(baseEx, 'push') === 25 && sets(baseEx, 'pull') === 28 && sets(baseEx, 'legs') === 26, 'sets before the revision: 25/28/26');
+  // остальные упражнения дней нетронуты (тот же объект данных, подходы и отдых прежние)
+  ['push', 'pull', 'legs'].forEach(k => baseEx.PROGRAM[k].exercises.forEach(old => {
+    const now = prodEx.PROGRAM[k].exercises.find(e => e.id === old.id);
+    if (now) assert(JSON.stringify(now) === JSON.stringify(old), k + ': ' + old.id + ' is not changed');
+  }));
+  // прежние упражнения - первые замены новых, их история доступна через замену
+  const alts = id => prodEx.ALTERNATIVES[id].map(e => e.id).join();
+  assert(alts('chest_fly_stretch') === 'cg_press,pec_deck,cable_fly_mid' && alts('cable_overhead_ext') === 'french,overhead_ext,skull_crusher_db', 'push alternatives: ' + alts('chest_fly_stretch') + ' / ' + alts('cable_overhead_ext'));
+  assert(alts('chest_supported') === 'bent_row,tbar_row,cable_row', 'pull alternatives: ' + alts('chest_supported'));
+  assert(alts('seated_leg_curl_2') === 'leg_curl,nordic_curl_2,glute_kickback_2' && alts('barbell_glute_bridge') === 'hip_thrust,cable_pull_through,glute_kickback' && alts('hanging_leg_raise') === 'cable_crunch,crunch,pallof_press', 'legs alternatives');
+  ['cg_press', 'french', 'bent_row', 'leg_curl'].forEach(id => assert(!prodEx.ALTERNATIVES[id], 'the key of the replaced slot is gone: ' + id));
+  // каждый день по-прежнему со своими заменами: у каждого упражнения есть хотя бы одна
+  ['push', 'pull', 'legs'].forEach(k => prodEx.PROGRAM[k].exercises.forEach(e => assert((prodEx.ALTERNATIVES[e.id] || []).length >= 2, k + ': ' + e.id + ' needs at least two alternatives')));
+  // замены прежних слотов не пропали: тренировки на брусьях и блоке остаются в пуле
+  ['tricep_dip', 'tricep_pushdown_bar', 'tricep_pushdown_rope', 'bench_dip'].forEach(id => assert(idsOf(prodEx).has(id), 'still in the pool: ' + id));
+  assert(prodEx.ALTERNATIVES.cg_press_extra.some(e => e.id === 'tricep_dip'), 'unused alternatives of the old slot went to the pool group');
+  // обязательные поля новых слотов
+  ['chest_fly_stretch', 'cable_overhead_ext', 'chest_supported', 'seated_leg_curl_2', 'barbell_glute_bridge', 'hanging_leg_raise'].forEach(id => {
+    const e = prodEx.PROGRAM.push.exercises.concat(prodEx.PROGRAM.pull.exercises, prodEx.PROGRAM.legs.exercises).find(x => x.id === id);
+    assert(e && Number.isInteger(e.sets) && e.sets >= 1 && e.sets <= 6 && e.reps && e.rest && e.steps.length >= 3 && e.danger, id + ': a complete program record');
+  });
+  // страницы: модуль и в основной, и в бете; помощники фулбади лежат в нём же
+  assert(app.includes('function splReplace') && betaApp.includes('function splReplace'), 'both pages carry the split module');
+  assert(app.includes('function exbFind') && !app.includes('exbFullbody') && betaApp.includes('exbFullbody'), 'helpers are shared, the full body module is beta only');
+  info('push 25 / pull 28 / legs 26 -> 32 sets; 4 slots replaced, 2 exercises added, pool of ' + idsOf(prodEx).size + ' ids unchanged');
+});
+
 test('Pictures: every exercise of both versions is decided; the main workouts show a GIF (the two without an exact GIF show a still)', () => {
   const m = loadMedia();
   const poolProd = idsOf(prodEx), poolBeta = idsOf(betaEx);
@@ -5331,11 +5376,11 @@ test('Pictures: every exercise of both versions is decided; the main workouts sh
   // основные тренировки: у каждого упражнения гифка; в основной версии у планки и хип-траста гифки нет вовсе, у них картинка
   const gifless = d => { const miss = []; let n = 0; Object.keys(d.PROGRAM).forEach(k => d.PROGRAM[k].exercises.forEach(e => { n++; if (!m.exerciseMediaKey(e.id)) miss.push(k + ':' + e.id); })); return { n, miss }; };
   const pr = gifless(prodEx), bt = gifless(betaEx);
-  assert(pr.n === 43 && pr.miss.join() === 'fullbody_b:fb_plank,fullbody_c:fb_hip_thrust_c', 'main version: 43 workout exercises, GIF for all but plank and hip thrust, got ' + pr.miss.join());
+  assert(pr.n === 45 && pr.miss.join() === 'fullbody_b:fb_plank,fullbody_c:fb_hip_thrust_c', 'main version: 45 workout exercises, GIF for all but plank and hip thrust, got ' + pr.miss.join());
   assert(m.exerciseStillsUrls('fb_plank') && m.exerciseStillsUrls('fb_hip_thrust_c'), 'and those two have the reviewed still pictures');
-  assert(bt.n === 43 && bt.miss.length === 0, 'beta: all 43 workout exercises have a GIF, without a GIF: ' + bt.miss.join('; '));
+  assert(bt.n === 45 && bt.miss.length === 0, 'beta: all 45 workout exercises have a GIF, without a GIF: ' + bt.miss.join('; '));
   assert(withGif.length >= 200 && withStill.length === 16 && none.length === 7, 'coverage ' + withGif.length + '/' + withStill.length + '/' + none.length);
-  info(withGif.length + ' GIFs, ' + withStill.length + ' still pictures, ' + none.length + ' without a picture; main version: 41 of 43 workout exercises have a GIF, beta: all 43');
+  info(withGif.length + ' GIFs, ' + withStill.length + ' still pictures, ' + none.length + ' without a picture; main version: 43 of 45 workout exercises have a GIF, beta: all 45');
 });
 
 test('GIFs: file names, pinned commit and URL helpers', () => {
