@@ -138,7 +138,7 @@ function FxDoneCard(props) {
         <span style={{ width: 34, height: 34, borderRadius: 9, background: props.color, color: "#000", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><FxIcon name="check" /></span>
         <span style={{ flex: 1, minWidth: 0 }}>
           <span style={{ display: "block", fontSize: 13, fontWeight: 700, color: "var(--tx-ccc)", lineHeight: 1.3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{props.name}</span>
-          <span style={{ display: "block", fontSize: 11, color: "var(--tx-777)", marginTop: 2 }}>{props.summary}{props.summary ? " " + props.unit : "сделано"}</span>
+          <span style={{ display: "block", fontSize: 11, color: "var(--tx-777)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{props.summary}{props.summary ? " " + props.unit : "сделано"}{props.extra ? "  |  " + props.extra + " повт." : ""}</span>
         </span>
         <span style={{ color: "var(--tx-555)", display: "flex" }}><FxIcon name="down" size={16} /></span>
       </button>
@@ -279,6 +279,8 @@ function FxTimer(props) {
         <div style={{ fontSize: 11, color: next ? "var(--tx-ccc)" : "var(--tx-777)", lineHeight: 1.4, marginTop: 6, padding: "0 2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           {next ? "Дальше: подход " + next.set + " из " + next.of + (next.weight ? ", " + next.weight + " " + (props.unitOf ? props.unitOf(next.name) : "кг") : "") + "  |  " + next.name : "Все подходы сделаны"}
         </div>
+        {/* дополнение от других модулей: вопрос о повторах только что отмеченного подхода (src/beta/reps.jsx) */}
+        {props.extra}
       </div>
     </div>
   );

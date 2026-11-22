@@ -508,7 +508,7 @@ test('Core state: data, activeDay, activeTab, timer, notifEnabled', () => {
 test('toggleDone passes rest string to startTimer', () => {
   assert(src.includes('function toggleDone'), 'toggleDone missing');
   // четвёртый аргумент - название упражнения для всплывашки рекорда (src/beta/ux.jsx)
-  assert(/toggleDone\(ex\.id, i, ex\.rest(, ex\.name)?\)/.test(src), 'toggleDone not called with ex.rest');
+  assert(/toggleDone\(ex\.id, i, ex\.rest(, ex\.name)?(, ex\.reps)?\)/.test(src), 'toggleDone not called with ex.rest');
   assert(/startTimer\(restStr\)/.test(src), 'toggleDone must start the rest timer with its rest string');
 });
 test('addTime updates endsAt (not just left)', () => {
@@ -1729,7 +1729,7 @@ test('removeAddedExercise removes only from current session', () => {
 test('finishWorkout records per-exercise detail (id, name, reps, sets)', () => {
   const fn = src.slice(src.indexOf('function finishWorkout'), src.indexOf('function showToast'));
   assert(fn.includes('const detail = getSessionExercises()'), 'finishWorkout must build detail array');
-  assert(fn.includes('sets.push({ w: sd.weight'), 'detail must capture per-set weight');
+  assert(fn.includes('{ w: sd.weight || "", done: !!sd.done }'), 'detail must capture per-set weight');
   assert(fn.includes('detail: detail'), 'entry must carry detail');
   info('History entries carry full exercise detail');
 });
@@ -2459,7 +2459,8 @@ test('Progression hint: only after a fully completed exercise, step by equipment
 });
 
 test('Progression hint UI: shown only on an untouched exercise, one tap fills empty sets', () => {
-  assert(src.includes('const progHint = untouched ? getProgressionHint(ex.id, ex.name) : null'), 'hint must hide once anything is entered');
+  // с модулем повторов (src/beta/reps.jsx) прибавка веса не предлагается, пока верх диапазона не взят; без модуля rxTip всегда null
+  assert(src.includes('const progHint = untouched && !(rxTip && !rxTip.up) ? getProgressionHint(ex.id, ex.name) : null'), 'hint must hide once anything is entered');
   assert(src.includes('applyProgression(ex.id, getExSets(baseEx.id), progHint.to)'), 'ВЗЯТЬ must apply the hinted weight');
   const fn = src.slice(src.indexOf('function applyProgression'), src.indexOf('function getLastWeight'));
   assert(fn.includes('!sd.done && !sd.weight'), 'must never overwrite a weight the user typed or a done set');
@@ -6198,7 +6199,7 @@ test('Navigation and focus seams: guarded by typeof, the production page is unch
   assert(betaFiles.includes('nav.jsx') && betaFiles.includes('focus.jsx'), 'both are beta modules');
   // без модулей: вкладки в шапке, шапка прилипает, ничего не поднято, клавиатура прежняя
   assert(src.includes('{typeof NvBar !== "function" && (\n          <div style={{ display: "flex", borderBottom: "1px solid var(--bd-1a1a22)" }}>\n            {mainTabs.map(([id, label]) => ('), 'the tab row stays in the header when there is no bottom bar');
-  assert(src.includes('const navLift = typeof NV_H === "number" ? NV_H : 0;') && src.includes('paddingBottom: (timer ? 180 : 100) + navLift') && src.includes('bottom: `calc(${(timer ? 130 : 50) + navLift}px + env(safe-area-inset-bottom))`') && src.includes('timerOn={!!timer} lift={navLift}'), 'page padding, toast and undo bar rise by the bar height, by zero without it');
+  assert(src.includes('const navLift = typeof NV_H === "number" ? NV_H : 0;') && src.includes('paddingBottom: (timer ? 180 : 100) + navLift') && src.includes('bottom: `calc(${(timer ? 130 : 50) + navLift}px + env(safe-area-inset-bottom))`') && src.includes('timerOn={!!timer} lift={navLift + rxLift}'), 'page padding, toast and undo bar rise by the bar height, by zero without it');
   assert(src.includes('inputMode={APP_VARIANT === "beta" ? "decimal" : undefined}'), 'the decimal keypad for weights is a beta trial');
   assert(src.includes('{typeof NvBar === "function" && <NvBar tabs={mainTabs} active={activeTab} onPick={setActiveTab} prog={prog} color={w.color} ink={ink} />}'), 'the bar gets the same tabs as the header had');
   assert(/boxShadow: fxNow === baseEx\.id && !skipped \? `0 0 0 1px \$\{w\.color\}90` : undefined/.test(src) && src.includes('{fxNow === baseEx.id && !skipped && typeof FxNowTag === "function" && <FxNowTag color={w.color} ink={ink} />}'), 'the current exercise is outlined and tagged');
@@ -6232,6 +6233,168 @@ test('Navigation and focus visuals: 44pt targets, layers, safe areas, theme colo
   const hits = texts.filter(t => /(?<![А-Яа-яЁё])(Вы|вы|Вам|вам|Ваш|ваш|ты|Ты|тебе|твой|твоя)(?![А-Яа-яЁё])/.test(t) || /(?<![А-Яа-яЁё])(Выбери|Выберите|Нажми|Нажмите|Сделай|Сделайте|Впиши|Впишите|Запиши|Запишите)(?![А-Яа-яЁё])/.test(t));
   assert(texts.length >= 25 && hits.length === 0, 'neutral wording expected, found: ' + hits.join(' | '));
   info(buttons.length + ' focus buttons 44pt+, ' + fields.length + ' fields 16px, ' + texts.length + ' texts');
+});
+
+// ── SECTION 31: ACTUAL REPS (src/beta/reps.jsx, beta only) ───────────────────────────────────────────────────
+section('31 · ACTUAL REPS (test version)');
+
+const rxFile = fs.readFileSync(path.join(BETA_SRC_DIR, 'reps.jsx'), 'utf8').replace(/\r\n/g, '\n');
+const rxMark = rxFile.indexOf('// ---- Интерфейс ----');
+const rxPure = rxFile.slice(0, rxMark), rxUi = rxFile.slice(rxMark);
+function loadRx() {
+  const names = 'RX_MAX, RX_ASK_H, rxPlan, rxValid, rxChips, rxGridMax, rxSetReps, rxDetail, rxRestore, rxLabel, rxList, rxPast, rxAdvice';
+  return new Function(rxPure + '; return { ' + names + ' };')();
+}
+const rxFreeze = o => { if (o && typeof o === 'object' && !Object.isFrozen(o)) { Object.freeze(o); Object.keys(o).forEach(k => rxFreeze(o[k])); } return o; };
+
+test('Reps: the planned range is read from the program text; timed exercises have no reps', () => {
+  const rx = loadRx();
+  const p = s => { const r = rx.rxPlan(s); return r ? r.lo + '-' + r.hi : null; };
+  assert(p('8-10') === '8-10' && p('4-6') === '4-6' && p('15-20') === '15-20', 'plain ranges');
+  assert(p('12') === '12-12' && p('10-12 на сторону') === '10-12' && p('10 - 8') === '8-10', 'one number, text around, reversed order');
+  assert(p('30 сек') === null && p('30-45 сек') === null && p('2 мин') === null, 'time is not reps');
+  assert(p('макс') === null && p('') === null && p(null) === null && p(undefined) === null && p('0') === null, 'no digits - no reps');
+  // каждое упражнение приложения либо с понятным диапазоном, либо на время
+  const pool = flatPool(betaEx);
+  const odd = pool.filter(e => !rx.rxPlan(e.reps) && !/сек|мин/i.test(String(e.reps)));
+  assert(odd.length === 0, 'exercises whose reps text is neither a range nor a time: ' + odd.map(e => e.id + '=' + e.reps).join('; '));
+  const timed = pool.filter(e => !rx.rxPlan(e.reps));
+  info(pool.length - timed.length + ' exercises with reps, ' + timed.length + ' timed');
+});
+
+test('Reps: six quick numbers around the planned range', () => {
+  const rx = loadRx();
+  const c = s => rx.rxChips(rx.rxPlan(s)).join();
+  assert(c('8-10') === '6,7,8,9,10,11', '8-10 -> ' + c('8-10'));
+  assert(c('4-6') === '2,3,4,5,6,7' && c('10-12') === '8,9,10,11,12,13', 'narrow ranges get neighbours on both sides');
+  assert(c('15-20') === '15,16,17,18,19,20' && c('12-20') === '15,16,17,18,19,20', 'a wide range shows its upper six');
+  assert(c('3-5') === '1,2,3,4,5,6' && c('1-3') === '1,2,3,4,5,6' && c('1') === '1,2,3,4,5,6', 'never below one');
+  assert(c('12') === '8,9,10,11,12,13', 'a single number');
+  flatPool(betaEx).forEach(e => { const pl = rx.rxPlan(e.reps); if (!pl) return; const ch = rx.rxChips(pl); assert(ch.length === 6 && ch[0] >= 1 && ch.every((n, i) => i === 0 || n === ch[i - 1] + 1) && ch.includes(pl.hi), e.id + ': six consecutive numbers including the top of the range, got ' + ch.join()); });
+  assert(rx.rxChips(null).length === 0 && rx.rxGridMax(rx.rxPlan('8-10')) === 20 && rx.rxGridMax(rx.rxPlan('20-25')) === 30 && rx.rxGridMax(null) === 20, 'the full grid reaches beyond the range');
+  info('8-10 -> ' + c('8-10') + '; 15-20 -> ' + c('15-20'));
+});
+
+test('Reps: stored with the set, nothing is invented, the journal record carries them', () => {
+  const rx = loadRx();
+  const K = '2026-11-23_push';
+  const d0 = rxFreeze({ sessions: { [K]: { bench: { 0: { weight: '95', done: true } } }, other: { x: { 0: { weight: '1', done: true } } } }, history: {} });
+  const d1 = rx.rxSetReps(d0, K, 'bench', 0, 6);
+  assert(d1 !== d0 && d1.sessions[K].bench[0].reps === 6 && d1.sessions[K].bench[0].weight === '95' && d1.sessions[K].bench[0].done === true, 'reps join the set, weight and mark stay');
+  assert(d0.sessions[K].bench[0].reps === undefined && d1.sessions.other === d0.sessions.other && d1.history === d0.history, 'a copy is changed, everything else is shared');
+  assert(rx.rxSetReps(d1, K, 'bench', 0, 6) === d1, 'the same number - the same object (no needless save)');
+  // заранее, до ввода веса
+  const d2 = rx.rxSetReps(d0, K, 'incline', 2, 9);
+  assert(JSON.stringify(d2.sessions[K].incline) === '{"2":{"weight":"","done":false,"reps":9}}', 'reps can be set before the weight: ' + JSON.stringify(d2.sessions[K].incline));
+  // убрать запись
+  const d3 = rx.rxSetReps(d1, K, 'bench', 0, null);
+  assert(!('reps' in d3.sessions[K].bench[0]) && d3.sessions[K].bench[0].weight === '95' && rx.rxSetReps(d0, K, 'bench', 0, null) === d0, 'clearing removes only the reps');
+  // мусор не записывается
+  [0, -3, 2.5, 201, NaN, '8', Infinity].forEach(v => assert(rx.rxSetReps(d0, K, 'bench', 0, v) === d0, 'refused: ' + String(v)));
+  assert(rx.rxValid(1) && rx.rxValid(200) && !rx.rxValid(0) && !rx.rxValid(201) && !rx.rxValid('8') && rx.RX_MAX === 200, 'valid: whole numbers 1..200');
+  assert(rx.rxSetReps({ history: {} }, K, 'bench', 0, 8).sessions[K].bench[0].reps === 8, 'works on data without sessions');
+  // запись журнала и обратно
+  assert(JSON.stringify(rx.rxDetail({ weight: '95', done: true, reps: 6 })) === '{"w":"95","done":true,"r":6}', 'journal set with reps');
+  assert(JSON.stringify(rx.rxDetail({ weight: '95', done: true })) === '{"w":"95","done":true}' && JSON.stringify(rx.rxDetail({ weight: '', done: false })) === '{"w":"","done":false}', 'without reps the record is exactly as before (no invented number)');
+  assert(JSON.stringify(rx.rxDetail(undefined)) === '{"w":"","done":false}' && JSON.stringify(rx.rxDetail({ weight: '95', done: true, reps: 'x' })) === '{"w":"95","done":true}', 'garbage reps are dropped');
+  assert(JSON.stringify(rx.rxRestore({ w: '95', done: true, r: 6 })) === '{"weight":"95","done":true,"reps":6}' && JSON.stringify(rx.rxRestore({ w: '95', done: true })) === '{"weight":"95","done":true}', 'resuming an entry brings the reps back');
+  const round = rx.rxRestore(rx.rxDetail({ weight: '62.5', done: true, reps: 12 }));
+  assert(round.weight === '62.5' && round.done === true && round.reps === 12, 'round trip');
+  // подписи
+  assert(rx.rxLabel({ w: '95', done: true, r: 8 }) === '95x8' && rx.rxLabel({ w: '95', done: true }) === '95' && rx.rxLabel({ w: '', done: false }) === '-' && rx.rxLabel(null) === '-', 'journal label: 95x8, 95, -');
+  const sets = { 0: { done: true, weight: '95', reps: 8 }, 1: { done: true, weight: '95' }, 2: { done: false, weight: '95', reps: 7 }, 3: { done: true, weight: '90', reps: 7 } };
+  assert(rx.rxList(sets, 4) === '8, ?, 7' && rx.rxList(sets, 2) === '8, ?' && rx.rxList({ 0: { done: true, weight: '1' } }, 1) === '' && rx.rxList({}, 3) === '', 'done sets only; unknown is "?"; nothing recorded - empty: ' + rx.rxList(sets, 4));
+  info('set, clear, refuse garbage; journal 95x8; list "8, ?, 7"');
+});
+
+test('Reps: advice before the exercise - add weight only after the top of the range in every set', () => {
+  const rx = loadRx();
+  const entry = (date, ts, sets, id) => ({ date: date, ts: ts, detail: [{ id: id || 'bench', sets: sets }] });
+  const s = (w, r, done) => { const o = { w: String(w), done: done !== false }; if (r !== undefined) o.r = r; return o; };
+  const hist = [
+    entry('2026-11-01', 1, [s(90, 6), s(90, 6)]),
+    entry('2026-11-15', 3, [s(95, 6), s(95, 5), s(95, 4, false), s('', 6)]),
+    entry('2026-11-08', 2, [s(92.5, 6), s(92.5, 6)]),
+    entry('2026-11-16', 4, [s(60, 10)], 'ohp'),
+  ];
+  const past = rx.rxPast(hist, 'bench', '2026-11-23', null);
+  assert(past.date === '2026-11-15' && JSON.stringify(past.sets) === '[{"w":"95","r":6},{"w":"95","r":5}]', 'the latest entry by date, done sets with a weight only: ' + JSON.stringify(past));
+  assert(rx.rxPast(hist, 'bench', '2026-11-15', null).date === '2026-11-08', 'today is not "last time"');
+  assert(rx.rxPast(hist, 'bench', '2026-11-23', 3).date === '2026-11-08', 'the entry being resumed is not "last time"');
+  assert(rx.rxPast(hist, 'squat', '2026-11-23', null) === null && rx.rxPast(undefined, 'bench', 'x', null) === null && rx.rxPast([null, {}], 'bench', 'x', null) === null, 'no history - nothing');
+  // совет
+  const hold = rx.rxAdvice(past, '4-6');
+  assert(hold && hold.up === false && hold.reps === '6, 5' && hold.goal === 6, 'below the top somewhere - hold the weight: ' + JSON.stringify(hold));
+  const up = rx.rxAdvice(rx.rxPast(hist, 'bench', '2026-11-15', null), '4-6');
+  assert(up && up.up === true && up.reps === '6, 6', 'top of the range in every set - time to add weight');
+  assert(rx.rxAdvice({ date: 'x', sets: [{ w: '95', r: 8 }, { w: '95', r: null }] }, '8-10') === null, 'if any set has no reps recorded, no advice is given (nothing is guessed)');
+  assert(rx.rxAdvice(null, '8-10') === null && rx.rxAdvice(past, '30 сек') === null && rx.rxAdvice({ date: 'x', sets: [] }, '8-10') === null, 'no data or a timed exercise - no advice');
+  assert(rx.rxAdvice({ date: 'x', sets: [{ w: '50', r: 12 }, { w: '50', r: 11 }] }, '8-10').up === true, 'above the top counts as reached');
+  // в приложении: пока верх не взят, прибавка веса не предлагается
+  assert(src.includes('const rxTip = untouched && typeof rxAdvice === "function" ? rxAdvice(rxPast((data.history || {})[activeDay], ex.id, todayKey(), data.resuming ? data.resuming.ts : null), ex.reps) : null;'), 'the advice uses the journal of this day, minus today and the resumed entry');
+  assert(src.includes('const progHint = untouched && !(rxTip && !rxTip.up) ? getProgressionHint(ex.id, ex.name) : null;') && src.includes('{!skipped && !editMode && rxTip && typeof RxTip === "function" && <RxTip advice={rxTip} />}'), 'the "+2.5" hint waits for the top of the range');
+  const tip = rxUi.slice(rxUi.indexOf('function RxTip('));
+  assert(tip.includes('"Верх диапазона взят во всех подходах - пора прибавлять вес"') && tip.includes('"Сначала " + a.goal + " во всех подходах, потом прибавка веса"'), 'both messages');
+  info('hold: ' + hold.reps + ' of ' + hold.goal + '; up: ' + up.reps);
+});
+
+test('Reps seams: guarded by typeof, the production page records and shows sets exactly as before', () => {
+  const lines = src.split('\n');
+  const used = {};
+  lines.forEach((l, i) => {
+    if (l.trim().startsWith('//') || l.trim().startsWith('{/*')) return;
+    for (const m of l.matchAll(/\b(rx[A-Z]\w*|Rx[A-Z]\w*|RX_[A-Z]\w*)\b/g)) {
+      const name = m[1];
+      if (['rxAsk', 'rxPick', 'rxTip', 'rxLift'].includes(name)) continue;   // переменные основного кода
+      if (new RegExp('typeof ' + name + '\\b').test(l)) { used[name] = (used[name] || 0) + 1; continue; }
+      const near = lines.slice(Math.max(0, i - 3), i + 1).join('\n');
+      const guarded = new RegExp('typeof ' + name + ' ===').test(near)
+        || (/^rx(SetReps|Past)$/.test(name) && /typeof (RxAsk|RxSheet|rxAdvice) ===/.test(near));   // вызывается только внутри защищённой ветки
+      assert(guarded, 'line ' + (i + 1) + ': ' + name + ' is used without a typeof guard: ' + l.trim().slice(0, 90));
+      used[name] = (used[name] || 0) + 1;
+    }
+  });
+  ['rxPlan', 'rxDetail', 'rxRestore', 'rxLabel', 'rxList', 'rxAdvice', 'RxChip', 'RxAsk', 'RxSheet', 'RxTip', 'RX_ASK_H'].forEach(n => assert(used[n], n + ' is not wired into the app'));
+  assert(!/function (rx|Rx)[A-Z]|const RX_/.test(src), 'the main source defines none of them');
+  ['function rxSetReps', 'function RxSheet', 'const RX_ASK_H'].forEach(t => { assertNot(app.includes(t), 'production page contains ' + t); assert(betaApp.includes(t), 'beta page lacks ' + t); });
+  assert(betaFiles.includes('reps.jsx'), 'reps.jsx is a beta module');
+  // без модуля: прежняя подпись в строке подхода, прежние записи журнала и восстановление
+  assert(src.includes(': <span style={{ fontSize: 12, color: "var(--tx-888)" }}>{ex.reps} повт.</span>}'), 'without the module the set row shows the planned range as plain text');
+  assert((src.match(/sets\.push\(typeof rxDetail === "function" \? rxDetail\(sd\) : \{ w: sd\.weight \|\| "", done: !!sd\.done \}\);/g) || []).length === 2, 'both the manual save and the autosave build the set through the module, or as before');
+  assert(src.includes('restored[ex.id][i] = typeof rxRestore === "function" ? rxRestore(s) : { weight: s.w || "", done: !!s.done };') && src.includes('{typeof rxLabel === "function" ? rxLabel(s) : (s.w ? s.w : "-")}'), 'resume and the journal label fall back to the old form');
+  // после отметки подхода карточка отдыха спрашивает о повторах; закрылась карточка - вопрос снят
+  assert(src.includes('function toggleDone(exId, setIdx, restStr, exName, repsStr) {') && src.includes('toggleDone(ex.id, i, ex.rest, ex.name, ex.reps)'), 'the planned reps reach toggleDone');
+  assert(src.includes('if (typeof rxPlan === "function") setRxAsk(rxPlan(repsStr) ? { exId: exId, setIdx: setIdx, name: exName, plan: repsStr } : null);'), 'only exercises with reps are asked about');
+  assert(src.includes('useEffect(function() { if (!timer) setRxAsk(null); }, [!timer]);'), 'no rest card - no question');
+  assert(/extra=\{rxAsk && typeof RxAsk === "function" \? <RxAsk setIdx=\{rxAsk\.setIdx\} plan=\{rxAsk\.plan\} reps=\{getSetData\(rxAsk\.exId, rxAsk\.setIdx\)\.reps\}/.test(src) && fxUi.includes('{props.extra}'), 'the question lives inside the rest card');
+  assert(src.includes('const rxLift = rxAsk && typeof RX_ASK_H === "number" ? RX_ASK_H : 0;') && src.includes('paddingBottom: (timer ? 180 : 100) + navLift + rxLift'), 'the page and the undo bar make room for the taller card');
+  assert(/onPick=\{n => \{ setData\(prev => rxSetReps\(prev, sessionKey, rxPick\.exId, rxPick\.setIdx, n\)\); setRxPick\(null\); \}\}/.test(src), 'the sheet saves and closes');
+  info('Guarded seams: ' + Object.keys(used).sort().join(', '));
+});
+
+test('Reps visuals: one tap during the rest, 44pt cells, the chip fills the set field, neutral wording', () => {
+  const rx = loadRx();
+  const ask = rxUi.slice(rxUi.indexOf('function RxAsk('), rxUi.indexOf('function RxSheet('));
+  assert(/const cell = \{ minHeight: 44,/.test(ask) && ask.includes('gridTemplateColumns: "repeat(" + (chips.length + 1) + ", 1fr)"'), 'six numbers and "..." share the width, 44pt high');
+  assert(ask.includes('onClick={() => props.onPick(n)} aria-pressed={sel}') && ask.includes('onClick={props.onMore} aria-label="Другое число повторов"'), 'tap a number to record; "..." opens the full grid');
+  assert(ask.includes('": сколько повторов?"') && ask.includes('": записано " + props.reps + " повт."'), 'the card asks, then confirms what is recorded');
+  assert(rx.RX_ASK_H >= 70 && rx.RX_ASK_H <= 100, 'declared extra height of the rest card: ' + rx.RX_ASK_H);
+  const chip = rxUi.slice(rxUi.indexOf('function RxChip('), rxUi.indexOf('function RxAsk('));
+  assert(chip.includes('minHeight: 44, margin: "-10px -14px -10px 0"') && chip.includes('if (!plan) return <span'), 'the chip takes the full height of the set field; timed exercises keep plain text');
+  assert(chip.includes('{known ? props.reps : props.plan} повт.') && chip.includes('aria-label={known ? "Повторов: " + props.reps + ". Изменить" : "Записать повторы"}'), 'shows the recorded number or the plan');
+  const sheet = rxUi.slice(rxUi.indexOf('function RxSheet('), rxUi.indexOf('function RxTip('));
+  assert(sheet.includes('role="dialog" aria-modal="true"') && sheet.includes('zIndex: 640') && sheet.includes('env(safe-area-inset-bottom)') && !/inset: 0/.test(rxUi), 'the sheet is a dialog on the layer of the other sheets, clear of the home indicator');
+  assert(sheet.includes('gridTemplateColumns: "repeat(5, 1fr)"') && sheet.includes('{known && (') && sheet.includes('УБРАТЬ ЗАПИСЬ') && sheet.includes('onClick={() => props.onPick(null)}'), 'full grid, and a way to clear the record');
+  const buttons = [...rxUi.matchAll(/<button\b/g)].map(m => rxUi.slice(m.index, rxUi.indexOf('>', rxUi.indexOf('style=', m.index)) + 1));
+  assert(buttons.length === 6, 'buttons found: ' + buttons.length);
+  buttons.forEach((b, i) => assert(/minHeight: (4[4-9]|[5-9]\d)\b/.test(b) || /Object\.assign\(\{\}, cell,/.test(b), 'reps button #' + (i + 1) + ' is shorter than 44pt: ' + b.slice(0, 100).replace(/\s+/g, ' ')));
+  assertNot(/#[0-9a-fA-F]{3,8}\b/.test(rxUi.replace(/\/\/.*$/gm, '').replace(/#000\b/g, '')), 'theme tokens and the day colour only (black text on the colour)');
+  [...rxUi.matchAll(/var\((--[a-z]+-[0-9a-z]+)\)/g)].forEach(m => assert(headSrc.includes(m[1] + ':'), 'unknown theme token ' + m[1]));
+  const code = rxFile.replace(/^\s*\/\/.*$/gm, '');
+  const texts = [...code.matchAll(/"([^"\n]*[А-Яа-яЁё][^"\n]*)"/g)].map(m => m[1]).concat([...code.matchAll(/>\s*([^<>{}\n]*[А-Яа-яЁё][^<>{}\n]*)\s*</g)].map(m => m[1]));
+  const hits = texts.filter(t => /(?<![А-Яа-яЁё])(Вы|вы|Вам|вам|Ваш|ваш|ты|Ты|тебе|твой|твоя)(?![А-Яа-яЁё])/.test(t) || /(?<![А-Яа-яЁё])(Выбери|Выберите|Нажми|Нажмите|Сделай|Сделайте|Впиши|Впишите|Запиши|Запишите)(?![А-Яа-яЁё])/.test(t));
+  assert(texts.length >= 15 && hits.length === 0, 'neutral wording expected, found: ' + hits.join(' | '));
+  info(buttons.length + ' buttons 44pt+, ' + texts.length + ' texts');
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

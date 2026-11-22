@@ -4246,7 +4246,7 @@ function FxDoneCard(props) {
         <span style={{ width: 34, height: 34, borderRadius: 9, background: props.color, color: "#000", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><FxIcon name="check" /></span>
         <span style={{ flex: 1, minWidth: 0 }}>
           <span style={{ display: "block", fontSize: 13, fontWeight: 700, color: "var(--tx-ccc)", lineHeight: 1.3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{props.name}</span>
-          <span style={{ display: "block", fontSize: 11, color: "var(--tx-777)", marginTop: 2 }}>{props.summary}{props.summary ? " " + props.unit : "сделано"}</span>
+          <span style={{ display: "block", fontSize: 11, color: "var(--tx-777)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{props.summary}{props.summary ? " " + props.unit : "сделано"}{props.extra ? "  |  " + props.extra + " повт." : ""}</span>
         </span>
         <span style={{ color: "var(--tx-555)", display: "flex" }}><FxIcon name="down" size={16} /></span>
       </button>
@@ -4387,6 +4387,8 @@ function FxTimer(props) {
         <div style={{ fontSize: 11, color: next ? "var(--tx-ccc)" : "var(--tx-777)", lineHeight: 1.4, marginTop: 6, padding: "0 2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           {next ? "Дальше: подход " + next.set + " из " + next.of + (next.weight ? ", " + next.weight + " " + (props.unitOf ? props.unitOf(next.name) : "кг") : "") + "  |  " + next.name : "Все подходы сделаны"}
         </div>
+        {/* дополнение от других модулей: вопрос о повторах только что отмеченного подхода (src/beta/reps.jsx) */}
+        {props.extra}
       </div>
     </div>
   );
@@ -4987,6 +4989,234 @@ function BodyPanel(props) {
         {todayFeel ? FEEL_LABELS[todayFeel.score - 1] + ". Тренер смотрит на последние три оценки." : (hadWorkoutToday ? "1 - очень тяжело, 5 - отлично. Тренер учтёт это в советах." : "Оценка появится в советах, когда будет хотя бы три тренировки с оценкой.")}
       </div>
     </BetaSection>
+  );
+}
+
+
+// ---- src/beta/reps.jsx ----
+// ==== ФАКТИЧЕСКИЕ ПОВТОРЫ (тестовая версия) ====
+// Раньше в подходе хранился только вес, повторы были диапазоном из программы ("8-10"). Теперь к подходу можно
+// записать, сколько повторов сделано на самом деле:
+//   - после отметки подхода в карточке отдыха появляется ряд чисел: одно нажатие во время отдыха - и повторы
+//     записаны (лишнего шага в самой тренировке нет: отдыхать всё равно надо);
+//   - в строке подхода вместо "8-10 повт." стоит кнопка: показывает записанное число, по нажатию - окно с числами
+//     (можно поправить или записать заранее);
+//   - ничего не выдумывается: если число не выбрано, повторы остаются неизвестными, как раньше;
+//   - запись уходит в журнал (95x8), на свёрнутую выполненную карточку и в подсказку перед следующей тренировкой:
+//     "прошлый раз 8, 8, 7 - сначала 10 во всех подходах, потом прибавка веса" (двойная прогрессия).
+// У упражнений на время ("30 сек") повторов нет, там всё по-прежнему.
+// Данные: sessions[ключ][id упражнения][номер подхода].reps (число) и поле r у подхода в записи журнала.
+// Тексты без "ты" и "вы". Всё, что тесты исполняют, лежит выше разделителя "Интерфейс" (его строка ниже).
+
+const RX_MAX = 200;        // больше в подходе не бывает: защита от опечатки
+const RX_ASK_H = 84;       // на столько вырастает карточка отдыха, когда в ней ряд чисел
+
+// Диапазон из программы: "8-10" -> { lo: 8, hi: 10 }, "12" -> { lo: 12, hi: 12 }, "10-12 на сторону" -> 10..12.
+// Упражнение на время или без чисел - null (повторы не записываются).
+function rxPlan(str) {
+  const s = String(str === undefined || str === null ? "" : str).toLowerCase();
+  if (/сек|мин/.test(s)) return null;
+  const m = s.match(/\d+/g);
+  if (!m) return null;
+  const a = parseInt(m[0], 10), b = m.length > 1 ? parseInt(m[1], 10) : a;
+  if (!(a > 0) || !(b > 0)) return null;
+  return { lo: Math.min(a, b), hi: Math.max(a, b) };
+}
+
+function rxValid(n) {
+  return typeof n === "number" && isFinite(n) && n === Math.floor(n) && n >= 1 && n <= RX_MAX;
+}
+
+// Шесть чисел для быстрого выбора во время отдыха: диапазон программы и соседи
+function rxChips(plan) {
+  if (!plan) return [];
+  let lo = plan.lo - 1, hi = plan.hi + 1;
+  if (hi - lo + 1 > 6) { lo = plan.hi - 5; hi = plan.hi; }      // широкий диапазон: верхние шесть
+  while (hi - lo + 1 < 6) { if (lo > 1) lo--; else hi++; }      // узкий: добираем снизу, потом сверху
+  if (lo < 1) { hi += 1 - lo; lo = 1; }
+  const out = [];
+  for (let i = lo; i <= hi; i++) out.push(i);
+  return out;
+}
+
+// Сколько чисел показать в окне выбора
+function rxGridMax(plan) {
+  return Math.max(20, plan ? plan.hi + 5 : 20);
+}
+
+// Новая копия data с числом повторов у подхода (null - убрать запись); без изменений - тот же объект
+function rxSetReps(data, key, exId, setIdx, reps) {
+  const cur = data.sessions && data.sessions[key] && data.sessions[key][exId] && data.sessions[key][exId][setIdx];
+  const had = cur && cur.reps !== undefined ? cur.reps : null;
+  const next = reps === null || reps === undefined ? null : reps;
+  if (next !== null && !rxValid(next)) return data;
+  if (had === next) return data;
+  const sessions = Object.assign({}, data.sessions || {});
+  const sess = Object.assign({}, sessions[key] || {});
+  const ex = Object.assign({}, sess[exId] || {});
+  const set = Object.assign({ weight: "", done: false }, ex[setIdx] || {});
+  if (next === null) delete set.reps; else set.reps = next;
+  ex[setIdx] = set; sess[exId] = ex; sessions[key] = sess;
+  return Object.assign({}, data, { sessions: sessions });
+}
+
+// Подход для записи журнала и обратно (при "Дополнить")
+function rxDetail(sd) {
+  const out = { w: (sd && sd.weight) || "", done: !!(sd && sd.done) };
+  if (sd && rxValid(sd.reps)) out.r = sd.reps;
+  return out;
+}
+function rxRestore(s) {
+  const out = { weight: (s && s.w) || "", done: !!(s && s.done) };
+  if (s && rxValid(s.r)) out.reps = s.r;
+  return out;
+}
+
+// Подпись подхода в журнале: "95x8", без повторов - как раньше
+function rxLabel(s) {
+  if (!s || !s.w) return "-";
+  return rxValid(s.r) ? s.w + "x" + s.r : String(s.w);
+}
+
+// Повторы выполненных подходов строкой "8, 8, 7"; неизвестное - "?"; ничего не записано - ""
+function rxList(sets, n) {
+  const out = [];
+  let any = false;
+  for (let i = 0; i < n; i++) {
+    const s = sets && sets[i];
+    if (!s || !s.done) continue;
+    if (rxValid(s.reps)) { out.push(String(s.reps)); any = true; } else out.push("?");
+  }
+  return any ? out.join(", ") : "";
+}
+
+// Прошлое выполнение упражнения по журналу дня: { date, sets: [{ w, r }] } (только отмеченные подходы).
+// skipDate - сегодняшняя дата, skipTs - запись, которую сейчас дополняют: их не считаем "прошлым разом".
+function rxPast(entries, exId, skipDate, skipTs) {
+  let best = null;
+  (entries || []).forEach(function (e) {
+    if (!e || e.date === skipDate || (skipTs && e.ts === skipTs)) return;
+    let d = null;
+    (e.detail || []).forEach(function (x) { if (x && x.id === exId) d = x; });
+    if (!d) return;
+    const sets = (d.sets || []).filter(function (s) { return s && s.done && s.w; }).map(function (s) { return { w: String(s.w), r: rxValid(s.r) ? s.r : null }; });
+    if (!sets.length) return;
+    if (!best || String(e.date) > String(best.date)) best = { date: e.date, sets: sets };
+  });
+  return best;
+}
+
+// Совет по двойной прогрессии. Нужны повторы ВСЕХ подходов прошлого раза, иначе совета нет.
+// { up: true } - верх диапазона взят во всех подходах, можно прибавлять вес; { up: false } - сначала добрать повторы.
+function rxAdvice(past, planStr) {
+  const plan = rxPlan(planStr);
+  if (!past || !plan || !past.sets.length) return null;
+  if (!past.sets.every(function (s) { return s.r !== null; })) return null;
+  const reps = past.sets.map(function (s) { return s.r; });
+  const up = reps.every(function (r) { return r >= plan.hi; });
+  return { up: up, reps: reps.join(", "), goal: plan.hi };
+}
+
+// ---- Интерфейс ----
+// Кнопка повторов в строке подхода. Занимает правую часть поля на всю его высоту (поле 44 пикселя).
+function RxChip(props) {
+  const plan = rxPlan(props.plan);
+  const known = rxValid(props.reps);
+  if (!plan) return <span style={{ fontSize: 12, color: "var(--tx-888)" }}>{props.plan} повт.</span>;
+  return (
+    <button onClick={props.onClick} aria-label={known ? "Повторов: " + props.reps + ". Изменить" : "Записать повторы"}
+      style={{ minHeight: 44, margin: "-10px -14px -10px 0", padding: "0 14px 0 10px", background: "none", border: "none", borderLeft: "1px solid var(--bd-1e1e28)", color: known ? (props.done ? props.ink(props.color) : "var(--tx-fff)") : "var(--tx-888)", fontSize: known ? 13 : 12, fontWeight: known ? 700 : 400, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", flexShrink: 0 }}>
+      {known ? props.reps : props.plan} повт.
+    </button>
+  );
+}
+
+// Ряд чисел в карточке отдыха: сколько повторов было в только что отмеченном подходе
+function RxAsk(props) {
+  const plan = rxPlan(props.plan);
+  if (!plan) return null;
+  const chips = rxChips(plan);
+  const known = rxValid(props.reps);
+  const cell = { minHeight: 44, borderRadius: 10, fontSize: 14, cursor: "pointer", fontFamily: "inherit", padding: 0 };
+  return (
+    <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--bd-1a1a22)" }}>
+      <div style={{ fontSize: 11, color: known ? props.ink(props.color) : "var(--tx-999)", lineHeight: 1.4, marginBottom: 6, padding: "0 2px" }}>
+        {known ? "Подход " + (props.setIdx + 1) + ": записано " + props.reps + " повт." : "Подход " + (props.setIdx + 1) + ": сколько повторов?"}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(" + (chips.length + 1) + ", 1fr)", gap: 4 }}>
+        {chips.map(n => {
+          const sel = props.reps === n;
+          const inPlan = n >= plan.lo && n <= plan.hi;
+          return (
+            <button key={n} onClick={() => props.onPick(n)} aria-pressed={sel}
+              style={Object.assign({}, cell, { border: `1px solid ${sel ? props.color : inPlan ? props.color + "50" : "var(--bd-2a2a35)"}`, background: sel ? props.color : "var(--bg-1a1a22)", color: sel ? "#000" : "var(--tx-ccc)", fontWeight: sel ? 800 : 600 })}>
+              {n}
+            </button>
+          );
+        })}
+        <button onClick={props.onMore} aria-label="Другое число повторов"
+          style={Object.assign({}, cell, { border: "1px solid var(--bd-2a2a35)", background: "none", color: "var(--tx-777)", fontWeight: 700 })}>
+          ...
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Окно выбора: все числа, диапазон программы обведён
+function RxSheet(props) {
+  const p = props.pick;
+  const plan = rxPlan(p.plan);
+  const max = rxGridMax(plan);
+  const nums = [];
+  for (let i = 1; i <= max; i++) nums.push(i);
+  const known = rxValid(props.reps);
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Повторы в подходе" onClick={props.onClose}
+      style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 640, background: "var(--scrim)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ width: "100%", maxWidth: 560, maxHeight: "88vh", overflowY: "auto", WebkitOverflowScrolling: "touch", background: "var(--bg-111)", borderRadius: "22px 22px 0 0", borderTop: "1px solid var(--bd-2a2a35)", padding: "10px 16px calc(20px + env(safe-area-inset-bottom))", boxShadow: "var(--shadow-pop)" }}>
+        <div style={{ width: 40, height: 4, borderRadius: 2, background: "var(--bd-2a2a35)", margin: "0 auto 14px" }} />
+        <div style={{ padding: "0 4px 14px" }}>
+          <div style={{ fontSize: 9, letterSpacing: 3, color: "var(--tx-666)", marginBottom: 6 }}>ПОВТОРЫ, ПОДХОД {p.setIdx + 1}</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: "var(--tx-fff)", lineHeight: 1.3, marginBottom: 6 }}>{p.name}</div>
+          <div style={{ fontSize: 11, color: "var(--tx-777)", lineHeight: 1.5 }}>По программе: {p.plan}. {known ? "Записано: " + props.reps : "Пока не записано"}</div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6, marginBottom: 12 }}>
+          {nums.map(n => {
+            const sel = props.reps === n;
+            const inPlan = plan && n >= plan.lo && n <= plan.hi;
+            return (
+              <button key={n} onClick={() => props.onPick(n)} aria-pressed={sel}
+                style={{ minHeight: 48, borderRadius: 11, border: `1px solid ${sel ? props.color : inPlan ? props.color + "60" : "var(--bd-1a1a22)"}`, background: sel ? props.color : inPlan ? `${props.color}12` : "var(--bg-0f0f12)", color: sel ? "#000" : "var(--tx-ddd)", fontSize: 15, fontWeight: sel ? 800 : 600, cursor: "pointer", fontFamily: "inherit", padding: 0 }}>
+                {n}
+              </button>
+            );
+          })}
+        </div>
+        {known && (
+          <button onClick={() => props.onPick(null)}
+            style={{ width: "100%", minHeight: 48, borderRadius: 12, border: "1px solid var(--bd-2a2a2a)", background: "var(--bg-0c0c0f)", color: "var(--tx-999)", fontSize: 10, letterSpacing: 2, cursor: "pointer", fontFamily: "inherit", marginBottom: 8 }}>
+            УБРАТЬ ЗАПИСЬ
+          </button>
+        )}
+        <button onClick={props.onClose}
+          style={{ width: "100%", minHeight: 48, borderRadius: 12, border: "1px solid var(--bd-2a2a2a)", background: "var(--bg-1a1a22)", color: "var(--tx-999)", fontSize: 11, letterSpacing: 2, cursor: "pointer", fontFamily: "inherit" }}>
+          ЗАКРЫТЬ
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Совет перед упражнением по повторам прошлого раза
+function RxTip(props) {
+  const a = props.advice;
+  if (!a) return null;
+  return (
+    <div style={{ margin: "0 14px 10px", padding: "10px 12px", background: a.up ? "var(--bg-0e1a13)" : "var(--bg-0c0c0f)", border: `1px solid ${a.up ? "var(--bd-1d3a28)" : "var(--bd-1e1e28)"}`, borderRadius: 10, fontSize: 11, color: a.up ? "var(--tx-7fc79a)" : "var(--tx-999)", lineHeight: 1.5 }}>
+      Прошлый раз повторов: {a.reps}. {a.up ? "Верх диапазона взят во всех подходах - пора прибавлять вес" : "Сначала " + a.goal + " во всех подходах, потом прибавка веса"}
+    </div>
   );
 }
 
@@ -6545,6 +6775,10 @@ function App() {
   const [liveEdit, setLiveEdit] = useState(null);
   // Выполненные упражнения свёрнуты в строку (src/beta/focus.jsx, только в тестовой сборке); здесь - раскрытые вручную
   const [fxOpen, setFxOpen] = useState({});
+  // Фактические повторы (src/beta/reps.jsx, только в тестовой сборке): rxAsk - подход, о котором спрашивает карточка
+  // отдыха ({ exId, setIdx, name, plan }), rxPick - подход, для которого открыто окно выбора
+  const [rxAsk, setRxAsk] = useState(null);
+  const [rxPick, setRxPick] = useState(null);
   const [savePrompt, setSavePrompt] = useState(false);
   // Удобства тренировки (src/beta/ux.jsx, пока только в тестовой сборке): всплывашка рекорда и итог после сохранения
   const [recordPop, setRecordPop] = useState(null);
@@ -6683,6 +6917,9 @@ function App() {
     return function() { clearInterval(timerRef.current); };
   }, [timer ? timer.running : false, timer ? timer.endsAt : 0]);
 
+  // Карточка отдыха закрылась - её вопрос о повторах тоже (src/beta/reps.jsx)
+  useEffect(function() { if (!timer) setRxAsk(null); }, [!timer]);
+
   // Keep endsAtRef in sync when addTime changes endsAt
   useEffect(function() {
     if (timer && timer.endsAt) endsAtRef.current = timer.endsAt;
@@ -6764,7 +7001,7 @@ function App() {
         var sets = [];
         for (var i = 0; i < n; i++) {
           var sd = getSetData(rex.id, i);
-          sets.push({ w: sd.weight || "", done: !!sd.done });
+          sets.push(typeof rxDetail === "function" ? rxDetail(sd) : { w: sd.weight || "", done: !!sd.done });
         }
         return { id: rex.id, name: rex.name, reps: rex.reps, sets: sets, added: !!e._added };
       });
@@ -7254,7 +7491,7 @@ function App() {
       return { ...prev, sessions: s };
     });
   }
-  function toggleDone(exId, setIdx, restStr, exName) {
+  function toggleDone(exId, setIdx, restStr, exName, repsStr) {
     const cur = getSetData(exId, setIdx);
     let usedWeight = cur.weight;
     if (!cur.done && (!cur.weight || cur.weight === "")) {
@@ -7272,6 +7509,8 @@ function App() {
     if (newDone) {
       // Каждый закрытый подход начинает отдых заново
       startTimer(restStr);
+      // во время отдыха карточка спросит, сколько повторов было (src/beta/reps.jsx, только в тестовой сборке)
+      if (typeof rxPlan === "function") setRxAsk(rxPlan(repsStr) ? { exId: exId, setIdx: setIdx, name: exName, plan: repsStr } : null);
       // Звук (нужно нажатие), начало тренировки и рекорд: src/beta/ux.jsx, только в тестовой сборке
       if (typeof uxOnSetDone === "function") uxOnSetDone({ data: data, setData: setData, sessionKey: sessionKey, activeDay: activeDay, session: session, exId: exId, setIdx: setIdx, weight: usedWeight, name: exName, unit: weightUnit(exName), show: setRecordPop });
       // Check if a new exercise just became fully done
@@ -7377,7 +7616,7 @@ function App() {
           entry.detail.forEach(ex => {
             restored[ex.id] = {};
             (ex.sets || []).forEach((s, i) => {
-              restored[ex.id][i] = { weight: s.w || "", done: !!s.done };
+              restored[ex.id][i] = typeof rxRestore === "function" ? rxRestore(s) : { weight: s.w || "", done: !!s.done };
             });
           });
         }
@@ -7441,7 +7680,7 @@ function App() {
       const sets = [];
       for (let i = 0; i < n; i++) {
         const sd = getSetData(rex.id, i);
-        sets.push({ w: sd.weight || "", done: !!sd.done });
+        sets.push(typeof rxDetail === "function" ? rxDetail(sd) : { w: sd.weight || "", done: !!sd.done });
       }
       return { id: rex.id, name: rex.name, reps: rex.reps, sets: sets, added: !!e._added };
     });
@@ -7890,6 +8129,8 @@ function App() {
   const mainTabs = [["workout","ТРЕНИРОВКА"],["warmup","РАЗМИНКА"],["journal","ЖУРНАЛ"],["achievements","АЧИВКИ"]].concat(typeof BetaTab === "function" ? [["beta","БЕТА"]] : []);
   // Нижняя панель вкладок (src/beta/nav.jsx, только в тестовой сборке): на её высоту поднимается всё, что прижато к низу
   const navLift = typeof NV_H === "number" ? NV_H : 0;
+  // Карточка отдыха выше на ряд чисел, пока она спрашивает о повторах (src/beta/reps.jsx, только в тестовой сборке)
+  const rxLift = rxAsk && typeof RX_ASK_H === "number" ? RX_ASK_H : 0;
   // Текущее упражнение и "что дальше" для таймера (src/beta/focus.jsx, только в тестовой сборке)
   const fxItems = typeof fxCurrent === "function" ? getSessionExercises().filter(e => !isSkipped(e.id)).map(e => { const x = getExercise(e.id); const n = getExSets(e.id); return { id: e.id, exId: x.id, name: x.name, n: n, sets: Array.from({ length: n }, (_, i) => getSetData(x.id, i)) }; }) : null;
   const fxNow = fxItems ? fxCurrent(fxItems) : null;
@@ -7897,7 +8138,7 @@ function App() {
   const fxTimerNext = fxAfter ? Object.assign({}, fxAfter, { weight: fxAfter.weight || getSuggestedWeight(fxAfter.exId, fxAfter.set - 1) || "" }) : null;
 
   return (
-    <div style={{ minHeight: "100vh", background: "var(--bg-0c0c0f)", color: "var(--tx-e8e8e8)", fontFamily: "'DM Mono','Fira Mono',monospace", paddingBottom: (timer ? 180 : 100) + navLift }}>
+    <div style={{ minHeight: "100vh", background: "var(--bg-0c0c0f)", color: "var(--tx-e8e8e8)", fontFamily: "'DM Mono','Fira Mono',monospace", paddingBottom: (timer ? 180 : 100) + navLift + rxLift }}>
 
       {/* HEADER; с нижней панелью вкладок шапка не висит над списком, а уезжает вместе со страницей */}
       <div style={{ background: "var(--bg-0c0c0f)", borderBottom: "1px solid var(--bd-1a1a22)", padding: "20px 20px 0", position: typeof NvBar === "function" ? "static" : "sticky", top: 0, zIndex: 100, isolation: "isolate" }}>
@@ -8032,7 +8273,9 @@ function App() {
               const exHist = getExHistory(ex.id, 4);
               // Подсказка прогрессии - только пока в упражнении ещё ничего не введено
               const untouched = Array.from({ length: getExSets(baseEx.id) }, (_, si) => getSetData(ex.id, si)).every(s => !s.weight && !s.done);
-              const progHint = untouched ? getProgressionHint(ex.id, ex.name) : null;
+              // совет по повторам прошлого раза (src/beta/reps.jsx): пока верх диапазона не взят, прибавку веса не предлагаем
+              const rxTip = untouched && typeof rxAdvice === "function" ? rxAdvice(rxPast((data.history || {})[activeDay], ex.id, todayKey(), data.resuming ? data.resuming.ts : null), ex.reps) : null;
+              const progHint = untouched && !(rxTip && !rxTip.up) ? getProgressionHint(ex.id, ex.name) : null;
               const allDone = exProg.done === getExSets(baseEx.id);
               const canSwap = hasAlts(baseEx.id);
 
@@ -8043,6 +8286,7 @@ function App() {
               if (!skipped && allDone && typeof FxDoneCard === "function" && !fxOpen[baseEx.id]) {
                 return <FxDoneCard key={baseEx.id} domId={"exc-" + baseEx.id} name={ex.name} unit={weightUnit(ex.name)} color={w.color}
                   summary={fxSummary(Array.from({ length: getExSets(baseEx.id) }, (_, i) => getSetData(ex.id, i)), getExSets(baseEx.id))}
+                  extra={typeof rxList === "function" ? rxList(Array.from({ length: getExSets(baseEx.id) }, (_, i) => getSetData(ex.id, i)), getExSets(baseEx.id)) : ""}
                   onOpen={() => setFxOpen(o => ({ ...o, [baseEx.id]: true }))}
                   menu={typeof LvMenuButton === "function" ? <LvMenuButton name={ex.name} active={ex._isSwapped} color={w.color} ink={ink} onClick={() => setLiveEdit({ sheet: "menu", id: baseEx.id })} /> : null} />;
               }
@@ -8125,6 +8369,8 @@ function App() {
                     </div>
                   )}
 
+                  {!skipped && !editMode && rxTip && typeof RxTip === "function" && <RxTip advice={rxTip} />}
+
                   {!skipped && !editMode && progHint && (
                     <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "0 14px 10px", padding: "8px 8px 8px 12px", background: "var(--bg-0e1a13)", border: "1px solid var(--bd-1d3a28)", borderRadius: 10 }}>
                       <div style={{ flex: 1, fontSize: 11, color: "var(--tx-7fc79a)", lineHeight: 1.5 }}>
@@ -8153,9 +8399,12 @@ function App() {
                               style={{ width: 60, background: "none", border: "none", outline: "none", color: "var(--tx-fff)", fontSize: 16, fontFamily: "inherit", fontWeight: 700 }} />
                             <span style={{ fontSize: 12, color: isDumbbell(ex.name) ? "var(--tx-8a7550)" : "var(--tx-666)", whiteSpace: "nowrap" }}>{weightUnit(ex.name)}</span>
                             <span style={{ flex: 1 }} />
-                            <span style={{ fontSize: 12, color: "var(--tx-888)" }}>{ex.reps} повт.</span>
+                            {/* фактические повторы: RxChip есть только в тестовой сборке (src/beta/reps.jsx) */}
+                            {typeof RxChip === "function"
+                              ? <RxChip reps={sd.reps} plan={ex.reps} done={sd.done} color={w.color} ink={ink} onClick={() => setRxPick({ exId: ex.id, setIdx: i, name: ex.name, plan: ex.reps })} />
+                              : <span style={{ fontSize: 12, color: "var(--tx-888)" }}>{ex.reps} повт.</span>}
                           </div>
-                          <button onClick={() => toggleDone(ex.id, i, ex.rest, ex.name)}
+                          <button onClick={() => toggleDone(ex.id, i, ex.rest, ex.name, ex.reps)}
                             style={{ width: 44, height: 44, borderRadius: 11, border: `2px solid ${sd.done ? w.color : "var(--bd-252530)"}`, background: sd.done ? w.color : "var(--bg-0c0c0f)", cursor: "pointer", color: sd.done ? "#000" : "var(--tx-444)", fontSize: sd.done ? 17 : 13, fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", flexShrink: 0 }}>
                             {sd.done ? "OK" : "O"}
                           </button>
@@ -8477,7 +8726,7 @@ function App() {
                                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                                       {(ex.sets || []).map((s, si) => (
                                         <div key={si} style={{ fontSize: 11, padding: "4px 9px", borderRadius: 6, background: s.done ? `${day.color}18` : "var(--bg-111)", border: `1px solid ${s.done ? day.color + "40" : "var(--bd-1a1a22)"}`, color: s.done ? "var(--tx-ddd)" : "var(--tx-444)" }}>
-                                          {s.w ? s.w : "-"}
+                                          {typeof rxLabel === "function" ? rxLabel(s) : (s.w ? s.w : "-")}
                                         </div>
                                       ))}
                                       <div style={{ fontSize: 10, color: "var(--tx-555)", alignSelf: "center", marginLeft: 4 }}>{ex.reps} повт</div>
@@ -9317,7 +9566,8 @@ function App() {
 
       {/* ===== TIMER ===== */}
       {/* крупные кнопки и подсказка "дальше": FxTimer есть только в тестовой сборке (src/beta/focus.jsx) */}
-      {timer && typeof FxTimer === "function" && <FxTimer timer={timer} lift={navLift} color={w.color} ink={ink} next={fxTimerNext} unitOf={weightUnit} onAdd={addTime} onStop={stopTimer} doneClass={typeof uxRestDoneClass === "string" ? uxRestDoneClass : undefined} />}
+      {timer && typeof FxTimer === "function" && <FxTimer timer={timer} lift={navLift} color={w.color} ink={ink} next={fxTimerNext} unitOf={weightUnit} onAdd={addTime} onStop={stopTimer} doneClass={typeof uxRestDoneClass === "string" ? uxRestDoneClass : undefined}
+        extra={rxAsk && typeof RxAsk === "function" ? <RxAsk setIdx={rxAsk.setIdx} plan={rxAsk.plan} reps={getSetData(rxAsk.exId, rxAsk.setIdx).reps} color={w.color} ink={ink} onPick={n => setData(prev => rxSetReps(prev, sessionKey, rxAsk.exId, rxAsk.setIdx, n))} onMore={() => setRxPick(rxAsk)} /> : null} />}
       {timer && typeof FxTimer !== "function" && (() => {
         const pct = timer.total > 0 ? (timer.left / timer.total) * 100 : 0;
         const mins = Math.floor(timer.left / 60);
@@ -9382,7 +9632,11 @@ function App() {
       {typeof UxLayer === "function" && <UxLayer recordPop={recordPop} onRecordClose={() => setRecordPop(null)} summary={summary} onSummaryClose={() => setSummary(null)} color={w.color} ink={ink} />}
 
       {/* Окна правки тренировки и плашка отмены: LvLayer лежит в src/features/liveedit.jsx */}
-      {typeof LvLayer === "function" && activeTab === "workout" && <LvLayer state={liveEdit} onState={setLiveEdit} data={data} setData={setData} sessionKey={sessionKey} base={(getWorkout(activeDay) || PROGRAM.push).exercises || []} pool={getAllExercises} color={w.color} ink={ink} timerOn={!!timer} lift={navLift} onAdd={() => { setAddExModal(true); setAddExSearch(""); }} />}
+      {typeof LvLayer === "function" && activeTab === "workout" && <LvLayer state={liveEdit} onState={setLiveEdit} data={data} setData={setData} sessionKey={sessionKey} base={(getWorkout(activeDay) || PROGRAM.push).exercises || []} pool={getAllExercises} color={w.color} ink={ink} timerOn={!!timer} lift={navLift + rxLift} onAdd={() => { setAddExModal(true); setAddExSearch(""); }} />}
+
+      {/* Окно выбора числа повторов: RxSheet есть только в тестовой сборке (src/beta/reps.jsx) */}
+      {rxPick && typeof RxSheet === "function" && <RxSheet pick={rxPick} reps={getSetData(rxPick.exId, rxPick.setIdx).reps} color={w.color} ink={ink} onClose={() => setRxPick(null)}
+        onPick={n => { setData(prev => rxSetReps(prev, sessionKey, rxPick.exId, rxPick.setIdx, n)); setRxPick(null); }} />}
 
       {/* Вкладки внизу: NvBar есть только в тестовой сборке (src/beta/nav.jsx) */}
       {typeof NvBar === "function" && <NvBar tabs={mainTabs} active={activeTab} onPick={setActiveTab} prog={prog} color={w.color} ink={ink} />}

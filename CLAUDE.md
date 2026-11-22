@@ -53,7 +53,7 @@ sw.js                        <- настоящий service worker, регист�
 ## Рабочий цикл и деплой
 
 ```bash
-python3 scripts/build.py && node tests/test_pwa.js   # должно быть 414/414
+python3 scripts/build.py && node tests/test_pwa.js   # должно быть 420/420
 python3 scripts/build.py --check                     # index.html не отстал от src/
 ```
 
@@ -61,7 +61,7 @@ python3 scripts/build.py --check                     # index.html не отст�
 руками нельзя, следующая сборка затрёт правку. Коммитить `index.html` нужно,
 потому что GitHub Pages отдаёт именно его.
 
-Перед деплоем должно быть **414/414 PASSED**. Красный тест — это не повод
+Перед деплоем должно быть **420/420 PASSED**. Красный тест — это не повод
 править тест, это повод править код (исключения — ниже).
 
 Деплой: `git add -A && git commit -m "..." && git push`. GitHub Pages репозитория
@@ -170,6 +170,7 @@ python3 scripts/build.py --check                     # index.html не отст�
 - Тон: бета на «вы», основная версия на «ты» (решение заказчика).
 - Бета всегда тёмная (панели на hex). Не обещать звук и музыку при свёрнутом приложении.
 - В бете вкладки внизу (`nav.jsx`), шапка не прилипает; всё прижатое к низу поднимается на `navLift`.
+- Повторы (`reps.jsx`) записываются только по нажатию: значения по умолчанию нет, неизвестное остаётся неизвестным.
 - Гифки упражнений (`src/features/media.jsx`, есть и в основной версии) принадлежат Gym visual и подключены **по ссылке** на CDN, в репозиторий не
   копируются; подпись «© Gym visual — https://gymvisual.com/» под каждой обязательна, размер не больше 180 пикселей.
   У каждого упражнения основных тренировок беты гифка обязана быть и показывать именно его (тест); в основной
@@ -189,7 +190,7 @@ python3 scripts/build.py --check                     # index.html не отст�
 
 ## Тесты
 
-`tests/test_pwa.js` — свой харнесс, 30 секций, 414 тестов. Новую секцию добавлять
+`tests/test_pwa.js` — свой харнесс, 31 секция, 420 тестов. Новую секцию добавлять
 **перед** блоком `SUMMARY` и `process.exit()`, иначе она не запустится. Асинхронные
 тесты — через `testAsync` (`test` не ждёт промисы). Список секций — `docs/claude/tests.md`.
 
@@ -213,4 +214,5 @@ python3 scripts/build.py --check                     # index.html не отст�
 | `src/beta/ux.jsx` и его переносом в основную версию | `docs/claude/beta-ux.md` |
 | `src/features/liveedit.jsx`, заменой, пропуском и порядком упражнений в тренировке | `docs/claude/liveedit.md` |
 | `src/beta/nav.jsx`, `src/beta/focus.jsx`: вкладками внизу, шапкой, таймером отдыха, заметками, блинами | `docs/claude/beta-nav-focus.md` |
+| `src/beta/reps.jsx`, записью повторов, полем `r` в журнале, советом по прогрессии | `docs/claude/beta-reps.md` |
 | `src/features/exercises.jsx`, `src/features/media.jsx`, `src/features/split.jsx`, `src/beta/fullbody.jsx`, гифками, составом push/pull/legs, фулбади | `docs/claude/exercises-media.md` |
