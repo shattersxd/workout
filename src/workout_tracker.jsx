@@ -1223,7 +1223,7 @@ function pruneOldKeys(d) {
   // Ключи вида YYYY-MM-DD_день. Старше SESSION_KEEP_DAYS - удаляем,
   // иначе localStorage растёт бесконечно.
   const cutoff = Date.now() - SESSION_KEEP_DAYS * 86400000;
-  ["sessions", "customSets", "addedEx", "skipped", "swaps", "started"].forEach(function (bucket) {
+  ["sessions", "customSets", "addedEx", "skipped", "order", "swaps", "started"].forEach(function (bucket) {
     if (!d[bucket]) return;
     Object.keys(d[bucket]).forEach(function (k) {
       const m = /^(\d{4}-\d{2}-\d{2})_/.exec(k);
@@ -1579,6 +1579,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState(typeof betaInitialTab === "function" ? betaInitialTab() : "workout");
   const [expandedEx, setExpandedEx] = useState(null);
   const [swapModal, setSwapModal] = useState(null);
+  // Окна правки тренировки на ходу (src/features/liveedit.jsx): null | { sheet, id }
+  const [liveEdit, setLiveEdit] = useState(null);
   const [savePrompt, setSavePrompt] = useState(false);
   // Удобства тренировки (src/beta/ux.jsx, пока только в тестовой сборке): всплывашка рекорда и итог после сохранения
   const [recordPop, setRecordPop] = useState(null);
@@ -1879,7 +1881,8 @@ export default function App() {
   function getExercise(originalId) {
     const swappedId = (data.swaps && data.swaps[sessionKey] && data.swaps[sessionKey][originalId]);
     if (swappedId) {
-      const alt = (ALTERNATIVES[originalId] || []).find(a => a.id === swappedId);
+      // замена на любое упражнение пула: lvFind лежит в src/features/liveedit.jsx; шов оставлен на случай сборки без модуля
+      const alt = (ALTERNATIVES[originalId] || []).find(a => a.id === swappedId) || (typeof lvFind === "function" ? lvFind(swappedId) : null);
       if (alt) return { ...alt, _originalId: originalId, _isSwapped: true };
     }
     const prog = getSessionExercises().find(e => e.id === originalId);
@@ -2204,7 +2207,8 @@ export default function App() {
   function getSessionExercises() {
     const base = (getWorkout(activeDay) || PROGRAM.push).exercises || [];
     const added = (data.addedEx && data.addedEx[sessionKey]) || [];
-    return base.concat(added);
+    // порядок на сегодня: lvOrdered лежит в src/features/liveedit.jsx; шов оставлен на случай сборки без модуля
+    return typeof lvOrdered === "function" ? lvOrdered(base.concat(added), data.order && data.order[sessionKey]) : base.concat(added);
   }
 
   function addExerciseToSession(ex) {
@@ -3012,7 +3016,10 @@ export default function App() {
               </div>
             )}
 
-            {/* Edit mode toggle */}
+            {/* Вместо режима правки - обзор "СОСТАВ" (src/features/liveedit.jsx); прежний режим остаётся для сборки без модуля */}
+            {typeof LvBar === "function" ? (
+              <LvBar data={data} sessionKey={sessionKey} base={(getWorkout(activeDay) || PROGRAM.push).exercises || []} color={w.color} ink={ink} onOpen={() => setLiveEdit({ sheet: "list" })} />
+            ) : (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
               <div style={{ fontSize: 10, color: "var(--tx-666)", letterSpacing: 1 }}>
                 {getSessionExercises().filter(e => !isSkipped(e.id)).length} / {getSessionExercises().length} упражнений
@@ -3022,9 +3029,12 @@ export default function App() {
                 {editMode ? "OK" : "ИЗМЕНИТЬ СПИСОК"}
               </button>
             </div>
+            )}
 
-            {getSessionExercises().map((baseEx, exIdx) => {
+            {getSessionExercises().map((baseEx, exIdx, exList) => {
               const skipped = isSkipped(baseEx.id);
+              // номер по порядку среди видимых: пропущенные карточки скрыты и номер не занимают
+              const exNo = exList.slice(0, exIdx).filter(e => !isSkipped(e.id)).length + 1;
               const ex = getExercise(baseEx.id);
               const exProg = getExProgress(ex.id, getExSets(baseEx.id));
               const isExpanded = expandedEx === baseEx.id;
@@ -3040,7 +3050,7 @@ export default function App() {
               if (skipped && !editMode) return null;
 
               return (
-                <div key={baseEx.id} style={{ background: skipped ? "var(--bg-0a0a0c)" : "var(--bg-0f0f12)", border: `1px solid ${skipped ? "var(--bd-161620)" : allDone ? w.color + "60" : "var(--bd-1a1a22)"}`, borderLeft: !skipped && ex.warn ? `3px solid #ff4d4d50` : `1px solid ${skipped ? "var(--bd-161620)" : allDone ? w.color + "60" : "var(--bd-1a1a22)"}`, borderRadius: 12, marginBottom: 12, overflow: "hidden", opacity: skipped ? 0.45 : 1, transition: "all 0.2s" }}>
+                <div key={baseEx.id} id={"exc-" + baseEx.id} style={{ background: skipped ? "var(--bg-0a0a0c)" : "var(--bg-0f0f12)", border: `1px solid ${skipped ? "var(--bd-161620)" : allDone ? w.color + "60" : "var(--bd-1a1a22)"}`, borderLeft: !skipped && ex.warn ? `3px solid #ff4d4d50` : `1px solid ${skipped ? "var(--bd-161620)" : allDone ? w.color + "60" : "var(--bd-1a1a22)"}`, borderRadius: 12, marginBottom: 12, overflow: "hidden", opacity: skipped ? 0.45 : 1, transition: "all 0.2s" }}>
 
                   {/* Header row */}
                   <div style={{ padding: "16px 16px 10px", display: "flex", alignItems: "flex-start", gap: 12 }}>
@@ -3052,7 +3062,7 @@ export default function App() {
                       </button>
                     ) : (
                       <div onClick={() => setExpandedEx(isExpanded ? null : baseEx.id)} style={{ width: 34, height: 34, borderRadius: 9, background: allDone ? w.color : "var(--bg-1a1a22)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "background 0.3s", cursor: "pointer" }}>
-                        <span style={{ fontSize: 13, color: allDone ? "#000" : "var(--tx-555)", fontWeight: 700 }}>{exIdx + 1}</span>
+                        <span style={{ fontSize: 13, color: allDone ? "#000" : "var(--tx-555)", fontWeight: 700 }}>{exNo}</span>
                       </div>
                     )}
                     <div onClick={() => !editMode && setExpandedEx(isExpanded ? null : baseEx.id)} style={{ flex: 1, minWidth: 0, cursor: editMode ? "default" : "pointer" }}>
@@ -3060,13 +3070,17 @@ export default function App() {
                         {ex.name}
                         {!skipped && ex.warn && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: "#ff4d4d18", color: "var(--tx-ff6b6b)", letterSpacing: 1 }}>!</span>}
                         {!skipped && ex._isSwapped && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: `${w.color}20`, color: ink(w.color), letterSpacing: 1 }}>ЗАМЕНА</span>}
-                        {baseEx._added && <span onClick={e => { e.stopPropagation(); removeAddedExercise(baseEx.id); }} style={{ fontSize: 8, padding: "2px 7px", borderRadius: 4, background: "var(--bg-1a2a1a)", color: "var(--tx-5a9a5a)", letterSpacing: 1, cursor: "pointer", border: "1px solid var(--bd-2a4a2a)" }}>ДОБАВЛЕНО x</span>}
+                        {baseEx._added && typeof LvMenuButton !== "function" && <span onClick={e => { e.stopPropagation(); removeAddedExercise(baseEx.id); }} style={{ fontSize: 8, padding: "2px 7px", borderRadius: 4, background: "var(--bg-1a2a1a)", color: "var(--tx-5a9a5a)", letterSpacing: 1, cursor: "pointer", border: "1px solid var(--bd-2a4a2a)" }}>ДОБАВЛЕНО x</span>}
+                        {/* с модулем правки добавленное убирается через окно упражнения, значок только сообщает */}
+                        {baseEx._added && typeof LvMenuButton === "function" && <span style={{ fontSize: 8, padding: "2px 7px", borderRadius: 4, background: "var(--bg-1a2a1a)", color: "var(--tx-5a9a5a)", letterSpacing: 1, border: "1px solid var(--bd-2a4a2a)" }}>ДОБАВЛЕНО</span>}
                         {skipped && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 3, background: "var(--bg-1a1a22)", color: "var(--tx-777)", letterSpacing: 1 }}>ПРОПУЩЕНО</span>}
                       </div>
                     </div>
                     {!skipped && !editMode && (
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      {canSwap && (
+                      {/* окно упражнения (заменить, порядок, пропустить): src/features/liveedit.jsx; прежняя кнопка - для сборки без модуля */}
+                      {typeof LvMenuButton === "function" && <LvMenuButton name={ex.name} active={ex._isSwapped} color={w.color} ink={ink} onClick={() => setLiveEdit({ sheet: "menu", id: baseEx.id })} />}
+                      {typeof LvMenuButton !== "function" && canSwap && (
                         <button onClick={() => setSwapModal(baseEx.id)}
                           style={{ padding: "9px 10px", borderRadius: 8, border: `1px solid ${ex._isSwapped ? w.color + "60" : "var(--bd-2a2a2a)"}`, background: ex._isSwapped ? `${w.color}15` : "var(--bg-0c0c0f)", color: ex._isSwapped ? ink(w.color) : "var(--tx-777)", fontSize: 9, cursor: "pointer", fontFamily: "inherit", letterSpacing: 1, whiteSpace: "nowrap", flexShrink: 0 }}>
                           {ex._isSwapped ? "* заменено" : "= заменить"}
@@ -3179,6 +3193,8 @@ export default function App() {
                 </div>
               );
             })}
+
+            {typeof LvSkipped === "function" && <LvSkipped data={data} setData={setData} sessionKey={sessionKey} base={(getWorkout(activeDay) || PROGRAM.push).exercises || []} />}
 
             {!editMode && (
               <button onClick={() => { setAddExModal(true); setAddExSearch(""); }}
@@ -4234,7 +4250,9 @@ export default function App() {
       )}
 
       {swapModal && (() => {
-        const baseEx = ((getWorkout(activeDay) || PROGRAM.push).exercises || []).find(e => e.id === swapModal);
+        // добавленное сегодня упражнение тоже может иметь замены: ищем среди всех упражнений тренировки
+        const baseEx = getSessionExercises().find(e => e.id === swapModal);
+        if (!baseEx) return null;
         const currentSwap = (data.swaps && data.swaps[sessionKey] && data.swaps[sessionKey][swapModal]);
         const alts = ALTERNATIVES[swapModal] || [];
         return (
@@ -4350,6 +4368,9 @@ export default function App() {
 
       {/* Всплывашка рекорда и итог тренировки: UxLayer есть только в тестовой сборке (src/beta/ux.jsx) */}
       {typeof UxLayer === "function" && <UxLayer recordPop={recordPop} onRecordClose={() => setRecordPop(null)} summary={summary} onSummaryClose={() => setSummary(null)} color={w.color} ink={ink} />}
+
+      {/* Окна правки тренировки и плашка отмены: LvLayer лежит в src/features/liveedit.jsx */}
+      {typeof LvLayer === "function" && activeTab === "workout" && <LvLayer state={liveEdit} onState={setLiveEdit} data={data} setData={setData} sessionKey={sessionKey} base={(getWorkout(activeDay) || PROGRAM.push).exercises || []} pool={getAllExercises} color={w.color} ink={ink} timerOn={!!timer} onAdd={() => { setAddExModal(true); setAddExSearch(""); }} />}
 
       {toast && (
         <div style={{ position: "fixed", bottom: timer ? "calc(130px + env(safe-area-inset-bottom))" : "calc(50px + env(safe-area-inset-bottom))", left: "50%", transform: "translateX(-50%)", background: "var(--bg-1a1a22)", border: "1px solid var(--bd-2a2a2a)", borderRadius: 8, padding: "10px 20px", fontSize: 11, color: "var(--tx-ccc)", letterSpacing: 1, zIndex: 999, pointerEvents: "none" }}>

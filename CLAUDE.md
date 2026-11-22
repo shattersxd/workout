@@ -53,7 +53,7 @@ sw.js                        <- настоящий service worker, регист�
 ## Рабочий цикл и деплой
 
 ```bash
-python3 scripts/build.py && node tests/test_pwa.js   # должно быть 391/391
+python3 scripts/build.py && node tests/test_pwa.js   # должно быть 403/403
 python3 scripts/build.py --check                     # index.html не отстал от src/
 ```
 
@@ -61,7 +61,7 @@ python3 scripts/build.py --check                     # index.html не отст�
 руками нельзя, следующая сборка затрёт правку. Коммитить `index.html` нужно,
 потому что GitHub Pages отдаёт именно его.
 
-Перед деплоем должно быть **391/391 PASSED**. Красный тест — это не повод
+Перед деплоем должно быть **403/403 PASSED**. Красный тест — это не повод
 править тест, это повод править код (исключения — ниже).
 
 Деплой: `git add -A && git commit -m "..." && git push`. GitHub Pages репозитория
@@ -148,6 +148,8 @@ python3 scripts/build.py --check                     # index.html не отст�
 - Загрузка резервной копии **только добавляет** (`mergeBackup`), ничего не затирает.
 - Ачивки: новая — с новым `id`; `ACH_LEGACY` и их условия не менять.
 - Каждый движущийся элемент помечен `app-anim`; без анимации всё должно читаться.
+- Правка тренировки на ходу (`src/features/liveedit.jsx`, обе версии): сделанные подходы не теряются ни при замене, ни при пропуске;
+  одно упражнение - один раз за тренировку; порядок применяется в одном месте (`getSessionExercises`).
 
 ## Тестовая версия (`beta/`)
 
@@ -185,7 +187,7 @@ python3 scripts/build.py --check                     # index.html не отст�
 
 ## Тесты
 
-`tests/test_pwa.js` — свой харнесс, 28 секций, 391 тест. Новую секцию добавлять
+`tests/test_pwa.js` — свой харнесс, 29 секций, 403 теста. Новую секцию добавлять
 **перед** блоком `SUMMARY` и `process.exit()`, иначе она не запустится. Асинхронные
 тесты — через `testAsync` (`test` не ждёт промисы). Список секций — `docs/claude/tests.md`.
 
@@ -207,4 +209,5 @@ python3 scripts/build.py --check                     # index.html не отст�
 | `src/beta/social.jsx`, `src/beta/compete.jsx` | `docs/claude/beta-social.md` + `docs/social-design.md` |
 | `src/beta/spotify.jsx`, музыкой | `docs/claude/beta-spotify.md` + `docs/music-design.md` |
 | `src/beta/ux.jsx` и его переносом в основную версию | `docs/claude/beta-ux.md` |
+| `src/features/liveedit.jsx`, заменой, пропуском и порядком упражнений в тренировке | `docs/claude/liveedit.md` |
 | `src/features/exercises.jsx`, `src/features/media.jsx`, `src/features/split.jsx`, `src/beta/fullbody.jsx`, гифками, составом push/pull/legs, фулбади | `docs/claude/exercises-media.md` |

@@ -5526,6 +5526,389 @@ test('Stills (RepDB): the card shows both poses, switches smoothly, keeps motion
   info('2 poses crossfade (2.6 s), skeleton while loading, calm message on failure');
 });
 
+// ── SECTION 29: LIVE WORKOUT EDITING (src/features/liveedit.jsx, both builds) ───────────────────────────────
+section('29 · LIVE WORKOUT EDITING (both versions)');
+
+const lvFile = fs.readFileSync(path.join(FEATURES_SRC_DIR, 'liveedit.jsx'), 'utf8').replace(/\r\n/g, '\n');
+const lvMark = lvFile.indexOf('// ---- Интерфейс ----');
+const lvPure = lvFile.slice(0, lvMark);
+const lvUi = lvFile.slice(lvMark);
+
+// Чистая часть модуля исполняется как есть на данных бета-страницы (программы, замены, 25 новых упражнений, сплит, фулбади)
+function loadLv() {
+  const d = loadExercises(3);
+  const names = 'LV_PARTS, LV_UNDO_MS, lvGet, lvPut, lvSnapshot, lvRestore, lvFind, lvOrdered, lvList, lvIsSkipped, lvSlot, lvBusy, lvAddedRec, lvCompact, lvIds, lvCanMove, lvMove, lvToEnd, lvReplace, lvSkip, lvUnskip, lvChanged, lvReset, lvNorm, lvWord, lvCandidates, LV_SETS, LV_EXES';
+  const api = new Function('PROGRAM', 'ALTERNATIVES', lvPure + '; return { ' + names + ' };')(d.PROGRAM, d.ALTERNATIVES);
+  api.PROGRAM = d.PROGRAM; api.ALTERNATIVES = d.ALTERNATIVES;
+  return api;
+}
+// Замороженные данные: любая попытка правки на месте (а не в копии) валит тест
+function lvFreeze(o) {
+  if (o && typeof o === 'object' && !Object.isFrozen(o)) { Object.freeze(o); Object.keys(o).forEach(k => lvFreeze(o[k])); }
+  return o;
+}
+const LV_KEY = '2026-11-23_push';
+function lvData(extra) {
+  return lvFreeze(Object.assign({ sessions: {}, swaps: {}, skipped: {}, addedEx: {}, customSets: {}, history: {}, dbMode: 'single' }, JSON.parse(JSON.stringify(extra || {}))));
+}
+const lvSets = list => { const o = {}; list.forEach((w, i) => { if (w !== null) o[i] = { weight: String(w), done: true }; }); return o; };
+// Запись журнала так, как её собирает finishWorkout: упражнения в порядке показа, без пропущенных
+function lvDetail(lv, data, base) {
+  return lv.lvList(data, LV_KEY, base).filter(e => !lv.lvIsSkipped(data, LV_KEY, e.id)).map(e => {
+    const s = lv.lvSlot(data, LV_KEY, base, e.id);
+    const sets = [];
+    const sess = (data.sessions[LV_KEY] || {})[s.ex.id] || {};
+    for (let i = 0; i < s.n; i++) sets.push({ w: (sess[i] && sess[i].weight) || '', done: !!(sess[i] && sess[i].done) });
+    return { id: s.ex.id, name: s.ex.name, sets: sets, added: !!e._added };
+  });
+}
+const lvDoneOf = detail => detail.reduce((n, d) => n + d.sets.filter(s => s.done).length, 0);
+
+test('Live edit: order of the day - stable, new exercises go last, moving skips over hidden cards', () => {
+  const lv = loadLv();
+  const list = ['a', 'b', 'c', 'd'].map(id => ({ id }));
+  assert(lv.lvOrdered(list, null) === list && lv.lvOrdered(list, []) === list, 'no order - the list itself');
+  assert(lv.lvOrdered(list, ['c', 'a']).map(e => e.id).join('') === 'cabd', 'ordered ones first, the rest keep their order after them');
+  assert(lv.lvOrdered(list, ['d', 'zz', 'd', 'a']).map(e => e.id).join('') === 'dabc', 'unknown and repeated ids in the order are harmless');
+  const base = lv.PROGRAM.push.exercises;
+  const ids0 = base.map(e => e.id);
+  let d = lvData();
+  assert(lv.lvIds(d, LV_KEY, base).join() === ids0.join(), 'without edits the order is the program order');
+  assert(lv.lvMove(d, LV_KEY, base, ids0[0], -1) === d && lv.lvMove(d, LV_KEY, base, ids0[ids0.length - 1], 1) === d && lv.lvMove(d, LV_KEY, base, 'nope', 1) === d, 'no move beyond the edges, unknown id is ignored (same object back)');
+  const d1 = lv.lvMove(d, LV_KEY, base, ids0[0], 1);
+  assert(lv.lvIds(d1, LV_KEY, base).slice(0, 3).join() === [ids0[1], ids0[0], ids0[2]].join(), 'down swaps with the next card');
+  assert(lv.lvIds(lv.lvMove(d1, LV_KEY, base, ids0[0], -1), LV_KEY, base).join() === ids0.join(), 'up brings it back');
+  // второе упражнение пропущено: первое при движении вниз меняется с третьим, а не со скрытым
+  const sk = lvData({ skipped: { [LV_KEY]: [ids0[1]] } });
+  const d2 = lv.lvMove(sk, LV_KEY, base, ids0[0], 1);
+  const vis = lv.lvIds(d2, LV_KEY, base).filter(id => !lv.lvIsSkipped(d2, LV_KEY, id));
+  assert(vis[0] === ids0[2] && vis[1] === ids0[0], 'moving down jumps over the skipped card: ' + vis.slice(0, 3).join());
+  const can = lv.lvCanMove(sk, LV_KEY, base, ids0[0]);
+  assert(can.up === false && can.down === true && lv.lvCanMove(sk, LV_KEY, base, ids0[ids0.length - 1]).down === false, 'arrows are disabled at the edges');
+  // в конец
+  const d3 = lv.lvToEnd(d, LV_KEY, base, ids0[2]);
+  assert(lv.lvIds(d3, LV_KEY, base).join() === ids0.filter(id => id !== ids0[2]).concat([ids0[2]]).join(), 'to the end');
+  assert(lv.lvToEnd(d3, LV_KEY, base, ids0[2]) === d3, 'already last - nothing changes');
+  // добавленное позже встаёт в конец, даже если порядок уже задан
+  const withAdded = lvData({ order: { [LV_KEY]: lv.lvIds(d1, LV_KEY, base) }, addedEx: { [LV_KEY]: [lv.lvAddedRec(lv.lvFind('hammer'))] } });
+  const idsA = lv.lvIds(withAdded, LV_KEY, base);
+  assert(idsA[idsA.length - 1] === 'hammer' && idsA.length === ids0.length + 1, 'an exercise added after reordering goes last');
+  // правки одного дня не трогают другой
+  assert(JSON.stringify(d1.order) === JSON.stringify({ [LV_KEY]: lv.lvIds(d1, LV_KEY, base) }) && lv.lvIds(d1, '2026-11-23_pull', lv.PROGRAM.pull.exercises).join() === lv.PROGRAM.pull.exercises.map(e => e.id).join(), 'the order belongs to one session key');
+  info('order: up, down, to the end, skipped cards are stepped over');
+});
+
+test('Live edit: a slot knows what is really performed - the replacement comes from the whole pool', () => {
+  const lv = loadLv();
+  const base = lv.PROGRAM.push.exercises;
+  const plain = lv.lvSlot(lvData(), LV_KEY, base, 'bench');
+  assert(plain.ex.id === 'bench' && !plain.swapped && !plain.added && plain.n === 4 && plain.done === 0 && !plain.skipped, 'plain slot');
+  // замена на упражнение, которого нет среди "родных" замен слота
+  assert(!(lv.ALTERNATIVES.bench || []).some(e => e.id === 'pec_deck'), 'pec_deck is not among the predefined alternatives of bench');
+  const sw = lv.lvSlot(lvData({ swaps: { [LV_KEY]: { bench: 'pec_deck' } }, sessions: { [LV_KEY]: { pec_deck: lvSets([50, 50]), bench: lvSets([100]) } } }), LV_KEY, base, 'bench');
+  assert(sw.ex.id === 'pec_deck' && sw.swapped && sw.slot.id === 'bench', 'any exercise of the pool can stand in the slot');
+  assert(sw.n === lv.lvFind('pec_deck').sets && sw.done === 2, 'sets and done marks are those of the replacement, not of the original: ' + sw.done + '/' + sw.n);
+  const custom = lv.lvSlot(lvData({ customSets: { [LV_KEY]: { bench: 2 } }, sessions: { [LV_KEY]: { bench: lvSets([100, 100, 100]) } } }), LV_KEY, base, 'bench');
+  assert(custom.n === 2 && custom.done === 2, 'done marks beyond the chosen number of sets are not counted');
+  assert(lv.lvSlot(lvData(), LV_KEY, base, 'nope') === null, 'unknown slot');
+  assert(lv.lvSlot(lvData({ swaps: { [LV_KEY]: { bench: 'no_such_exercise' } } }), LV_KEY, base, 'bench').ex.id === 'bench', 'a broken swap falls back to the original');
+  // указатель пула: каждый id находится, запись та же, что в данных
+  const pool = flatPool(betaEx);
+  assert(pool.every(e => lv.lvFind(e.id) && lv.lvFind(e.id).name === betaById[e.id].name) && lv.lvFind('nope') === null, 'every exercise of the pool is found by id');
+  info('slot: ' + sw.slot.name + ' -> ' + sw.ex.name);
+});
+
+test('Live edit: replacing an exercise that is not started simply puts another one into the slot', () => {
+  const lv = loadLv();
+  const base = lv.PROGRAM.push.exercises;
+  const d = lvData();
+  const r = lv.lvReplace(d, LV_KEY, base, 'bench', lv.lvFind('pec_deck'));
+  assert(r.mode === 'swap' && r.data.swaps[LV_KEY].bench === 'pec_deck', 'swap recorded for the slot');
+  assert(lv.lvIds(r.data, LV_KEY, base).join() === lv.lvIds(d, LV_KEY, base).join() && !r.data.addedEx[LV_KEY], 'the card keeps its place, nothing is added');
+  // обратно к исходному
+  const back = lv.lvReplace(r.data, LV_KEY, base, 'bench', lv.lvFind('bench'));
+  assert(back.mode === 'swap' && !('bench' in back.data.swaps[LV_KEY]) && lv.lvSlot(back.data, LV_KEY, base, 'bench').ex.id === 'bench', 'the original exercise comes back');
+  // то же самое упражнение и уже занятое - отказ без изменений
+  assert(lv.lvReplace(d, LV_KEY, base, 'bench', lv.lvFind('bench')).mode === 'none' && lv.lvReplace(d, LV_KEY, base, 'bench', lv.lvFind('bench')).data === d, 'the same exercise changes nothing');
+  assert(lv.lvReplace(d, LV_KEY, base, 'bench', lv.lvFind('ohp')).mode === 'none', 'an exercise that is already in the workout is refused');
+  assert(lv.lvReplace(r.data, LV_KEY, base, 'incline', lv.lvFind('pec_deck')).mode === 'none', 'an exercise standing in another slot as a replacement is refused too');
+  assert(lv.lvReplace(d, LV_KEY, base, 'nope', lv.lvFind('pec_deck')).mode === 'none' && lv.lvReplace(d, LV_KEY, base, 'bench', null).mode === 'none', 'unknown slot or exercise');
+  // добавленное упражнение заменяется на том же месте
+  let a = lvData({ addedEx: { [LV_KEY]: [lv.lvAddedRec(lv.lvFind('hammer'))] }, customSets: { [LV_KEY]: { hammer: 5 } } });
+  a = lvFreeze(lv.lvMove(a, LV_KEY, base, 'hammer', -1));
+  const posBefore = lv.lvIds(a, LV_KEY, base).indexOf('hammer');
+  const ra = lv.lvReplace(a, LV_KEY, base, 'hammer', lv.lvFind('preacher_curl'));
+  assert(ra.mode === 'swap' && ra.data.addedEx[LV_KEY].length === 1 && ra.data.addedEx[LV_KEY][0].id === 'preacher_curl' && ra.data.addedEx[LV_KEY][0]._added === true, 'the added record is replaced, not duplicated');
+  assert(lv.lvIds(ra.data, LV_KEY, base).indexOf('preacher_curl') === posBefore && lv.lvIds(ra.data, LV_KEY, base).indexOf('hammer') < 0, 'and stays at the same position');
+  assert(!('hammer' in ra.data.customSets[LV_KEY]) && lv.lvSlot(ra.data, LV_KEY, base, 'preacher_curl').n === lv.lvFind('preacher_curl').sets, 'the new exercise starts with its own number of sets');
+  info('swap in place for program and added exercises; duplicates refused');
+});
+
+test('Live edit: replacing a STARTED exercise keeps what is done - the replacement follows for the remaining sets', () => {
+  const lv = loadLv();
+  const base = lv.PROGRAM.push.exercises;
+  // брусья: 3 подхода, сделаны первый и третий
+  const d = lvData({ sessions: { [LV_KEY]: { dips: { 0: { weight: '20', done: true }, 1: { weight: '22.5', done: false }, 2: { weight: '25', done: true } }, bench: lvSets([100, 100, 100, 100]) } } });
+  const before = lvDetail(lv, d, base);
+  const r = lv.lvReplace(d, LV_KEY, base, 'dips', lv.lvFind('dips_machine'));
+  assert(r.mode === 'split' && r.kept === 2, 'mode split, two sets kept, got ' + r.mode + '/' + r.kept);
+  const sess = r.data.sessions[LV_KEY].dips;
+  assert(JSON.stringify(sess) === JSON.stringify({ 0: { weight: '20', done: true }, 1: { weight: '25', done: true } }), 'done sets are packed to the front with their weights: ' + JSON.stringify(sess));
+  assert(r.data.customSets[LV_KEY].dips === 2 && !r.data.swaps[LV_KEY], 'the started exercise is finished at two sets and is NOT swapped away');
+  const added = r.data.addedEx[LV_KEY];
+  assert(added.length === 1 && added[0].id === 'dips_machine' && added[0].sets === 1 && added[0]._added, 'the replacement takes the one remaining set');
+  const ids = lv.lvIds(r.data, LV_KEY, base);
+  assert(ids.indexOf('dips_machine') === ids.indexOf('dips') + 1, 'and stands right after it: ' + ids.join());
+  const after = lvDetail(lv, r.data, base);
+  assert(lvDoneOf(after) === lvDoneOf(before) && lvDoneOf(before) === 6, 'no done set is lost from the journal record: ' + lvDoneOf(before) + ' -> ' + lvDoneOf(after));
+  assert(after.find(x => x.id === 'dips').sets.map(s => s.w).join() === '20,25' && after.find(x => x.id === 'dips_machine').added, 'journal: dips 20 and 25, then the machine as an added exercise');
+  assert(new Set(after.map(x => x.id)).size === after.length, 'no exercise twice in the record');
+  const total = x => x.reduce((n, e) => n + e.sets.length, 0);
+  assert(total(after) === total(before), 'the planned amount of sets is the same: ' + total(before) + ' -> ' + total(after));
+  // все подходы сделаны: замена просто встаёт следом со своим числом подходов
+  const full = lv.lvReplace(d, LV_KEY, base, 'bench', lv.lvFind('pec_deck'));
+  assert(full.mode === 'split' && full.kept === 4 && full.data.addedEx[LV_KEY][0].sets === lv.lvFind('pec_deck').sets && full.data.customSets[LV_KEY].bench === 4, 'a finished exercise keeps all four sets');
+  // начатая замена не уходит "обратно к исходному": исходный id занят слотом
+  const sw = lvData({ swaps: { [LV_KEY]: { bench: 'pec_deck' } }, sessions: { [LV_KEY]: { pec_deck: lvSets([50]) } } });
+  assert(lv.lvReplace(sw, LV_KEY, base, 'bench', lv.lvFind('bench')).mode === 'none', 'a started replacement cannot be turned back into the original (it would write into the same slot)');
+  const sw2 = lv.lvReplace(sw, LV_KEY, base, 'bench', lv.lvFind('bench_db'));
+  assert(sw2.mode === 'split' && sw2.data.swaps[LV_KEY].bench === 'pec_deck' && sw2.data.sessions[LV_KEY].pec_deck[0].weight === '50', 'a started replacement is kept and the new one follows it');
+  // занятое упражнение отклоняется и здесь
+  assert(lv.lvReplace(d, LV_KEY, base, 'dips', lv.lvFind('ohp')).mode === 'none', 'busy exercise refused');
+  info('2 of 3 done -> kept 20 and 25, replacement gets 1 set; journal ' + lvDoneOf(before) + ' done sets before and after');
+});
+
+test('Live edit: skip, remove, finish early - each only where it loses nothing', () => {
+  const lv = loadLv();
+  const base = lv.PROGRAM.push.exercises;
+  const d = lvData({ sessions: { [LV_KEY]: { dips: { 0: { weight: '20', done: true }, 1: { weight: '', done: false }, 2: { weight: '25', done: true } }, bench: lvSets([100, 100, 100, 100]) } }, addedEx: { [LV_KEY]: [lv.lvAddedRec(lv.lvFind('hammer'))] }, customSets: { [LV_KEY]: { hammer: 4 } } });
+  // не начато: пропуск на сегодня
+  const s1 = lv.lvSkip(d, LV_KEY, base, 'ohp');
+  assert(s1.mode === 'skip' && s1.data.skipped[LV_KEY].join() === 'ohp' && lv.lvSlot(s1.data, LV_KEY, base, 'ohp').skipped, 'not started -> skipped today');
+  assert(lv.lvSkip(s1.data, LV_KEY, base, 'ohp').mode === 'none', 'skipping twice changes nothing');
+  assert(!lvDetail(lv, s1.data, base).some(x => x.id === 'ohp'), 'a skipped exercise is not in the journal record');
+  const u = lv.lvUnskip(s1.data, LV_KEY, 'ohp');
+  assert(!lv.lvIsSkipped(u, LV_KEY, 'ohp') && lv.lvUnskip(u, LV_KEY, 'ohp') === u, 'and comes back with one tap');
+  // добавленное без подходов: убирается совсем
+  const s2 = lv.lvSkip(d, LV_KEY, base, 'hammer');
+  assert(s2.mode === 'remove' && s2.data.addedEx[LV_KEY].length === 0 && !('hammer' in s2.data.customSets[LV_KEY]) && !(s2.data.skipped[LV_KEY] || []).length, 'an added exercise without sets is removed, not skipped');
+  // начато: заканчиваем на сделанном, подходы не теряются
+  const s3 = lv.lvSkip(d, LV_KEY, base, 'dips');
+  assert(s3.mode === 'trim' && s3.kept === 2 && s3.data.customSets[LV_KEY].dips === 2 && !(s3.data.skipped[LV_KEY] || []).length, 'started -> finished at the done sets, never skipped');
+  assert(JSON.stringify(s3.data.sessions[LV_KEY].dips) === JSON.stringify({ 0: { weight: '20', done: true }, 1: { weight: '25', done: true } }), 'done sets packed to the front');
+  const slot = lv.lvSlot(s3.data, LV_KEY, base, 'dips');
+  assert(slot.done === 2 && slot.n === 2, 'the exercise now counts as complete (all its sets are done)');
+  assert(lvDoneOf(lvDetail(lv, s3.data, base)) === lvDoneOf(lvDetail(lv, d, base)), 'no done set lost');
+  // всё сделано: менять нечего
+  assert(lv.lvSkip(d, LV_KEY, base, 'bench').mode === 'none' && lv.lvSkip(d, LV_KEY, base, 'bench').data === d && lv.lvSkip(d, LV_KEY, base, 'nope').mode === 'none', 'a finished exercise cannot be skipped');
+  info('skip / remove / trim / none');
+});
+
+test('Live edit: UNDO returns the workout exactly as it was; other days are never touched', () => {
+  const lv = loadLv();
+  const base = lv.PROGRAM.push.exercises;
+  const other = '2026-11-20_pull';
+  const start = lvData({
+    sessions: { [LV_KEY]: { dips: { 0: { weight: '20', done: true }, 2: { weight: '25', done: true } }, lateral: lvSets([10]) }, [other]: { deadlift: lvSets([140]) } },
+    swaps: { [other]: { pullups: 'chinup' } }, skipped: { [other]: ['hammer'] }, customSets: { [other]: { deadlift: 3 } },
+    addedEx: { [other]: [lv.lvAddedRec(lv.lvFind('shrug'))] }, order: { [other]: ['pullups', 'deadlift'] },
+  });
+  const pick = d => JSON.stringify(lv.LV_PARTS.map(b => (d[b] || {})[LV_KEY] === undefined ? null : d[b][LV_KEY]));
+  const rest = d => JSON.stringify(lv.LV_PARTS.map(b => (d[b] || {})[other]));
+  const actions = [
+    ['replace (swap)', d => lv.lvReplace(d, LV_KEY, base, 'bench', lv.lvFind('pec_deck')).data],
+    ['replace (split)', d => lv.lvReplace(d, LV_KEY, base, 'dips', lv.lvFind('dips_machine')).data],
+    ['skip', d => lv.lvSkip(d, LV_KEY, base, 'ohp').data],
+    ['finish early', d => lv.lvSkip(d, LV_KEY, base, 'lateral').data],
+    ['move', d => lv.lvMove(d, LV_KEY, base, 'bench', 1)],
+    ['to the end', d => lv.lvToEnd(d, LV_KEY, base, 'bench')],
+  ];
+  let cur = start, steps = 0;
+  actions.forEach(([name, fn]) => {
+    const snap = lv.lvSnapshot(cur, LV_KEY);
+    const next = lvFreeze(fn(cur));
+    assert(next !== cur && pick(next) !== pick(cur), name + ' must change the workout');
+    assert(rest(next) === rest(start), name + ' touched another day');
+    const undone = lv.lvRestore(next, snap);
+    assert(pick(undone) === pick(cur), name + ': undo does not return the previous state');
+    assert(rest(undone) === rest(start), name + ': undo touched another day');
+    assert(undone.history === next.history && undone.dbMode === 'single', name + ': undo keeps everything outside the workout');
+    cur = next; steps++;   // действия накладываются друг на друга
+  });
+  // снимок пустой тренировки возвращает пустоту (ключи убираются, а не остаются пустыми)
+  const blank = lvData();
+  const snap0 = lv.lvSnapshot(blank, LV_KEY);
+  const back = lv.lvRestore(lv.lvSkip(blank, LV_KEY, base, 'ohp').data, snap0);
+  assert(lv.LV_PARTS.every(b => !(LV_KEY in (back[b] || {}))) && !lv.lvChanged(back, LV_KEY), 'undo of the first edit leaves no traces');
+  assert(lv.LV_PARTS.join() === 'sessions,swaps,skipped,addedEx,customSets,order', 'the snapshot covers every per-workout bucket');
+  info(steps + ' stacked actions, each undone exactly; frozen input proves nothing is edited in place');
+});
+
+test('Live edit: "return the plan" resets only what is not started', () => {
+  const lv = loadLv();
+  const base = lv.PROGRAM.push.exercises;
+  let d = lvData({ sessions: { [LV_KEY]: { pec_deck: lvSets([50]), hammer: lvSets([14, 14]) } } });
+  d = lv.lvReplace(d, LV_KEY, base, 'bench', lv.lvFind('pec_deck')).data;            // замена, в ней уже есть подход
+  d = lv.lvReplace(d, LV_KEY, base, 'incline', lv.lvFind('incline_smith')).data;     // замена без подходов
+  d = lv.lvSkip(d, LV_KEY, base, 'ohp').data;                                         // пропуск
+  d = lv.lvPut(d, 'addedEx', LV_KEY, [lv.lvAddedRec(lv.lvFind('hammer')), lv.lvAddedRec(lv.lvFind('shrug'))]);   // добавленные: с подходами и без
+  d = lv.lvPut(d, 'customSets', LV_KEY, { hammer: 2, lateral: 6 });
+  d = lvFreeze(lv.lvToEnd(d, LV_KEY, base, 'bench'));
+  assert(lv.lvChanged(d, LV_KEY) && !lv.lvChanged(lvData(), LV_KEY), 'changes are detected');
+  const before = lvDoneOf(lvDetail(lv, d, base));
+  const r = lv.lvReset(d, LV_KEY, base);
+  assert(JSON.stringify(r.swaps[LV_KEY]) === '{"bench":"pec_deck"}', 'the started replacement stays, the untouched one goes: ' + JSON.stringify(r.swaps[LV_KEY]));
+  assert(r.addedEx[LV_KEY].map(e => e.id).join() === 'hammer', 'the added exercise with done sets stays, the empty one goes');
+  assert(JSON.stringify(r.customSets[LV_KEY]) === '{"hammer":2}', 'set counts: kept for the started exercise only');
+  assert(!(LV_KEY in r.skipped) && !(LV_KEY in r.order), 'skips and the order are back to the plan');
+  assert(lv.lvIds(r, LV_KEY, base).join() === base.map(e => e.id).concat(['hammer']).join(), 'program order again');
+  assert(lvDoneOf(lvDetail(lv, r, base)) === before && before === 3, 'no done set lost: ' + before);
+  const clean = lv.lvReset(lv.lvSkip(lvData(), LV_KEY, base, 'ohp').data, LV_KEY, base);
+  assert(!lv.lvChanged(clean, LV_KEY), 'a workout without done sets returns to the plan completely');
+  info('kept: started swap, started added exercise, its set count; reverted: the rest');
+});
+
+test('Live edit: the replacement picker - best options first, taken ones last, search finds anything', () => {
+  const lv = loadLv();
+  const base = lv.PROGRAM.push.exercises;
+  const all = runGetAll(betaEx, true);
+  const d = lvData();
+  const s = lv.lvSlot(d, LV_KEY, base, 'incline');
+  const busy = lv.lvBusy(d, LV_KEY, base);
+  const res = lv.lvCandidates(all, s, 'incline', busy, '', false);
+  assert(res.sections[0].title === 'ЛУЧШИЕ ЗАМЕНЫ' && res.sections[0].items.map(i => i.ex.id).join() === lv.ALTERNATIVES.incline.map(e => e.id).join(), 'the predefined alternatives come first');
+  assert(/^ТА ЖЕ ГРУППА: ГРУДЬ$/.test(res.sections[1].title) && res.sections[1].items.every(i => all.find(e => e.id === i.ex.id)._group === 'Грудь'), 'then the same muscle group');
+  const g = res.sections[1].items;
+  const firstBusy = g.findIndex(i => i.busy);
+  assert(firstBusy > 0 && g.slice(firstBusy).every(i => i.busy) && g.slice(0, firstBusy).every(i => !i.busy), 'exercises already in the workout sink to the end of the section');
+  assert(g.filter(i => i.busy).map(i => i.ex.id).sort().join() === 'bench,chest_fly_stretch', 'busy ones are exactly those of today: ' + g.filter(i => i.busy).map(i => i.ex.id).join());
+  const flat = r => [].concat.apply([], r.sections.map(x => x.items.map(i => i.ex.id)));
+  assert(!flat(res).includes('incline') && new Set(flat(res)).size === flat(res).length, 'the current exercise is not offered, nothing is listed twice');
+  assert(res.rest === all.length - 1 - flat(res).length && res.rest > 100, 'the rest of the pool waits behind one button: ' + res.rest);
+  const full = lv.lvCandidates(all, s, 'incline', busy, '', true);
+  assert(full.rest === 0 && flat(full).length === all.length - 1 && new Set(flat(full)).size === all.length - 1, 'show all: the whole pool, once each');
+  // поиск: слова в любом порядке, ё = е, группа мышц тоже ищется
+  const q1 = flat(lv.lvCandidates(all, s, 'incline', busy, 'гантел лежа', false));
+  assert(q1.includes('bench_db') && q1.every(id => /гантел/i.test(betaById[id].name)), 'words in any order, "е" finds "ё": ' + q1.slice(0, 4).join());
+  assert(lv.lvCandidates(all, s, 'incline', busy, 'ЛЁЖА ГАНТЕЛ', false).sections[0].title === 'НАЙДЕНО: ' + q1.length, 'case does not matter');
+  assert(flat(lv.lvCandidates(all, s, 'incline', busy, 'икры', false)).includes('calf'), 'a muscle group finds its exercises');
+  assert(lv.lvCandidates(all, s, 'incline', busy, 'ъъъ', false).sections[0].items.length === 0, 'nothing found is an empty section, not a crash');
+  // стоит замена, подходов нет: первой строкой предлагается вернуть исходное
+  const d2 = lv.lvReplace(d, LV_KEY, base, 'incline', lv.lvFind('pec_deck')).data;
+  const s2 = lv.lvSlot(d2, LV_KEY, base, 'incline');
+  const r2 = lv.lvCandidates(all, s2, 'incline', lv.lvBusy(d2, LV_KEY, base), '', false);
+  assert(r2.sections[0].title === 'ПО ПЛАНУ' && r2.sections[0].items[0].ex.id === 'incline' && r2.sections[0].items[0].orig && !r2.sections[0].items[0].busy, 'the original exercise is offered first');
+  assert(r2.sections[1].title === 'ЛУЧШИЕ ЗАМЕНЫ' && !flat(r2).includes('pec_deck'), 'then the alternatives; the current replacement is not offered');
+  // в замене уже есть подход: вернуть исходное нельзя, строки "ПО ПЛАНУ" нет
+  const d3 = lvData({ swaps: { [LV_KEY]: { incline: 'pec_deck' } }, sessions: { [LV_KEY]: { pec_deck: lvSets([50]) } } });
+  const r3 = lv.lvCandidates(all, lv.lvSlot(d3, LV_KEY, base, 'incline'), 'incline', lv.lvBusy(d3, LV_KEY, base), '', true);
+  assert(r3.sections[0].title !== 'ПО ПЛАНУ' && [].concat.apply([], r3.sections.map(x => x.items)).find(i => i.ex.id === 'incline').busy, 'a started replacement: the original is shown as taken');
+  // слова
+  assert([1, 2, 5, 11, 21, 22, 25, 111].map(n => lv.lvWord(n, lv.LV_SETS)).join() === 'подход,подхода,подходов,подходов,подход,подхода,подходов,подходов', 'Russian plural forms');
+  info(res.sections.map(x => x.title + ' (' + x.items.length + ')').join(', ') + ', +' + res.rest);
+});
+
+test('Live edit seams: every use in the main code is guarded by typeof; both pages carry the module, the old controls remain as a fallback', () => {
+  const lines = src.split('\n');
+  const used = {};
+  lines.forEach((l, i) => {
+    if (l.trim().startsWith('//') || l.trim().startsWith('{/*')) return;
+    for (const m of l.matchAll(/\b(lv[A-Z]\w*|Lv[A-Z]\w*)\b/g)) {
+      const name = m[1];
+      if (new RegExp('typeof ' + name + '\\b').test(l)) { used[name] = (used[name] || 0) + 1; continue; }
+      const near = lines.slice(Math.max(0, i - 4), i + 1).join('\n');
+      assert(new RegExp('typeof ' + name + ' ===').test(near), 'line ' + (i + 1) + ': ' + name + ' is used without a typeof guard: ' + l.trim().slice(0, 80));
+      used[name] = (used[name] || 0) + 1;
+    }
+  });
+  ['lvFind', 'lvOrdered', 'LvBar', 'LvMenuButton', 'LvSkipped', 'LvLayer'].forEach(n => assert(used[n], n + ' is not wired into the app'));
+  assert(!/function lv[A-Z]|function Lv[A-Z]|const LV_/.test(src), 'the main source defines none of them: they live in src/features/liveedit.jsx');
+  ['function lvReplace', 'function LvLayer', 'const LV_CSS', 'lv-flash'].forEach(t => { assert(app.includes(t), 'main page lacks ' + t); assert(betaApp.includes(t), 'beta page lacks ' + t); });
+  assert(fs.existsSync(path.join(FEATURES_SRC_DIR, 'liveedit.jsx')) && !betaFiles.includes('liveedit.jsx'), 'liveedit.jsx is a shared module (src/features), not a beta one');
+  // модуль стоит на странице раньше App и один раз: швы находят его функции
+  [app, betaApp].forEach(page => assert(page.indexOf('function LvLayer(') > 0 && page.indexOf('function LvLayer(') < page.indexOf('function App(') && page.split('function LvLayer(').length === 2, 'the module is placed once, before App'));
+  // без модуля всё прежнее (запасной путь и откат): режим правки, кнопка замены, значок с крестиком
+  assert(src.includes('{editMode ? "OK" : "ИЗМЕНИТЬ СПИСОК"}') && src.includes('{typeof LvMenuButton !== "function" && canSwap && (') && src.includes('{baseEx._added && typeof LvMenuButton !== "function" && <span onClick={e => { e.stopPropagation(); removeAddedExercise(baseEx.id); }}'), 'old controls stay as a fallback for a build without the module');
+  assert(src.includes('typeof lvOrdered === "function" ? lvOrdered(base.concat(added), data.order && data.order[sessionKey]) : base.concat(added)'), 'the order is applied in one place, so the cards, the progress and the journal record agree');
+  assert(src.includes('|| (typeof lvFind === "function" ? lvFind(swappedId) : null)'), 'a replacement from the whole pool resolves in getExercise');
+  assert(src.includes('"skipped", "order", "swaps", "started"]'), 'the order of old workouts is pruned with the other dated keys');
+  assert(src.includes('id={"exc-" + baseEx.id}') && lvUi.includes('getElementById("exc-" + id)'), 'cards can be found for the highlight');
+  assert(/typeof LvLayer === "function" && activeTab === "workout" && <LvLayer state=\{liveEdit\} onState=\{setLiveEdit\}/.test(src), 'windows exist only on the workout tab');
+  info('Guarded seams: ' + Object.keys(used).sort().join(', '));
+});
+
+test('Swap window: an added exercise that has alternatives no longer crashes the app', () => {
+  const block = src.slice(src.indexOf('{swapModal && (() => {'), src.indexOf('{/* ===== TIMER ===== */}'));
+  assert(block.includes('const baseEx = getSessionExercises().find(e => e.id === swapModal);'), 'the window looks among ALL exercises of the workout, added ones included');
+  assert(block.indexOf('if (!baseEx) return null;') > 0 && block.indexOf('if (!baseEx) return null;') < block.indexOf('baseEx.name'), 'and never reads the name of a missing exercise');
+  assertNot(block.includes('((getWorkout(activeDay) || PROGRAM.push).exercises || []).find(e => e.id === swapModal)'), 'the old lookup (program only) is gone');
+  // сценарий падения: упражнение с заменами добавлено в другой день
+  const base = prodEx.PROGRAM.legs.exercises;
+  const session = base.concat([{ id: 'bench', name: 'Жим штанги лёжа', _added: true }]);
+  assert((prodEx.ALTERNATIVES.bench || []).length > 0 && !base.some(e => e.id === 'bench') && session.find(e => e.id === 'bench'), 'bench has alternatives, is not in the legs day, and is found once the added ones are searched');
+  info('bench added to the legs day: found among session exercises');
+});
+
+test('Live edit visuals: 44pt buttons, layers, safe areas, animation marks, neutral wording', () => {
+  const buttons = [...lvUi.matchAll(/<button\b/g)].map(m => lvUi.slice(m.index, m.index + 900));
+  assert(buttons.length >= 12, 'buttons found: ' + buttons.length);
+  buttons.forEach((b, i) => assert(/(minHeight|height): (4[4-9]|[5-9]\d)\b/.test(b.slice(0, b.indexOf('>', b.indexOf('style={{')) + 1 || 900)), 'button #' + (i + 1) + ' is shorter than 44pt: ' + b.slice(0, 110).replace(/\s+/g, ' ')));
+  const z = [...lvUi.matchAll(/zIndex: (\d+)/g)].map(m => +m[1]).sort();
+  assert(z.join() === '640,660', 'sheet 640, undo 660: ' + z.join());
+  assert(src.includes('zIndex: 500') && src.includes('zIndex: 999'), 'above the rest timer (500), below the plain toast (999)');
+  assert((lvUi.match(/env\(safe-area-inset-bottom\)/g) || []).length >= 3 && !/inset: 0/.test(lvUi), 'sheets and the undo bar clear the home indicator; explicit edges');
+  assert(lvUi.includes('props.timerOn ? "calc(128px + env(safe-area-inset-bottom))"'), 'the undo bar moves above the rest timer');
+  assert((lvUi.match(/role="dialog" aria-modal="true"/g) || []).length === 1 && lvUi.includes('role="status" aria-live="polite"') && (lvUi.match(/aria-label=/g) || []).length >= 4, 'dialog, status and icon-only buttons are announced');
+  // анимации: у каждого класса есть кадры, каждый движущийся элемент помечен app-anim
+  const css = lvUi.slice(lvUi.indexOf('const LV_CSS = ['), lvUi.indexOf('].join("\\n");'));
+  const kf = [...css.matchAll(/@keyframes (lv[A-Za-z]+)\{/g)].map(m => m[1]);
+  ['lv-fade', 'lv-up', 'lv-toast', 'lv-flash', 'lv-bar'].forEach(c => assert(css.includes('.' + c + '{animation:'), 'class ' + c + ' has no animation rule'));
+  [...css.matchAll(/animation:(lv[A-Za-z]+)/g)].forEach(m => assert(kf.includes(m[1]), 'animation without keyframes: ' + m[1]));
+  kf.forEach(k => assertNot(new RegExp('@keyframes ' + k + '\\{[^@]*\\bto\\{opacity:0').test(css) && k !== 'lvFlash', k + ' must not end hidden'));
+  const body = lvUi.slice(lvUi.indexOf('function LvIcon'));
+  // класс анимации всегда стоит рядом с app-anim: в одной строке className или в одном вызове classList
+  const animated = body.split('\n').filter(l => /"[^"]*\blv-(?:fade|up|toast|flash|bar)\b[^"]*"/.test(l));
+  assert(animated.length >= 6 && animated.every(l => /\bapp-anim\b/.test(l)), 'every animated element carries app-anim: ' + animated.filter(l => !/\bapp-anim\b/.test(l)).map(l => l.trim().slice(0, 80)).join(' | '));
+  assert(/@media \(prefers-reduced-motion: reduce\)\{\.app-anim,\.app-anim \*\{animation:none!important\}\}/.test(headSrc) && lvUi.includes('prefers-reduced-motion: reduce'), 'reduced motion: no animation and no smooth scrolling');
+  // цвета только из темы, поле поиска не вызывает автозум
+  assertNot(/#[0-9a-fA-F]{3,8}\b/.test(lvUi.replace(/\/\/.*$/gm, '')), 'no bare colours: theme tokens and the day colour only');
+  [...lvUi.matchAll(/var\((--[a-z]+-[0-9a-z]+)\)/g)].forEach(m => assert(headSrc.includes(m[1] + ':'), 'unknown theme token ' + m[1]));
+  const inputs = [...lvUi.matchAll(/<input\b/g)].map(m => lvUi.slice(m.index, lvUi.indexOf('/>', m.index)));
+  assert(inputs.length === 1 && /fontSize: 16\b/.test(inputs[0]), 'search field is 16px (no zoom on iPhone)');
+  // тексты без "ты" и "вы", без повелительного обращения
+  const lvCode = lvFile.replace(/^\s*\/\/.*$/gm, '');   // без строк-комментариев: в них слова "ты" и "вы" стоят как пояснение
+  const texts = [...lvCode.matchAll(/"([^"\n]*[А-Яа-яЁё][^"\n]*)"/g)].map(m => m[1]).concat([...lvCode.matchAll(/>\s*([^<>{}\n]*[А-Яа-яЁё][^<>{}\n]*)\s*</g)].map(m => m[1]));
+  const hits = texts.filter(t => /(?<![А-Яа-яЁё])(Вы|вы|Вам|вам|Ваш|ваш|ты|Ты|тебе|твой|твоя)(?![А-Яа-яЁё])/.test(t) || /(?<![А-Яа-яЁё])(Выбери|Выберите|Нажми|Нажмите|Сделай|Сделайте|Впиши|Впишите)(?![А-Яа-яЁё])/.test(t));
+  assert(texts.length > 40 && hits.length === 0, 'neutral wording expected, found: ' + hits.join(' | '));
+  info(buttons.length + ' buttons 44pt+, ' + kf.length + ' keyframes, ' + animated.length + ' animated elements, ' + texts.length + ' texts');
+});
+
+test('Live edit windows: one menu per card, undo after every action, nothing blocks training', () => {
+  // окно упражнения: действия зависят от того, начато ли упражнение
+  const menu = lvUi.slice(lvUi.indexOf('function LvMenu('), lvUi.indexOf('function LvPicker('));
+  assert(/\{s\.done < s\.n && \(\s*<LvAction icon="swap" title="Заменить"/.test(menu), 'replace is offered until every set is done');
+  assert(/\{s\.done === 0 && !s\.added && \(\s*<LvAction icon="skip" title="Пропустить сегодня"/.test(menu) && /\{s\.done === 0 && s\.added && \(\s*<LvAction icon="trash" title="Убрать из тренировки"/.test(menu) && /\{s\.done > 0 && s\.done < s\.n && \(\s*<LvAction icon="check" title=\{"Закончить на "/.test(menu), 'skip / remove / finish early are mutually exclusive');
+  ['"ВЫШЕ", can.up', '"НИЖЕ", can.down', '"В КОНЕЦ", can.down'].forEach(t => assert(menu.includes(t), 'move button ' + t));
+  assert(menu.includes('disabled={!on}') && menu.includes('onClick={on ? onClick : undefined}'), 'impossible moves are disabled, not hidden (the layout does not jump)');
+  // слой: правка -> снимок -> плашка отмены
+  const layer = lvUi.slice(lvUi.indexOf('function LvLayer('));
+  assert(/const next = fn\(data\);\s*if \(next === data\) return false;\s*const snap = lvSnapshot\(data, key\);\s*props\.setData\(prev => fn\(prev\)\);/.test(layer), 'an action that changes nothing shows no undo; the snapshot is taken before the change');
+  assert(layer.includes('props.setData(prev => lvRestore(prev, snap));'), 'undo restores the snapshot');
+  assert(/setTimeout\(function \(\) \{ setUndo\(null\); \}, LV_UNDO_MS\)/.test(layer) && layer.includes('clearTimeout(t)') && /\}, \[undo \? undo\.id : 0\]\);/.test(layer) && loadLv().LV_UNDO_MS === 6000, 'the undo bar lives six seconds, restarts for every action, is cleaned up');
+  assert(layer.includes('if (undo && sessSig !== undo.sig) setUndo(null);'), 'a set marked after the action cancels the undo offer (the snapshot would wipe that set)');
+  assert(/useEffect\(function \(\) \{ setUndo\(null\); setMoved\(null\); if \(st\) props\.onState\(null\); \}, \[key\]\);/.test(layer), 'another day closes the windows and the undo');
+  assert(layer.includes('useEffect(function () { if (st) setUndo(null); }, [st ? st.sheet + "|" + st.id : ""]);'), 'an open window is never covered by the undo bar');
+  ['"Пропущено: "', '"Убрано: "', '"Закончено на "', '"Добавлено следом: "', '"Заменено на: "', '"Возвращено: "', '"Перенесено выше"', '"Перенесено ниже"', '"Перенесено в конец"', '"План возвращён"'].forEach(t => assert(layer.includes(t), 'undo text ' + t));
+  assert((layer.match(/\bact\(/g) || []).length === 5, 'move, to the end, skip, replace and reset go through act(): ' + (layer.match(/\bact\(/g) || []).length);
+  // обзор: стрелки двигают сразу, без закрытия окна; добавление открывает прежнее окно выбора
+  assert(/onMove=\{\(id, dir\) => \{ props\.setData\(prev => lvMove\(prev, key, base, id, dir\)\); setMoved\(/.test(layer) && layer.includes('onAdd={() => { close(); props.onAdd(); }}'), 'overview: move in place, add through the existing window');
+  assert(lvUi.includes('{lvChanged(data, key) && (') && lvUi.includes('ВЕРНУТЬ ПЛАН'), 'the reset button appears only when something was changed');
+  // пропущенные видны под списком, карточки с подходами остаются на экране во время правки
+  assert(src.includes('{typeof LvSkipped === "function" && <LvSkipped data={data} setData={setData} sessionKey={sessionKey}') && lvUi.includes('ПРОПУЩЕНО СЕГОДНЯ') && lvUi.includes('lvUnskip(prev, key, e.id)'), 'skipped exercises stay visible below the list with a return button');
+  assert(src.includes('const exNo = exList.slice(0, exIdx).filter(e => !isSkipped(e.id)).length + 1;') && src.includes('fontWeight: 700 }}>{exNo}</span>'), 'card numbers have no gaps when something is skipped');
+  info('menu, picker, overview, undo: wired');
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  SUMMARY
 // ═══════════════════════════════════════════════════════════════════════════
