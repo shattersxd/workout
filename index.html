@@ -1546,7 +1546,8 @@ function todayKey() {
 // Формат: { app, version, exportedAt, data }. Загрузка только ДОБАВЛЯЕТ недостающее
 // (журнал по ts, сессии и пр. по ключу), локальные данные не перезаписываются.
 const BACKUP_APP = "workout-tracker";
-const BACKUP_BUCKETS = ["sessions", "customSets", "addedEx", "skipped", "swaps", "customWorkouts"];
+// planSwaps - запомненные замены по дням (src/features/liveedit.jsx): это часть плана, поэтому они идут в файл копии
+const BACKUP_BUCKETS = ["sessions", "customSets", "addedEx", "skipped", "swaps", "customWorkouts", "planSwaps"];
 
 function buildBackup(d) {
   return JSON.stringify({ app: BACKUP_APP, version: 1, exportedAt: new Date().toISOString(), data: d });
@@ -1943,6 +1944,10 @@ Object.keys(EXTRA_EXERCISES).forEach(function (k) { if (!ALTERNATIVES[k]) ALTERN
 // "СОСТАВ" над списком открывает обзор: порядок, пропущенные, добавить, вернуть план.
 // Все правки действуют только на текущую тренировку (ключ сессии), в следующий раз список снова по плану.
 //
+// Замену можно ЗАПОМНИТЬ ("ВСЕГДА" в окне выбора или "Запомнить замену" в окне упражнения): тогда она действует и в
+// следующих тренировках этого дня, пока её не отменят. Запомненные замены лежат в planSwaps[день][id слота] и не
+// привязаны к дате; правка на сегодня (swaps) всегда важнее запомненной.
+//
 // Данные: к прежним sessions, swaps, skipped, addedEx, customSets добавлен order[ключ сессии] - id слотов в порядке
 // показа. Слот - упражнение дня (или добавленное); в слоте может стоять замена (swaps), подходы записываются под
 // id того упражнения, которое реально делается.
@@ -1967,15 +1972,25 @@ function lvPut(data, bucket, key, value) {
   return out;
 }
 
-// Снимок всего, что относится к одной тренировке, и возврат к нему (для "ОТМЕНИТЬ")
+// День тренировки из ключа сессии "2026-11-23_fullbody_a" -> "fullbody_a" (в дате подчёркиваний нет)
+function lvDayOf(key) { return key.slice(key.indexOf("_") + 1); }
+
+// Запомненные замены дня: { id слота: id упражнения }
+function lvPlan(data, key) {
+  return lvGet(data, "planSwaps", lvDayOf(key), {});
+}
+
+// Снимок всего, что относится к одной тренировке (и запомненных замен её дня), и возврат к нему (для "ОТМЕНИТЬ")
 function lvSnapshot(data, key) {
   const parts = {};
   LV_PARTS.forEach(function (b) { parts[b] = data[b] && data[b][key] !== undefined ? lvClone(data[b][key]) : null; });
-  return { key: key, parts: parts };
+  const plan = lvGet(data, "planSwaps", lvDayOf(key), null);
+  return { key: key, parts: parts, plan: plan ? lvClone(plan) : null };
 }
 function lvRestore(data, snap) {
   let out = data;
   LV_PARTS.forEach(function (b) { out = lvPut(out, b, snap.key, snap.parts[b] === null ? null : lvClone(snap.parts[b])); });
+  if (snap.plan || lvGet(out, "planSwaps", lvDayOf(snap.key), null)) out = lvPut(out, "planSwaps", lvDayOf(snap.key), snap.plan ? lvClone(snap.plan) : null);
   return out;
 }
 
@@ -2011,21 +2026,34 @@ function lvIsSkipped(data, key, slotId) {
   return lvGet(data, "skipped", key, []).indexOf(slotId) >= 0;
 }
 
-// Что сейчас в слоте: само упражнение или его замена, сколько подходов запланировано и сколько отмечено
+// id упражнения, которое стоит в слоте ВМЕСТО исходного, или null. Замена на сегодня важнее запомненной;
+// запись "слот -> он сам" в swaps значит "сегодня исходное, хотя замена запомнена". У добавленных сегодня
+// упражнений запомненных замен нет (slot - запись слота, если она под рукой).
+function lvSwapOf(data, key, slotId, slot) {
+  const today = lvGet(data, "swaps", key, {})[slotId];
+  if (today) return today === slotId ? null : today;
+  if (slot && slot._added) return null;
+  const kept = lvPlan(data, key)[slotId];
+  return kept && kept !== slotId ? kept : null;
+}
+
+// Что сейчас в слоте: само упражнение или его замена, сколько подходов запланировано и сколько отмечено.
+// plan - id запомненной замены слота (или null), kept - она сейчас и стоит.
 function lvSlot(data, key, base, slotId) {
   const list = lvList(data, key, base);
   let slot = null;
   list.forEach(function (e) { if (e.id === slotId) slot = e; });
   if (!slot) return null;
   let ex = slot;
-  const sw = lvGet(data, "swaps", key, {})[slotId];
-  if (sw && sw !== slotId) { const alt = lvFind(sw); if (alt) ex = alt; }
+  const sw = lvSwapOf(data, key, slotId, slot);
+  if (sw) { const alt = lvFind(sw); if (alt) ex = alt; }
+  const plan = slot._added ? null : (lvPlan(data, key)[slotId] || null);
   const custom = lvGet(data, "customSets", key, {})[slotId];
   const n = custom !== undefined ? custom : (ex.sets || 3);
   const sets = lvGet(data, "sessions", key, {})[ex.id] || {};
   let done = 0;
   for (let i = 0; i < n; i++) if (sets[i] && sets[i].done) done++;
-  return { slot: slot, ex: ex, swapped: ex !== slot, added: !!slot._added, n: n, done: done, skipped: lvIsSkipped(data, key, slotId) };
+  return { slot: slot, ex: ex, swapped: ex !== slot, added: !!slot._added, n: n, done: done, skipped: lvIsSkipped(data, key, slotId), plan: plan, kept: !!plan && plan === ex.id };
 }
 
 // Какие id уже заняты в тренировке (слоты и стоящие в них замены): второй раз то же упражнение не берём,
@@ -2094,19 +2122,33 @@ function lvToEnd(data, key, base, slotId) {
 }
 
 // ---- Замена ----
-// rec - упражнение из пула. Возвращает { data, mode }:
+// Запись в swaps на сегодня (exId === slotId - "сегодня исходное"; null - убрать запись)
+function lvSetSwap(data, key, slotId, exId) {
+  const sw = lvClone(lvGet(data, "swaps", key, {}));
+  if (exId === null) delete sw[slotId]; else sw[slotId] = exId;
+  return lvPut(data, "swaps", key, sw);
+}
+// Запомненная замена слота (null - забыть)
+function lvSetPlan(data, key, slotId, exId) {
+  const plan = lvClone(lvPlan(data, key));
+  if (exId === null) delete plan[slotId]; else plan[slotId] = exId;
+  return lvPut(data, "planSwaps", lvDayOf(key), Object.keys(plan).length ? plan : null);
+}
+
+// rec - упражнение из пула; always - запомнить замену на следующие тренировки (у добавленных сегодня не действует).
+// Возвращает { data, mode }:
 //   "swap"  - в слоте теперь другое упражнение (подходов ещё не было);
 //   "split" - подходы уже были: слот закончен на сделанных, замена добавлена следом на оставшиеся (kept - сколько сделано);
 //   "none"  - ничего не изменилось (то же упражнение, или оно уже есть в тренировке).
-function lvReplace(data, key, base, slotId, rec) {
+function lvReplace(data, key, base, slotId, rec, always) {
   const s = lvSlot(data, key, base, slotId);
   if (!s || !rec || rec.id === s.ex.id) return { data: data, mode: "none" };
+  const keep = !!always && !s.added;
   if (s.done === 0) {
-    // возврат исходного упражнения слота
+    // возврат исходного упражнения слота: навсегда (замена забыта) или только сегодня (запомненная остаётся)
     if (rec.id === slotId) {
-      const sw0 = lvClone(lvGet(data, "swaps", key, {}));
-      delete sw0[slotId];
-      return { data: lvPut(data, "swaps", key, sw0), mode: "swap" };
+      if (keep) return { data: lvSetSwap(lvSetPlan(data, key, slotId, null), key, slotId, null), mode: "swap" };
+      return { data: lvSetSwap(data, key, slotId, s.plan ? slotId : null), mode: "swap" };
     }
     if (lvBusy(data, key, base)[rec.id]) return { data: data, mode: "none" };
     if (s.added) {
@@ -2117,9 +2159,8 @@ function lvReplace(data, key, base, slotId, rec) {
       out = lvSetCustom(out, key, slotId, null);
       return { data: lvPut(out, "order", key, ids), mode: "swap" };
     }
-    const sw = lvClone(lvGet(data, "swaps", key, {}));
-    sw[slotId] = rec.id;
-    return { data: lvPut(data, "swaps", key, sw), mode: "swap" };
+    const swapped = lvSetSwap(data, key, slotId, rec.id);
+    return { data: keep ? lvSetPlan(swapped, key, slotId, rec.id) : swapped, mode: "swap" };
   }
   if (lvBusy(data, key, base)[rec.id]) return { data: data, mode: "none" };
   // подходы уже были: оставляем сделанное, замену ставим следом
@@ -2129,7 +2170,22 @@ function lvReplace(data, key, base, slotId, rec) {
   const left = s.n - c.done;
   out = lvPut(out, "addedEx", key, lvGet(out, "addedEx", key, []).concat([lvAddedRec(rec, left > 0 ? left : rec.sets)]));
   ids.splice(ids.indexOf(slotId) + 1, 0, rec.id);
-  return { data: lvPut(out, "order", key, ids), mode: "split", kept: c.done };
+  out = lvPut(out, "order", key, ids);
+  // запомнить: со следующей тренировки в слоте будет замена, а сегодня слот остаётся с тем, что уже начато
+  if (keep) out = lvSetPlan(lvSetSwap(out, key, slotId, s.ex.id), key, slotId, rec.id);
+  return { data: out, mode: "split", kept: c.done };
+}
+
+// Запомнить ту замену, что стоит в слоте сейчас; забыть запомненную (сегодня в слоте остаётся то, что стоит)
+function lvKeep(data, key, base, slotId) {
+  const s = lvSlot(data, key, base, slotId);
+  if (!s || s.added || !s.swapped || s.kept) return data;
+  return lvSetPlan(lvSetSwap(data, key, slotId, s.ex.id), key, slotId, s.ex.id);
+}
+function lvForget(data, key, base, slotId) {
+  const s = lvSlot(data, key, base, slotId);
+  if (!s || !s.plan) return data;
+  return lvSetPlan(lvSetSwap(data, key, slotId, s.swapped ? s.ex.id : null), key, slotId, null);
 }
 
 // ---- Пропуск ----
@@ -2224,7 +2280,7 @@ function lvCandidates(all, s, slotId, busy, q, showAll) {
   used[cur] = true;
   // исходное упражнение слота, если сейчас стоит замена и подходов ещё нет
   if (s.swapped && s.done === 0) {
-    sections.push({ title: "ПО ПЛАНУ", items: [{ ex: s.slot, busy: false, orig: true }] });
+    sections.push({ title: "ИСХОДНОЕ УПРАЖНЕНИЕ", items: [{ ex: s.slot, busy: false, orig: true }] });
     used[slotId] = true;
   }
   const recIds = {};
@@ -2279,6 +2335,8 @@ const LV_ICONS = {
   check: ["M5 12l5 5L20 7"],
   trash: ["M4 7h16", "M9 7V4h6v3", "M6 7l1 13h10l1-13"],
   undo: ["M9 14L4 9l5-5", "M4 9h10a6 6 0 010 12h-3"],
+  pin: ["M6 4h12v17l-6-4-6 4z"],
+  unpin: ["M6 4h12v17l-6-4-6 4z", "M4 3l16 18"],
   list: ["M8 6h13", "M8 12h13", "M8 18h13", "M3 6h.01", "M3 12h.01", "M3 18h.01"],
   plus: ["M12 5v14", "M5 12h14"],
   close: ["M6 6l12 12", "M18 6L6 18"],
@@ -2404,14 +2462,27 @@ function LvMenu(props) {
         <div style={{ fontSize: 17, fontWeight: 800, color: "var(--tx-fff)", lineHeight: 1.3, marginBottom: 6 }}>{s.ex.name}</div>
         <div style={{ fontSize: 11, color: "var(--tx-777)", lineHeight: 1.5 }}>
           {s.done === 0 ? "Ещё не начато" : s.done >= s.n ? "Все подходы сделаны" : "Сделано подходов: " + s.done + " из " + s.n}
-          {s.swapped ? "  |  по плану: " + s.slot.name : ""}
+          {s.swapped ? "  |  вместо: " + s.slot.name : ""}
           {s.added ? "  |  добавлено сегодня" : ""}
         </div>
+        {s.plan && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: props.ink(props.color), lineHeight: 1.5, marginTop: 6 }}>
+            <LvIcon name="pin" size={14} />
+            <span>{s.kept ? "Замена запомнена: так будет и в следующих тренировках" : "Запомнена замена: " + props.planName}</span>
+          </div>
+        )}
       </div>
 
       {s.done < s.n && (
         <LvAction icon="swap" title="Заменить" onClick={props.onReplace}
-          sub={s.done > 0 ? "Сделанное останется (" + s.done + " " + lvWord(s.done, LV_SETS) + "), замена встанет следом: " + left + " " + lvWord(left, LV_SETS) : "Другое упражнение на сегодня"} />
+          sub={s.done > 0 ? "Сделанное останется (" + s.done + " " + lvWord(s.done, LV_SETS) + "), замена встанет следом: " + left + " " + lvWord(left, LV_SETS) : s.added ? "Другое упражнение на сегодня" : "Другое упражнение: на сегодня или насовсем"} />
+      )}
+
+      {s.swapped && !s.kept && !s.added && (
+        <LvAction icon="pin" title="Запомнить замену" sub={"В следующих тренировках здесь будет: " + s.ex.name} onClick={props.onKeep} />
+      )}
+      {s.plan && (
+        <LvAction icon="unpin" title="Больше не заменять" sub={"Со следующей тренировки вернётся: " + s.slot.name + ". Сегодня ничего не изменится"} onClick={props.onForget} />
       )}
 
       <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-666)", margin: "10px 4px 8px" }}>ПОРЯДОК</div>
@@ -2439,13 +2510,14 @@ function LvMenu(props) {
 function LvPicker(props) {
   const [q, setQ] = useState("");
   const [showAll, setShowAll] = useState(false);
+  const [always, setAlways] = useState(false);
   const s = props.slot;
   const res = lvCandidates(props.all, s, props.slotId, props.busy, q, showAll);
   return (
     <LvSheet label="Замена упражнения" onClose={props.onClose}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12 }}>
         <div style={{ flex: 1, minWidth: 0, padding: "0 4px" }}>
-          <div style={{ fontSize: 9, letterSpacing: 3, color: "var(--tx-666)", marginBottom: 6 }}>ЗАМЕНА НА СЕГОДНЯ</div>
+          <div style={{ fontSize: 9, letterSpacing: 3, color: "var(--tx-666)", marginBottom: 6 }}>ЗАМЕНА</div>
           <div style={{ fontSize: 15, fontWeight: 800, color: "var(--tx-fff)", lineHeight: 1.3 }}>{s.ex.name}</div>
           {s.done > 0 && <div style={{ fontSize: 11, color: "var(--tx-777)", lineHeight: 1.5, marginTop: 4 }}>Сделанные подходы останутся, новое упражнение встанет следом</div>}
         </div>
@@ -2454,6 +2526,25 @@ function LvPicker(props) {
           <LvIcon name="close" size={18} />
         </button>
       </div>
+      {!s.added && (
+        <div style={{ marginBottom: 12 }}>
+          <div role="group" aria-label="На какой срок заменить" style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+            {[[false, "ТОЛЬКО СЕГОДНЯ"], [true, "ВСЕГДА"]].map(m => {
+              const sel = always === m[0];
+              return (
+                <button key={m[1]} onClick={() => setAlways(m[0])} aria-pressed={sel}
+                  style={{ flex: 1, minHeight: 44, borderRadius: 11, border: `1px solid ${sel ? props.color + "70" : "var(--bd-2a2a2a)"}`, background: sel ? `${props.color}18` : "var(--bg-0c0c0f)", color: sel ? props.ink(props.color) : "var(--tx-777)", fontSize: 10, letterSpacing: 1, fontWeight: sel ? 800 : 400, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  {m[0] && <LvIcon name="pin" size={14} />}
+                  {m[1]}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: 11, color: "var(--tx-777)", lineHeight: 1.45, padding: "0 4px" }}>
+            {always ? "Замена запомнится: в следующих тренировках этого дня будет выбранное упражнение" : s.plan ? "Только эта тренировка. В следующий раз будет запомненная замена" : "Только эта тренировка. В следующий раз упражнение вернётся"}
+          </div>
+        </div>
+      )}
       <input value={q} onChange={e => setQ(e.target.value)} placeholder="Поиск: название или группа"
         style={{ width: "100%", background: "var(--bg-0c0c0f)", border: "1px solid var(--bd-2a2a2a)", borderRadius: 12, padding: "13px 14px", color: "var(--tx-fff)", fontSize: 16, fontFamily: "inherit", outline: "none", marginBottom: 14, boxSizing: "border-box" }} />
       {res.sections.map(sec => (
@@ -2461,7 +2552,7 @@ function LvPicker(props) {
           <div style={{ fontSize: 9, letterSpacing: 2, color: "var(--tx-888)", margin: "0 4px 8px" }}>{sec.title}</div>
           {sec.items.length === 0 && <div style={{ fontSize: 12, color: "var(--tx-666)", padding: "8px 4px" }}>Ничего не нашлось</div>}
           {sec.items.map(it => (
-            <button key={it.ex.id} className="lv-row" disabled={it.busy} onClick={() => props.onPick(it.ex)}
+            <button key={it.ex.id} className="lv-row" disabled={it.busy} onClick={() => props.onPick(it.ex, always)}
               style={{ width: "100%", minHeight: 56, display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", marginBottom: 6, borderRadius: 12, border: `1px solid ${it.orig ? props.color + "60" : "var(--bd-1a1a22)"}`, background: it.orig ? `${props.color}12` : "var(--bg-0f0f12)", opacity: it.busy ? 0.45 : 1, cursor: it.busy ? "default" : "pointer", fontFamily: "inherit", textAlign: "left" }}>
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ display: "block", fontSize: 13, fontWeight: 600, color: it.busy ? "var(--tx-666)" : "var(--tx-fff)", lineHeight: 1.35 }}>{it.ex.name}</span>
@@ -2514,7 +2605,7 @@ function LvOverview(props) {
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ display: "block", fontSize: 13, fontWeight: 600, color: "var(--tx-fff)", lineHeight: 1.3 }}>{s.ex.name}</span>
                 <span style={{ display: "block", fontSize: 10, color: "var(--tx-666)", marginTop: 2 }}>
-                  {s.done} / {s.n}{s.swapped ? "  |  замена" : ""}{s.added ? "  |  добавлено" : ""}
+                  {s.done} / {s.n}{s.kept ? "  |  замена запомнена" : s.swapped ? "  |  замена" : ""}{s.added ? "  |  добавлено" : ""}
                 </span>
               </span>
             </button>
@@ -2634,6 +2725,9 @@ function LvLayer(props) {
   if (st && st.sheet === "menu" && s) {
     sheet = (
       <LvMenu slot={s} can={lvCanMove(data, key, base, st.id)} no={shownIds.indexOf(st.id) + 1} total={shownIds.length} onClose={close}
+        color={props.color} ink={props.ink} planName={s.plan && lvFind(s.plan) ? lvFind(s.plan).name : ""}
+        onKeep={() => { act("Замена запомнена: " + s.ex.name, d => lvKeep(d, key, base, st.id)); close(); }}
+        onForget={() => { act("Замена больше не запоминается", d => lvForget(d, key, base, st.id)); close(); }}
         onReplace={() => props.onState({ sheet: "pick", id: st.id })}
         onMove={dir => { if (act(dir < 0 ? "Перенесено выше" : "Перенесено ниже", d => lvMove(d, key, base, st.id, dir))) lvFlashCard(st.id, props.color, false); close(); }}
         onEnd={() => { act("Перенесено в конец", d => lvToEnd(d, key, base, st.id)); close(); }}
@@ -2647,10 +2741,13 @@ function LvLayer(props) {
   } else if (st && st.sheet === "pick" && s) {
     sheet = (
       <LvPicker slot={s} slotId={st.id} all={props.pool()} busy={lvBusy(data, key, base)} color={props.color} ink={props.ink} onClose={close}
-        onPick={rec => {
-          const r = lvReplace(data, key, base, st.id, rec);
-          const text = r.mode === "split" ? "Добавлено следом: " + rec.name : rec.id === st.id ? "Возвращено: " + rec.name : "Заменено на: " + rec.name;
-          if (act(text, d => lvReplace(d, key, base, st.id, rec).data)) lvFlashCard(r.mode === "split" || s.added ? rec.id : st.id, props.color, r.mode === "split");
+        onPick={(rec, always) => {
+          const r = lvReplace(data, key, base, st.id, rec, always);
+          const keep = always && !s.added;
+          const text = r.mode === "split" ? "Добавлено следом: " + rec.name + (keep ? ". Замена запомнена" : "")
+            : rec.id === st.id ? (keep ? "Возвращено насовсем: " : "Возвращено: ") + rec.name
+            : (keep ? "Заменено и запомнено: " : "Заменено на: ") + rec.name;
+          if (act(text, d => lvReplace(d, key, base, st.id, rec, always).data)) lvFlashCard(r.mode === "split" || s.added ? rec.id : st.id, props.color, r.mode === "split");
           close();
         }} />
     );
@@ -3445,13 +3542,14 @@ function App() {
 
   // Resolve exercise - may be swapped
   function getExercise(originalId) {
-    const swappedId = (data.swaps && data.swaps[sessionKey] && data.swaps[sessionKey][originalId]);
+    const prog = getSessionExercises().find(e => e.id === originalId);
+    // замена на сегодня или запомненная для этого дня (lvSwapOf, src/features/liveedit.jsx); без модуля - только на сегодня
+    const swappedId = typeof lvSwapOf === "function" ? lvSwapOf(data, sessionKey, originalId, prog) : (data.swaps && data.swaps[sessionKey] && data.swaps[sessionKey][originalId]);
     if (swappedId) {
       // замена на любое упражнение пула: lvFind лежит в src/features/liveedit.jsx; шов оставлен на случай сборки без модуля
       const alt = (ALTERNATIVES[originalId] || []).find(a => a.id === swappedId) || (typeof lvFind === "function" ? lvFind(swappedId) : null);
       if (alt) return { ...alt, _originalId: originalId, _isSwapped: true };
     }
-    const prog = getSessionExercises().find(e => e.id === originalId);
     return { ...prog, _originalId: originalId, _isSwapped: false };
   }
 
@@ -5742,7 +5840,10 @@ function App() {
 
       {addExModal && (() => {
         const all = getAllExercises();
-        const inSession = getSessionExercises().map(e => e.id);
+        // занято и то упражнение, что стоит в слоте заменой (lvBusy, src/features/liveedit.jsx): иначе два слота писали бы подходы в одно место
+        const inSession = typeof lvBusy === "function"
+          ? Object.keys(lvBusy(data, sessionKey, (getWorkout(activeDay) || PROGRAM.push).exercises || []))
+          : getSessionExercises().map(e => e.id);
         const q = addExSearch.trim().toLowerCase();
         const filtered = q
           ? all.filter(e => e.name.toLowerCase().includes(q) || (e._group || "").toLowerCase().includes(q))

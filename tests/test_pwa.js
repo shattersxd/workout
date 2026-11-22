@@ -5537,7 +5537,7 @@ const lvUi = lvFile.slice(lvMark);
 // Чистая часть модуля исполняется как есть на данных бета-страницы (программы, замены, 25 новых упражнений, сплит, фулбади)
 function loadLv() {
   const d = loadExercises(3);
-  const names = 'LV_PARTS, LV_UNDO_MS, lvGet, lvPut, lvSnapshot, lvRestore, lvFind, lvOrdered, lvList, lvIsSkipped, lvSlot, lvBusy, lvAddedRec, lvCompact, lvIds, lvCanMove, lvMove, lvToEnd, lvReplace, lvSkip, lvUnskip, lvChanged, lvReset, lvNorm, lvWord, lvCandidates, LV_SETS, LV_EXES';
+  const names = 'LV_PARTS, LV_UNDO_MS, lvGet, lvPut, lvSnapshot, lvRestore, lvFind, lvOrdered, lvList, lvIsSkipped, lvSlot, lvBusy, lvAddedRec, lvCompact, lvIds, lvCanMove, lvMove, lvToEnd, lvReplace, lvSkip, lvUnskip, lvSwapOf, lvDayOf, lvPlan, lvKeep, lvForget, lvChanged, lvReset, lvNorm, lvWord, lvCandidates, LV_SETS, LV_EXES';
   const api = new Function('PROGRAM', 'ALTERNATIVES', lvPure + '; return { ' + names + ' };')(d.PROGRAM, d.ALTERNATIVES);
   api.PROGRAM = d.PROGRAM; api.ALTERNATIVES = d.ALTERNATIVES;
   return api;
@@ -5797,15 +5797,132 @@ test('Live edit: the replacement picker - best options first, taken ones last, s
   const d2 = lv.lvReplace(d, LV_KEY, base, 'incline', lv.lvFind('pec_deck')).data;
   const s2 = lv.lvSlot(d2, LV_KEY, base, 'incline');
   const r2 = lv.lvCandidates(all, s2, 'incline', lv.lvBusy(d2, LV_KEY, base), '', false);
-  assert(r2.sections[0].title === 'ПО ПЛАНУ' && r2.sections[0].items[0].ex.id === 'incline' && r2.sections[0].items[0].orig && !r2.sections[0].items[0].busy, 'the original exercise is offered first');
+  assert(r2.sections[0].title === 'ИСХОДНОЕ УПРАЖНЕНИЕ' && r2.sections[0].items[0].ex.id === 'incline' && r2.sections[0].items[0].orig && !r2.sections[0].items[0].busy, 'the original exercise is offered first');
   assert(r2.sections[1].title === 'ЛУЧШИЕ ЗАМЕНЫ' && !flat(r2).includes('pec_deck'), 'then the alternatives; the current replacement is not offered');
-  // в замене уже есть подход: вернуть исходное нельзя, строки "ПО ПЛАНУ" нет
+  // в замене уже есть подход: вернуть исходное нельзя, раздела с исходным упражнением нет
   const d3 = lvData({ swaps: { [LV_KEY]: { incline: 'pec_deck' } }, sessions: { [LV_KEY]: { pec_deck: lvSets([50]) } } });
   const r3 = lv.lvCandidates(all, lv.lvSlot(d3, LV_KEY, base, 'incline'), 'incline', lv.lvBusy(d3, LV_KEY, base), '', true);
-  assert(r3.sections[0].title !== 'ПО ПЛАНУ' && [].concat.apply([], r3.sections.map(x => x.items)).find(i => i.ex.id === 'incline').busy, 'a started replacement: the original is shown as taken');
+  assert(r3.sections[0].title !== 'ИСХОДНОЕ УПРАЖНЕНИЕ' && [].concat.apply([], r3.sections.map(x => x.items)).find(i => i.ex.id === 'incline').busy, 'a started replacement: the original is shown as taken');
   // слова
   assert([1, 2, 5, 11, 21, 22, 25, 111].map(n => lv.lvWord(n, lv.LV_SETS)).join() === 'подход,подхода,подходов,подходов,подход,подхода,подходов,подходов', 'Russian plural forms');
   info(res.sections.map(x => x.title + ' (' + x.items.length + ')').join(', ') + ', +' + res.rest);
+});
+
+test('Remembered replacement: "always" keeps the swap for the next workouts of the same day, today\'s edit always wins', () => {
+  const lv = loadLv();
+  const base = lv.PROGRAM.push.exercises;
+  const NEXT = '2026-11-30_push';                      // та же тренировка через неделю
+  const d = lvData();
+  // только сегодня: в плане ничего не остаётся
+  const once = lv.lvReplace(d, LV_KEY, base, 'incline', lv.lvFind('incline_smith'), false);
+  assert(once.mode === 'swap' && !once.data.planSwaps && lv.lvSlot(once.data, NEXT, base, 'incline').ex.id === 'incline', 'a today-only swap does not reach the next workout');
+  // всегда
+  const r = lv.lvReplace(d, LV_KEY, base, 'incline', lv.lvFind('incline_smith'), true);
+  assert(r.mode === 'swap' && JSON.stringify(r.data.planSwaps) === '{"push":{"incline":"incline_smith"}}' && r.data.swaps[LV_KEY].incline === 'incline_smith', 'remembered for the day "push" and applied today');
+  const today = lv.lvSlot(r.data, LV_KEY, base, 'incline'), next = lv.lvSlot(r.data, NEXT, base, 'incline');
+  assert(today.ex.id === 'incline_smith' && today.kept && today.plan === 'incline_smith', 'today: the replacement, marked as remembered');
+  assert(next.ex.id === 'incline_smith' && next.swapped && next.kept && next.n === lv.lvFind('incline_smith').sets, 'next workout: the replacement stands in the slot without any edit of that day');
+  assert(!lv.lvChanged(r.data, NEXT), 'and the next workout is not marked as changed: this IS its plan now');
+  assert(lv.lvSlot(r.data, '2026-11-30_pull', lv.PROGRAM.pull.exercises, 'pullups').ex.id === 'pullups' && lv.lvSlot(r.data, '2026-11-30_fullbody_a', lv.PROGRAM.fullbody_a.exercises, 'fb_bench').plan === null, 'other days are not affected');
+  // ключ дня с подчёркиванием
+  const fb = lv.lvReplace(d, '2026-11-23_fullbody_a', lv.PROGRAM.fullbody_a.exercises, 'fb_bench', lv.lvFind('pec_deck'), true);
+  assert(JSON.stringify(fb.data.planSwaps) === '{"fullbody_a":{"fb_bench":"pec_deck"}}' && lv.lvDayOf('2026-11-23_fullbody_a') === 'fullbody_a' && lv.lvDayOf(LV_KEY) === 'push', 'the day key may contain underscores');
+  // приоритет: правка на сегодня важнее запомненной
+  const other = lv.lvReplace(r.data, NEXT, base, 'incline', lv.lvFind('pec_deck'), false);
+  assert(lv.lvSlot(other.data, NEXT, base, 'incline').ex.id === 'pec_deck' && !lv.lvSlot(other.data, NEXT, base, 'incline').kept && other.data.planSwaps.push.incline === 'incline_smith', 'another exercise just for one day leaves the remembered one intact');
+  assert(lv.lvSwapOf(other.data, NEXT, 'incline') === 'pec_deck' && lv.lvSwapOf(r.data, NEXT, 'incline') === 'incline_smith' && lv.lvSwapOf(d, NEXT, 'incline') === null, 'lvSwapOf: today, then remembered, then nothing');
+  // исходное только сегодня: запомненная замена остаётся на будущее
+  const orig = lv.lvReplace(r.data, NEXT, base, 'incline', lv.lvFind('incline'), false);
+  assert(orig.mode === 'swap' && orig.data.swaps[NEXT].incline === 'incline' && lv.lvSlot(orig.data, NEXT, base, 'incline').ex.id === 'incline' && !lv.lvSlot(orig.data, NEXT, base, 'incline').swapped, 'the original for one day is an explicit mark');
+  assert(lv.lvSlot(orig.data, NEXT, base, 'incline').plan === 'incline_smith' && lv.lvSlot(orig.data, '2026-12-07_push', base, 'incline').ex.id === 'incline_smith', 'and the week after the remembered replacement is back');
+  assert(lv.lvSwapOf(orig.data, NEXT, 'incline') === null, 'lvSwapOf treats "slot -> itself" as no replacement');
+  // исходное насовсем
+  const forever = lv.lvReplace(r.data, NEXT, base, 'incline', lv.lvFind('incline'), true);
+  assert(forever.mode === 'swap' && !(forever.data.planSwaps || {}).push && !('incline' in (forever.data.swaps[NEXT] || {})) && lv.lvSlot(forever.data, '2026-12-07_push', base, 'incline').ex.id === 'incline', 'the original for good: the remembered replacement is gone');
+  // добавленное сегодня упражнение не запоминается и чужую запомненную замену не подхватывает
+  const stale = lvData({ planSwaps: { push: { hammer: 'preacher_curl' } }, addedEx: { [LV_KEY]: [lv.lvAddedRec(lv.lvFind('hammer'))] } });
+  assert(lv.lvSlot(stale, LV_KEY, base, 'hammer').ex.id === 'hammer' && lv.lvSlot(stale, LV_KEY, base, 'hammer').plan === null && lv.lvSwapOf(stale, LV_KEY, 'hammer', { id: 'hammer', _added: true }) === null, 'a remembered swap of a slot never applies to an exercise added today');
+  const addedAlways = lv.lvReplace(stale, LV_KEY, base, 'hammer', lv.lvFind('rope_curl'), true);
+  assert(addedAlways.mode === 'swap' && JSON.stringify(addedAlways.data.planSwaps) === '{"push":{"hammer":"preacher_curl"}}', '"always" on an added exercise remembers nothing');
+  info('today-only / always / original today / original for good; day keys: push, fullbody_a');
+});
+
+test('Remembered replacement: a started exercise, keep and forget, undo and "return the plan"', () => {
+  const lv = loadLv();
+  const base = lv.PROGRAM.push.exercises;
+  const NEXT = '2026-11-30_push';
+  // начатое упражнение + "всегда": сегодня сделанное остаётся в слоте, замена идёт следом, с следующего раза она в слоте
+  const started = lvData({ sessions: { [LV_KEY]: { dips: { 0: { weight: '20', done: true }, 2: { weight: '25', done: true } } } } });
+  const before = lvDetail(lv, started, base);
+  const r = lv.lvReplace(started, LV_KEY, base, 'dips', lv.lvFind('dips_machine'), true);
+  assert(r.mode === 'split' && r.kept === 2 && r.data.planSwaps.push.dips === 'dips_machine', 'split today, remembered for later');
+  assert(r.data.swaps[LV_KEY].dips === 'dips' && lv.lvSlot(r.data, LV_KEY, base, 'dips').ex.id === 'dips' && lv.lvSlot(r.data, LV_KEY, base, 'dips').done === 2, 'today the slot stays with what was started (explicit mark), nothing is lost');
+  const after = lvDetail(lv, r.data, base);
+  assert(lvDoneOf(after) === lvDoneOf(before) && new Set(after.map(x => x.id)).size === after.length && after.filter(x => x.id === 'dips_machine').length === 1, 'journal record: same done sets, the replacement appears exactly once today');
+  assert(lv.lvSlot(r.data, NEXT, base, 'dips').ex.id === 'dips_machine' && !lv.lvGet(r.data, 'addedEx', NEXT, null), 'next workout: the replacement stands in the slot itself, nothing is added');
+  // запомнить то, что стоит сейчас
+  const sw = lv.lvReplace(lvData(), LV_KEY, base, 'bench', lv.lvFind('bench_db'), false).data;
+  const kept = lv.lvKeep(sw, LV_KEY, base, 'bench');
+  assert(kept.planSwaps.push.bench === 'bench_db' && lv.lvSlot(kept, NEXT, base, 'bench').ex.id === 'bench_db' && lv.lvSlot(kept, LV_KEY, base, 'bench').kept, 'keep: the current replacement becomes the remembered one');
+  assert(lv.lvKeep(kept, LV_KEY, base, 'bench') === kept, 'keeping twice changes nothing');
+  const plain = lvData();
+  assert(lv.lvKeep(plain, LV_KEY, base, 'bench') === plain && lv.lvKeep(plain, LV_KEY, base, 'nope') === plain && lv.lvForget(plain, LV_KEY, base, 'bench') === plain, 'nothing to keep or forget - the same object back');
+  // забыть: сегодня остаётся то, что стоит; с следующего раза исходное
+  const forgot = lv.lvForget(kept, LV_KEY, base, 'bench');
+  assert(!(forgot.planSwaps || {}).push && lv.lvSlot(forgot, LV_KEY, base, 'bench').ex.id === 'bench_db' && lv.lvSlot(forgot, NEXT, base, 'bench').ex.id === 'bench', 'forget: today unchanged, next time the original');
+  // забыть в день, когда стоит исходное "только сегодня": лишней отметки не остаётся
+  const origToday = lv.lvReplace(lvFreeze(kept), NEXT, base, 'bench', lv.lvFind('bench'), false).data;
+  const forgot2 = lv.lvForget(origToday, NEXT, base, 'bench');
+  assert(!('bench' in forgot2.swaps[NEXT]) && lv.lvSlot(forgot2, NEXT, base, 'bench').ex.id === 'bench' && !lv.lvSlot(forgot2, NEXT, base, 'bench').plan, 'forget while the original stands: the slot is simply back to the program');
+  // отмена возвращает и запомненное
+  [['always', d => lv.lvReplace(d, LV_KEY, base, 'incline', lv.lvFind('incline_smith'), true).data, lvData()],
+   ['keep', d => lv.lvKeep(d, LV_KEY, base, 'bench'), lvFreeze(sw)],
+   ['forget', d => lv.lvForget(d, LV_KEY, base, 'bench'), lvFreeze(kept)],
+   ['original for good', d => lv.lvReplace(d, LV_KEY, base, 'bench', lv.lvFind('bench'), true).data, lvFreeze(kept)]].forEach(([name, fn, start]) => {
+    const snap = lv.lvSnapshot(start, LV_KEY);
+    const next = fn(start);
+    assert(JSON.stringify(next.planSwaps || {}) !== JSON.stringify(start.planSwaps || {}), name + ' must change what is remembered');
+    const undone = lv.lvRestore(next, snap);
+    assert(JSON.stringify((undone.planSwaps || {}).push || null) === JSON.stringify((start.planSwaps || {}).push || null) && JSON.stringify(undone.swaps[LV_KEY] || null) === JSON.stringify(start.swaps[LV_KEY] || null), name + ': undo does not return what was remembered');
+  });
+  const otherDay = lvData({ planSwaps: { pull: { pullups: 'chinup' } } });
+  const undoneOther = lv.lvRestore(lv.lvReplace(otherDay, LV_KEY, base, 'incline', lv.lvFind('incline_smith'), true).data, lv.lvSnapshot(otherDay, LV_KEY));
+  assert(JSON.stringify(undoneOther.planSwaps) === '{"pull":{"pullups":"chinup"}}', 'undo never touches what is remembered for another day');
+  // "вернуть план": правки на сегодня уходят, запомненное остаётся и снова действует
+  const edited = lv.lvReplace(lvFreeze(kept), NEXT, base, 'bench', lv.lvFind('pec_deck'), false).data;
+  const reset = lv.lvReset(edited, NEXT, base);
+  assert(reset.planSwaps.push.bench === 'bench_db' && lv.lvSlot(reset, NEXT, base, 'bench').ex.id === 'bench_db' && !lv.lvChanged(reset, NEXT), 'the plan includes remembered replacements');
+  // запомненная замена занята: её нельзя выбрать во второй слот и добавить отдельно
+  assert(lv.lvBusy(kept, NEXT, base).bench_db === true && lv.lvReplace(kept, NEXT, base, 'incline', lv.lvFind('bench_db'), false).mode === 'none', 'a remembered replacement is taken in every workout of that day');
+  info('split + always, keep, forget, undo, reset, busy');
+});
+
+test('Remembered replacement: travels in the backup file, wired into the app', () => {
+  const { buildBackup, parseBackup, mergeBackup } = loadBackupFns();
+  const withPlan = { history: { push: [{ ts: 5, date: '2026-11-20', workout: 'push', name: 'A', done: 1, total: 1 }] }, planSwaps: { push: { incline: 'incline_smith' } } };
+  const parsed = parseBackup(buildBackup(withPlan));
+  assert(!parsed.error && JSON.stringify(parsed.data.planSwaps) === '{"push":{"incline":"incline_smith"}}', 'the file carries remembered replacements');
+  const old = parseBackup(JSON.stringify({ history: { push: [] } }));
+  assert(!old.error && JSON.stringify(old.data.planSwaps) === '{}' && JSON.stringify(parseBackup(JSON.stringify({ history: {}, planSwaps: ['x'] })).data.planSwaps) === '{}', 'an old file without them (or with garbage) loads cleanly');
+  const empty = { history: {}, sessions: {}, swaps: {}, skipped: {}, customWorkouts: {}, customSets: {}, addedEx: {} };
+  assert(JSON.stringify(mergeBackup(empty, parsed.data).data.planSwaps) === '{"push":{"incline":"incline_smith"}}', 'loading into a device without them brings them in');
+  const mine = Object.assign({}, empty, { planSwaps: { push: { incline: 'pec_deck' }, pull: { pullups: 'chinup' } } });
+  assert(JSON.stringify(mergeBackup(mine, parsed.data).data.planSwaps) === JSON.stringify(mine.planSwaps), 'loading only adds: what is remembered here for a day is not overwritten');
+  assert(/const BACKUP_BUCKETS = \[[^\]]*"planSwaps"\];/.test(src) && !/\["sessions"[^\]]*"planSwaps"[^\]]*\]\.forEach\(function \(bucket\)/.test(src), 'in the backup, but never pruned by date (its keys are days, not dates)');
+  // швы
+  assert(src.includes('const swappedId = typeof lvSwapOf === "function" ? lvSwapOf(data, sessionKey, originalId, prog) : (data.swaps && data.swaps[sessionKey] && data.swaps[sessionKey][originalId]);'), 'the card resolves the replacement through lvSwapOf, without the module - today only');
+  assert(src.indexOf('const prog = getSessionExercises().find(e => e.id === originalId);') < src.indexOf('const swappedId = typeof lvSwapOf'), 'the slot record is known before the swap is resolved (added exercises have no remembered swaps)');
+  assert(/const inSession = typeof lvBusy === "function"\s*\? Object\.keys\(lvBusy\(data, sessionKey, /.test(src), 'the add window treats a replacement standing in a slot as taken');
+  // окна
+  const picker = lvUi.slice(lvUi.indexOf('function LvPicker('), lvUi.indexOf('function LvOverview('));
+  assert(picker.includes('const [always, setAlways] = useState(false);') && picker.includes('[[false, "ТОЛЬКО СЕГОДНЯ"], [true, "ВСЕГДА"]]') && picker.includes('aria-pressed={sel}'), 'the picker asks "today only / always", today only by default');
+  assert(/\{!s\.added && \(\s*<div style=\{\{ marginBottom: 12 \}\}>/.test(picker) && picker.includes('onClick={() => props.onPick(it.ex, always)}'), 'the choice is hidden for exercises added today and travels with the pick');
+  const menu = lvUi.slice(lvUi.indexOf('function LvMenu('), lvUi.indexOf('function LvPicker('));
+  assert(/\{s\.swapped && !s\.kept && !s\.added && \(\s*<LvAction icon="pin" title="Запомнить замену"/.test(menu) && /\{s\.plan && \(\s*<LvAction icon="unpin" title="Больше не заменять"/.test(menu), 'the exercise window offers to remember the current replacement and to stop replacing');
+  assert(menu.includes('"Замена запомнена: так будет и в следующих тренировках"') && menu.includes('"Запомнена замена: " + props.planName'), 'and says what is remembered');
+  const layer = lvUi.slice(lvUi.indexOf('function LvLayer('));
+  ['act("Замена запомнена: " + s.ex.name, d => lvKeep(d, key, base, st.id))', 'act("Замена больше не запоминается", d => lvForget(d, key, base, st.id))', 'lvReplace(d, key, base, st.id, rec, always).data', '"Заменено и запомнено: "', '"Возвращено насовсем: "'].forEach(t => assert(layer.includes(t), 'layer: ' + t));
+  info('backup: carried, old files load, only adds; picker and menu wired');
 });
 
 test('Live edit seams: every use in the main code is guarded by typeof; both pages carry the module, the old controls remain as a fallback', () => {
@@ -5899,7 +6016,7 @@ test('Live edit windows: one menu per card, undo after every action, nothing blo
   assert(/useEffect\(function \(\) \{ setUndo\(null\); setMoved\(null\); if \(st\) props\.onState\(null\); \}, \[key\]\);/.test(layer), 'another day closes the windows and the undo');
   assert(layer.includes('useEffect(function () { if (st) setUndo(null); }, [st ? st.sheet + "|" + st.id : ""]);'), 'an open window is never covered by the undo bar');
   ['"Пропущено: "', '"Убрано: "', '"Закончено на "', '"Добавлено следом: "', '"Заменено на: "', '"Возвращено: "', '"Перенесено выше"', '"Перенесено ниже"', '"Перенесено в конец"', '"План возвращён"'].forEach(t => assert(layer.includes(t), 'undo text ' + t));
-  assert((layer.match(/\bact\(/g) || []).length === 5, 'move, to the end, skip, replace and reset go through act(): ' + (layer.match(/\bact\(/g) || []).length);
+  assert((layer.match(/\bact\(/g) || []).length === 7, 'move, to the end, skip, replace, keep, forget and reset go through act(): ' + (layer.match(/\bact\(/g) || []).length);
   // обзор: стрелки двигают сразу, без закрытия окна; добавление открывает прежнее окно выбора
   assert(/onMove=\{\(id, dir\) => \{ props\.setData\(prev => lvMove\(prev, key, base, id, dir\)\); setMoved\(/.test(layer) && layer.includes('onAdd={() => { close(); props.onAdd(); }}'), 'overview: move in place, add through the existing window');
   assert(lvUi.includes('{lvChanged(data, key) && (') && lvUi.includes('ВЕРНУТЬ ПЛАН'), 'the reset button appears only when something was changed');

@@ -1301,7 +1301,8 @@ function todayKey() {
 // Формат: { app, version, exportedAt, data }. Загрузка только ДОБАВЛЯЕТ недостающее
 // (журнал по ts, сессии и пр. по ключу), локальные данные не перезаписываются.
 const BACKUP_APP = "workout-tracker";
-const BACKUP_BUCKETS = ["sessions", "customSets", "addedEx", "skipped", "swaps", "customWorkouts"];
+// planSwaps - запомненные замены по дням (src/features/liveedit.jsx): это часть плана, поэтому они идут в файл копии
+const BACKUP_BUCKETS = ["sessions", "customSets", "addedEx", "skipped", "swaps", "customWorkouts", "planSwaps"];
 
 function buildBackup(d) {
   return JSON.stringify({ app: BACKUP_APP, version: 1, exportedAt: new Date().toISOString(), data: d });
@@ -1879,13 +1880,14 @@ export default function App() {
 
   // Resolve exercise - may be swapped
   function getExercise(originalId) {
-    const swappedId = (data.swaps && data.swaps[sessionKey] && data.swaps[sessionKey][originalId]);
+    const prog = getSessionExercises().find(e => e.id === originalId);
+    // замена на сегодня или запомненная для этого дня (lvSwapOf, src/features/liveedit.jsx); без модуля - только на сегодня
+    const swappedId = typeof lvSwapOf === "function" ? lvSwapOf(data, sessionKey, originalId, prog) : (data.swaps && data.swaps[sessionKey] && data.swaps[sessionKey][originalId]);
     if (swappedId) {
       // замена на любое упражнение пула: lvFind лежит в src/features/liveedit.jsx; шов оставлен на случай сборки без модуля
       const alt = (ALTERNATIVES[originalId] || []).find(a => a.id === swappedId) || (typeof lvFind === "function" ? lvFind(swappedId) : null);
       if (alt) return { ...alt, _originalId: originalId, _isSwapped: true };
     }
-    const prog = getSessionExercises().find(e => e.id === originalId);
     return { ...prog, _originalId: originalId, _isSwapped: false };
   }
 
@@ -4176,7 +4178,10 @@ export default function App() {
 
       {addExModal && (() => {
         const all = getAllExercises();
-        const inSession = getSessionExercises().map(e => e.id);
+        // занято и то упражнение, что стоит в слоте заменой (lvBusy, src/features/liveedit.jsx): иначе два слота писали бы подходы в одно место
+        const inSession = typeof lvBusy === "function"
+          ? Object.keys(lvBusy(data, sessionKey, (getWorkout(activeDay) || PROGRAM.push).exercises || []))
+          : getSessionExercises().map(e => e.id);
         const q = addExSearch.trim().toLowerCase();
         const filtered = q
           ? all.filter(e => e.name.toLowerCase().includes(q) || (e._group || "").toLowerCase().includes(q))
